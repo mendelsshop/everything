@@ -521,6 +521,8 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
         macro_rules! accessors {
         ($(($name:literal $acces:ident )),*) => {
             vec![$(($name, self.create_primitive($name, |this,func,_|{
+                let argl = func.get_first_param().unwrap().into_struct_value();
+                // this.print_object(argl);
                 self.builder.build_return(Some(&this.$acces(this.make_car(func.get_first_param().unwrap().into_struct_value())))).unwrap();
             }))),*]
         };
@@ -737,7 +739,6 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
 
     fn init_primitives(&mut self) {
         // seems to problem with primitive that retunrn something meaningful not returning properly unless / possiblely some other action done on the in the primtive function
-        let accesors = self.init_accessors();
         self.make_print();
         self.make_eq_obj();
         let primitive_newline = self.create_primitive("newline", |this, _, _| {
@@ -756,17 +757,15 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
         let primitive_cons = self.create_primitive("cons", |this, cons, _| {
             let argl = cons.get_first_param().unwrap().into_struct_value();
             let car = this.make_car(argl);
-            let cdr = this.make_cadr(argl); // doesnt do proper thing even though i have verified that argl is like (6 (6 ()))
-                                            // this.builder.build_return(Some(&argl)).unwrap(); // this would act more like list, but is not what cons does
-            this.builder
-                .build_return(Some(&this.make_cons(car, cdr)))
-                .unwrap();
+            let cdr = this.make_cadr(argl);
+            let cons = this.make_cons(car, cdr);
+            // this.print_object(cons);
+            this.builder.build_return(Some(&cons)).unwrap();
         });
         let primitive_eq = self.create_primitive("eq", |this, cons, _| {
             let argl = cons.get_first_param().unwrap().into_struct_value();
             let e1 = this.make_car(argl);
             let e2 = this.make_cadr(argl); // doesnt do proper thing even though i have verified that argl is like (6 (6 ()))
-                                           // this.builder.build_return(Some(&argl)).unwrap(); // this would act more like list, but is not what cons does
             let eq = this.make_object(&this.compare_objects(e1, e2), TypeIndex::bool);
             this.builder.build_return(Some(&eq)).unwrap();
         });
@@ -848,7 +847,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
         // when we make one "non" primitive it works flawlesly
         // two places were primitves are broken at caller - or declaration and given the fact the
         // printing the result before returning prints the correct results it may be by calling?
-        let add1 ={
+        let add1 = {
             let env = self.registers.get(Register::Env);
 
             let env = self
@@ -906,13 +905,14 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                         self.make_object(
                             &unsafe { start_label.get_address().unwrap() },
                             TypeIndex::label,
-                        ).into(),
-                        env
+                        )
+                        .into(),
+                        env,
                     ],
                 ),
                 TypeIndex::lambda,
             );
-            (self.create_symbol("+1"),lambda)
+            (self.create_symbol("+1"), lambda)
         };
         let primitives = [
             ("newline", primitive_newline),
@@ -925,6 +925,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
             // ("+1", primitive_add1),
             ("-1", primitive_sub1),
         ];
+        let accesors = self.init_accessors();
         let primitive_env = primitives
             .into_iter()
             .chain(accesors)
@@ -1769,11 +1770,11 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
         let cons = self.types.cons.const_zero();
         let car_ptr = self
             .builder
-            .build_alloca(self.types.object, "car ptr")
+            .build_malloc(self.types.object, "car ptr")
             .unwrap();
         let cdr_ptr = self
             .builder
-            .build_alloca(self.types.object, "cdr ptr")
+            .build_malloc(self.types.object, "cdr ptr")
             .unwrap();
         self.builder.build_store(car_ptr, car).unwrap();
         self.builder.build_store(cdr_ptr, cdr).unwrap();
@@ -1797,7 +1798,9 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
     fn make_object(&self, obj: &dyn BasicValue<'ctx>, index: TypeIndex) -> StructValue<'ctx> {
         let value_ptr = self
             .builder
-            .build_alloca(self.types.types.get(index), "object value")
+            // we use malloc because create_alloca is stack based and can be "lost" after returning
+            // from a function
+            .build_malloc(self.types.types.get(index), "object value")
             .unwrap();
         self.builder
             .build_store(value_ptr, obj.as_basic_value_enum())
@@ -1836,7 +1839,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                 let cons: StructValue<'_> = self.types.cons.const_zero();
                 let mut compile_and_add = |expr, name, cons, index| {
                     let expr_compiled = self.compile_expr(expr);
-                    let expr = self.builder.build_alloca(self.types.object, name).unwrap();
+                    let expr = self.builder.build_malloc(self.types.object, name).unwrap();
                     self.builder.build_store(expr, expr_compiled).unwrap();
                     self.builder
                         .build_insert_value(cons, expr, index, &format!("insert {name}"))
