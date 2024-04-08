@@ -13,6 +13,7 @@ use std::hash::Hash;
 // or a single exlusive reference
 // in other words this map can be implemented without the types that are generally used for interior mutablity and without unsafe
 // by just having the keys map be a map of key to key and then get would first lookup in keys and then the key from keys looks up in the map for values
+#[allow(missing_debug_implementations)]
 pub struct MultiMap<K: Hash + Eq, V> {
     pub(crate) keys: HashMap<K, NonNull<V>>,
     pub(crate) values: HashMap<K, NonNull<V>>,
@@ -32,7 +33,9 @@ impl<K: Hash + Eq, V> MultiMap<K, V> {
         // so in short the method signatures of the MultiMap garuntee the safety of using unsafe
         self.keys.get(key).map(|v| unsafe { v.as_ref() })
     }
-
+    pub fn has_key(&self, key: &K) -> bool {
+        self.values.get(key).is_some()
+    }
     /// allows you to mutate a value based on its mutatable key
     pub fn set(&mut self, key: &K, setter: impl FnOnce(&V) -> V) -> Option<()> {
         // SAFETY: were allowed to obtain an exlusive reference to the value because you can only obtain an exclusive reference to the value

@@ -1,9 +1,10 @@
-use std::fmt;
 use std::fmt::Display;
+use std::{collections::HashMap, fmt};
 
 use inkwell::values::StructValue;
 use itertools::Itertools;
 
+use crate::codegen::multimap::MultiMap;
 use crate::{
     codegen::Compiler,
     interior_mut::{MUTEX, RC},
@@ -180,7 +181,8 @@ pub enum Ast2 {
     Set(RC<str>, Box<Ast2>),
     Quote(Box<Ast2>),
 }
-#[derive(Debug)]
+
+#[derive(Debug, Clone)]
 pub enum Ast3 {
     Bool(Boolean),
     Number(f64),
@@ -192,12 +194,32 @@ pub enum Ast3 {
     FnParam(usize),
 
     // special forms
+    Goto(RC<str>),
     If(Box<Ast3>, Box<Ast3>, Box<Ast3>),
     Define(RC<str>, Box<Ast3>),
-    Lambda(Arg, Box<Ast3>),
+    Lambda(usize, Option<Varidiac>, Box<Ast3>),
     Begin(Vec<Ast3>),
     Set(RC<str>, Box<Ast3>),
     Quote(Box<Ast3>),
+}
+#[derive(Debug)]
+pub enum Ast4 {
+    Bool(Boolean),
+    Number(f64),
+    String(RC<str>),
+    Ident(RC<str>),
+    Application(Vec<Ast4>),
+    Label(RC<str>),
+    // should simlify to ident or the like ...
+    FnParam(usize),
+
+    // special forms
+    If(Box<Ast4>, Box<Ast4>, Box<Ast4>),
+    Define(RC<str>, Box<Ast4>),
+    Lambda(Arg, Box<Ast4>),
+    Begin(Vec<Ast4>),
+    Set(RC<str>, Box<Ast4>),
+    Quote(Box<Ast4>),
 }
 
 impl fmt::Display for Ast2 {
@@ -240,8 +262,8 @@ pub fn immutable_add_to_vec<T>(mut v: Vec<T>, x: T) -> Vec<T> {
 /// 1: all special forms are typified
 /// 2: lambdas are sngle parmaterfied curring
 pub fn pass1(value: (UMPL2Expr, Vec<&str>)) -> Result<(Ast2, Vec<&str>), Error> {
-    const SPECIAL_FORMS: [&str; 8] = [
-        "if", "define", "set!", "quote", "begin", "lambda", "cond", "let",
+    const SPECIAL_FORMS: [&str; 9] = [
+        "if", "define", "set!", "quote", "begin", "lambda", "cond", "let", "link",
     ];
     fn extend_if_found(name: impl fmt::Display, env: Vec<&str>) -> Vec<&str> {
         if let Some(i) = SPECIAL_FORMS.iter().position(|&x| x == name.to_string()) {
@@ -427,32 +449,80 @@ pub fn pass1(value: (UMPL2Expr, Vec<&str>)) -> Result<(Ast2, Vec<&str>), Error> 
         UMPL2Expr::FnParam(p) => Ok((Ast2::FnParam(p), env)),
     }
 }
+fn quote(exp: Ast2) -> Ast3 {
+    match exp {
+        Ast2::Bool(t) => Ast3::Bool(t),
+        Ast2::Number(t) => Ast3::Number(t),
+        Ast2::String(t) => Ast3::String(t),
+        Ast2::Ident(t) => Ast3::Ident(t),
+        Ast2::Application(t) => Ast3::Application(t.into_iter().map(quote).collect()),
+        Ast2::Label(t) => Ast3::Label(t),
+        Ast2::FnParam(t) => Ast3::FnParam(t),
+        _ => unreachable!(),
+    }
+}
+// replaces labels with gotos
+pub fn pass2(expr: Ast2, links: &MultiMap<RC<str>, RC<str>>) -> Result<Ast3, Error> {
+    let pass2 = |expr| pass2(expr, links);
+    let pass2_box = |expr: Box<_>| pass2(*expr).map(Box::new);
+    match expr {
+        Ast2::Bool(t) => Ok(Ast3::Bool(t)),
+        Ast2::Number(t) => Ok(Ast3::Number(t)),
+        Ast2::String(t) => Ok(Ast3::String(t)),
+        Ast2::Ident(t) => Ok(Ast3::Ident(t)),
+        Ast2::FnParam(t) => Ok(Ast3::FnParam(t)),
+        Ast2::Quote(q) => Ok(Ast3::Quote(map_box(q, quote))),
+        Ast2::Application(exprs) => exprs
+            .into_iter()
+            .map(pass2)
+            .try_collect()
+            .map(Ast3::Application),
+        Ast2::Label(l) => {
+            if let Some(l) = links.get(&l) {
+                Ok(Ast3::Goto(l.clone()))
+            } else if links.has_key(&l) {
+                Ok(Ast3::Label(l))
+            } else {
+                Err(format!("Label {l} invalid"))
+            }
+        }
+        Ast2::If(cond, then, alt) => Ok(Ast3::If(
+            pass2_box(cond)?,
+            pass2_box(then)?,
+            pass2_box(alt)?,
+        )),
+        Ast2::Define(i, expr) => Ok(Ast3::Define(i, pass2_box(expr)?)),
+        Ast2::Lambda(pc, var, expr) => Ok(Ast3::Lambda(pc, var, pass2_box(expr)?)),
+        Ast2::Begin(exprs) => exprs.into_iter().map(pass2).try_collect().map(Ast3::Begin),
+        Ast2::Set(i, expr) => Ok(Ast3::Set(i, pass2_box(expr)?)),
+    }
+}
 
-impl From<Ast2> for Ast3 {
+impl From<Ast2> for Ast4 {
     fn from(value: Ast2) -> Self {
-        fn quote(exp: Ast2) -> Ast3 {
+        fn quote(exp: Ast2) -> Ast4 {
             match exp {
-                Ast2::Bool(t) => Ast3::Bool(t),
-                Ast2::Number(t) => Ast3::Number(t),
-                Ast2::String(t) => Ast3::String(t),
-                Ast2::Ident(t) => Ast3::Ident(t),
-                Ast2::Application(t) => Ast3::Application(t.into_iter().map(quote).collect()),
-                Ast2::Label(t) => Ast3::Label(t),
-                Ast2::FnParam(t) => Ast3::FnParam(t),
+                Ast2::Bool(t) => Ast4::Bool(t),
+                Ast2::Number(t) => Ast4::Number(t),
+                Ast2::String(t) => Ast4::String(t),
+                Ast2::Ident(t) => Ast4::Ident(t),
+                Ast2::Application(t) => Ast4::Application(t.into_iter().map(quote).collect()),
+                Ast2::Label(t) => Ast4::Label(t),
+                Ast2::FnParam(t) => Ast4::FnParam(t),
                 _ => unreachable!(),
             }
         }
 
-        fn curryify(argc: usize, varidiac: Option<Varidiac>, body: Box<Ast2>) -> Ast3 {
+        fn curryify(argc: usize, varidiac: Option<Varidiac>, body: Box<Ast2>) -> Ast4 {
             if argc == 0 {
                 let body = map_into(body);
                 match varidiac {
-                    Some(Varidiac::AtLeast0) => Ast3::Lambda(Arg::AtLeast0, body),
-                    Some(Varidiac::AtLeast1) => Ast3::Lambda(Arg::AtLeast1, body),
+                    Some(Varidiac::AtLeast0) => Ast4::Lambda(Arg::AtLeast0, body),
+                    Some(Varidiac::AtLeast1) => Ast4::Lambda(Arg::AtLeast1, body),
                     None => *body,
                 }
             } else {
-                Ast3::Lambda(Arg::One, Box::new(curryify(argc - 1, varidiac, body)))
+                Ast4::Lambda(Arg::One, Box::new(curryify(argc - 1, varidiac, body)))
             }
         }
 

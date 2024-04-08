@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    ast::{Ast2, Varidiac},
+    ast::{Ast3, Varidiac},
     interior_mut::RC,
 };
 
@@ -260,19 +260,28 @@ impl InstructionSequnce {
     }
 }
 
-pub fn compile(exp: Ast2, target: Register, linkage: Linkage) -> InstructionSequnce {
+pub fn compile(exp: Ast3, target: Register, linkage: Linkage) -> InstructionSequnce {
     match exp {
-        Ast2::Ident(i) => compile_variable(i.to_string(), target, linkage),
-        Ast2::Application(a) => compile_application(a, target, linkage),
-        Ast2::FnParam(i) => compile_variable(format!("'{i}'"), target, linkage),
-        Ast2::Begin(b) => compile_seq(b, target, linkage),
-        Ast2::Define(s, exp) => compile_defeninition((s, *exp), target, linkage),
-        Ast2::Set(s, exp) => compile_assignment((s, *exp), target, linkage),
-        Ast2::Lambda(argc, varidiac, body) => {
+        Ast3::Ident(i) => compile_variable(i.to_string(), target, linkage),
+        Ast3::Application(a) => compile_application(a, target, linkage),
+        Ast3::FnParam(i) => compile_variable(format!("'{i}'"), target, linkage),
+        Ast3::Begin(b) => compile_seq(b, target, linkage),
+        Ast3::Define(s, exp) => compile_defeninition((s, *exp), target, linkage),
+        Ast3::Set(s, exp) => compile_assignment((s, *exp), target, linkage),
+        Ast3::Lambda(argc, varidiac, body) => {
             compile_lambda((argc, varidiac, *body), target, linkage)
         }
-        Ast2::If(cond, cons, alt) => compile_if((*cond, *cons, *alt), target, linkage),
-        Ast2::Quote(q) => compile_quoted(*q, target, linkage),
+        Ast3::If(cond, cons, alt) => compile_if((*cond, *cons, *alt), target, linkage),
+        Ast3::Quote(q) => compile_quoted(*q, target, linkage),
+        Ast3::Label(l) => end_with_linkage(linkage, make_label_instruction(l.to_string())),
+        Ast3::Goto(l) => end_with_linkage(
+            linkage,
+            make_intsruction_sequnce(
+                hashset!(),
+                hashset!(),
+                vec![Instruction::Goto(Goto::Label(l.to_string()))],
+            ),
+        ),
         exp => compile_self_evaluating(exp.into(), target, linkage),
     }
 }
@@ -387,7 +396,7 @@ fn compile_self_evaluating(exp: Expr, target: Register, linkage: Linkage) -> Ins
     )
 }
 
-fn compile_quoted(quoted: Ast2, target: Register, linkage: Linkage) -> InstructionSequnce {
+fn compile_quoted(quoted: Ast3, target: Register, linkage: Linkage) -> InstructionSequnce {
     end_with_linkage(
         linkage,
         InstructionSequnce::new(
@@ -432,7 +441,7 @@ fn compile_variable(exp: String, target: Register, linkage: Linkage) -> Instruct
 }
 
 fn compile_assignment(
-    exp: (RC<str>, Ast2),
+    exp: (RC<str>, Ast3),
     target: Register,
     linkage: Linkage,
 ) -> InstructionSequnce {
@@ -464,7 +473,7 @@ fn compile_assignment(
 }
 
 fn compile_defeninition(
-    exp: (RC<str>, Ast2),
+    exp: (RC<str>, Ast3),
     target: Register,
     linkage: Linkage,
 ) -> InstructionSequnce {
@@ -495,7 +504,7 @@ fn compile_defeninition(
     )
 }
 
-fn compile_if(exp: (Ast2, Ast2, Ast2), target: Register, linkage: Linkage) -> InstructionSequnce {
+fn compile_if(exp: (Ast3, Ast3, Ast3), target: Register, linkage: Linkage) -> InstructionSequnce {
     let t_branch = make_label_name("true-branch".to_string());
     let f_branch = make_label_name("false-branch".to_string());
     let after_if = make_label_name("after-if".to_string());
@@ -537,7 +546,7 @@ fn compile_if(exp: (Ast2, Ast2, Ast2), target: Register, linkage: Linkage) -> In
     )
 }
 
-fn compile_seq(seq: Vec<Ast2>, target: Register, linkage: Linkage) -> InstructionSequnce {
+fn compile_seq(seq: Vec<Ast3>, target: Register, linkage: Linkage) -> InstructionSequnce {
     let size = seq.len();
     seq.into_iter()
         .enumerate()
@@ -567,7 +576,7 @@ fn tack_on_instruction_seq(
 }
 
 fn compile_lambda(
-    lambda: (usize, Option<Varidiac>, Ast2),
+    lambda: (usize, Option<Varidiac>, Ast3),
     target: Register,
     linkage: Linkage,
 ) -> InstructionSequnce {
@@ -604,7 +613,7 @@ fn compile_lambda(
 }
 
 fn compile_lambda_body(
-    lambda: (usize, Option<Varidiac>, Ast2),
+    lambda: (usize, Option<Varidiac>, Ast3),
     proc_entry: String,
 ) -> InstructionSequnce {
     let formals = {
@@ -649,7 +658,7 @@ fn compile_lambda_body(
     )
 }
 
-fn compile_application(exp: Vec<Ast2>, target: Register, linkage: Linkage) -> InstructionSequnce {
+fn compile_application(exp: Vec<Ast3>, target: Register, linkage: Linkage) -> InstructionSequnce {
     #[cfg(feature = "lazy")]
     let proc_code = force_it(exp[0].clone(), Register::Proc, Linkage::Next);
     #[cfg(not(feature = "lazy"))]
@@ -978,7 +987,7 @@ fn add_to_argl(inst: InstructionSequnce) -> InstructionSequnce {
 }
 
 #[cfg(feature = "lazy")]
-fn force_it(exp: Ast2, target: Register, linkage: Linkage) -> InstructionSequnce {
+fn force_it(exp: Ast3, target: Register, linkage: Linkage) -> InstructionSequnce {
     let actual_value_label = make_label_name("actual-value".to_string());
     let force_label = make_label_name("force".to_string());
     let done = make_label_name("done".to_string());
@@ -1021,7 +1030,7 @@ fn force_it(exp: Ast2, target: Register, linkage: Linkage) -> InstructionSequnce
 }
 
 #[cfg(feature = "lazy")]
-fn delay_it(exp: Ast2, target: Register, linkage: Linkage) -> InstructionSequnce {
+fn delay_it(exp: Ast3, target: Register, linkage: Linkage) -> InstructionSequnce {
     let thunk_label = make_label_name("thunk".to_string());
     let after_thunk = make_label_name("after-label".to_string());
     let thunk_linkage = if linkage == Linkage::Next {
@@ -1053,7 +1062,7 @@ fn delay_it(exp: Ast2, target: Register, linkage: Linkage) -> InstructionSequnce
 }
 
 #[cfg(feature = "lazy")]
-fn compile_thunk_body(thunk: Ast2, thunk_entry: Label) -> InstructionSequnce {
+fn compile_thunk_body(thunk: Ast3, thunk_entry: Label) -> InstructionSequnce {
     append_instruction_sequnce(
         InstructionSequnce::new(
             hashset!(Register::Env, Register::Thunk),
@@ -1073,12 +1082,12 @@ fn compile_thunk_body(thunk: Ast2, thunk_entry: Label) -> InstructionSequnce {
     )
 }
 #[cfg(not(feature = "lazy"))]
-fn delay_it(exp: Ast2, target: Register, linkage: Linkage) -> InstructionSequnce {
+fn delay_it(exp: Ast3, target: Register, linkage: Linkage) -> InstructionSequnce {
     compile(exp, target, linkage)
 }
 
 #[cfg(not(feature = "lazy"))]
-fn force_it(exp: Ast2, target: Register, linkage: Linkage) -> InstructionSequnce {
+fn force_it(exp: Ast3, target: Register, linkage: Linkage) -> InstructionSequnce {
     compile(exp, target, linkage)
 }
 fn construct_arg_list(operand_codes: Vec<InstructionSequnce>) -> InstructionSequnce {
@@ -1100,10 +1109,10 @@ fn construct_arg_list(operand_codes: Vec<InstructionSequnce>) -> InstructionSequ
         )
 }
 
-impl From<Ast2> for Expr {
-    fn from(value: Ast2) -> Self {
+impl From<Ast3> for Expr {
+    fn from(value: Ast3) -> Self {
         match value {
-            Ast2::Bool(b) => match b {
+            Ast3::Bool(b) => match b {
                 crate::ast::Boolean::False => Self::Const(Const::Boolean(false)),
                 crate::ast::Boolean::True => Self::Const(Const::Boolean(true)),
                 crate::ast::Boolean::Maybee => Self::Op(Perform {
@@ -1111,17 +1120,16 @@ impl From<Ast2> for Expr {
                     args: vec![],
                 }),
             },
-            Ast2::Number(n) => Self::Const(Const::Number(n)),
-            Ast2::String(s) => Self::Const(Const::String(s.to_string())),
-            Ast2::Ident(i) => Self::Const(Const::Symbol(i.to_string())),
-            Ast2::Application(a) => a
+            Ast3::Number(n) => Self::Const(Const::Number(n)),
+            Ast3::String(s) => Self::Const(Const::String(s.to_string())),
+            Ast3::Ident(i) => Self::Const(Const::Symbol(i.to_string())),
+            Ast3::Application(a) => a
                 .into_iter()
                 .map(Into::into)
                 .rfold(Self::Const(Const::Empty), |a, b| {
                     Self::Const(Const::List(Box::new(b), Box::new(a)))
                 }),
-            Ast2::Label(l) => Self::Label(l.to_string()),
-            Ast2::FnParam(i) => Self::Const(Const::Symbol(format!("'{i}'"))),
+            Ast3::FnParam(i) => Self::Const(Const::Symbol(format!("'{i}'"))),
             _ => unreachable!(),
         }
     }

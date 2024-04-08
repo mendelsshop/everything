@@ -33,7 +33,7 @@ mod extract_object;
 mod functions;
 mod labels;
 mod loops;
-mod multimap;
+pub(crate) mod multimap;
 mod object;
 mod quotation;
 pub mod register_to_llvm;

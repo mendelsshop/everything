@@ -21,8 +21,8 @@ use inkwell::{context::Context, passes::PassManager};
 use itertools::Itertools;
 
 use crate::{
-    ast::{immutable_add_to_vec, pass1},
-    codegen::Compiler,
+    ast::{immutable_add_to_vec, pass1, pass2},
+    codegen::{multimap::MultiMap, Compiler},
     macros::parse_and_expand,
 };
 use clap::{Parser, Subcommand};
@@ -225,17 +225,20 @@ fn expand(file: &str) {
 fn sicp(file: &str) {
     let contents = fs::read_to_string(file).unwrap();
     let program = parse_and_expand(&contents).unwrap();
+    let links = MultiMap::from(program.1.into_iter().map(|(k, ks)| (ks, k.clone(), k)));
     let typed_program = program
         .0
         .into_iter()
         .try_fold((vec![], vec![]), |(exps, env), exp| {
-            pass1((exp, env)).map(|(exp, env)| (immutable_add_to_vec(exps, exp), env))
+            pass1((exp, env)).and_then(|(exp, env)| {
+                pass2(exp, &links).map(|exp| (immutable_add_to_vec(exps, exp), env))
+            })
         })
         .unwrap();
-    // eprintln!(
-    //     "{}\n",
-    //     typed_program.0.iter().map(ToString::to_string).join("\n")
-    // );
+    eprintln!(
+        "{}\n",
+        typed_program.0.iter().map(|e| format!("{e:?}")).join("\n")
+    );
     let ir: Vec<_> = typed_program
         .0
         .into_iter()

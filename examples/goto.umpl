@@ -1,10 +1,11 @@
+let println = (lambda (1) (print '0') (newline))
 ln @x  @y @z
 ln @q @w
     
     if &  ! & means true
         then ᚜
         @y
-        
+.gg.>
         ᚛  !goto @x
         else ᚜(print .hi.)<᚛ !print hi
 .not skipped.>

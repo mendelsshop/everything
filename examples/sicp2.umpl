@@ -1,0 +1,26 @@
+!(define id (lambda (1) '0'))
+!(define (fact 1) (if ? '0' (begin (newline) (fact '0')) ) )
+!.eq.>>
+!(id (= (id .7.) (id &)))>>
+!let foo = (lambda (1) '0'>> )
+!(define (println 1) '0'>> (newline) '0' )
+!(println (-1 3))>>
+!x>>
+!let z =   x>>
+!z>>
+!(newline)
+!let cons = (lambda (2) let x = '0' (lambda (1) (if (= '0' 0) x '1' )))
+!let car = (lambda (1) ('0' 0))
+!let cdr = (lambda (1) ('0' 1))
+!let id = (= 5 5)>>
+!(cons 4 6)>>
+let foo = (cons 7 6)
+(newline)
+foo>>
+let foo = (= (cdr foo) 6)
+(newline)
+foo>>
+!(-1 (-1 5))>>
+!(define food (lambda (1) '0'))
+!(food 5)
+!(id 5)>>>>>>>>>>
