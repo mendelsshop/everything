@@ -1,7 +1,8 @@
-# UMPL
+# Everything
 
-umpl is a joke programming language implentation/compiler written in rust that targets llvm (version 15)
-
+Everything(-lang) is a joke programming language implentation/compiler written in rust that targets llvm (version 15)
+Eveything's tag line (and goal) is "taking multi paradigm to the extreme".
+This goal is acomplished by adopting syntax, and features, from many different languages to support the paradigms from those languages.
 It's like scheme but:
 
 - you use `;`​ for quotation
@@ -16,7 +17,7 @@ It's like scheme but:
 - functions can only be named emojis if using the `fanction​` keyword (you can just create an anonymous function and assign it to a more descriptive name via a `let​`)
 - you specify function parameters by optionally giving a number and then access them with index by any variation of single and double quotes, index starts at 0, here is an example 
 
-```umpl
+```everything
 let cons  fanction  2 ᚜ !using let to get around emoji name requirements
     ! we have save the the parameter passed into cons because the inner function "overwrites" the first parameter temporaraly
     let x '0"

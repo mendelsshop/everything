@@ -322,7 +322,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         self.insert_function("print".into(), print_fn);
     }
 
-    // coulsd make this a in umpl defined function and have + be primitive function of 2 parameters
+    // coulsd make this a in everything defined function and have + be primitive function of 2 parameters
     // and would probally be easier and less duplication for * / - ...
     pub(super) fn make_add(&mut self) {
         let func = self
@@ -431,7 +431,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     }
 
     // create the hempty? function
-    // could be written in pure umpl .. efficiency
+    // could be written in pure everything .. efficiency
     pub fn make_is_type(&mut self) {
         macro_rules! is_type {
             ($type:literal,$typeindex:ident) => {{
@@ -475,7 +475,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         is_type!("primitive", primitive);
     }
 
-    // could be written in pure umpl .. efficiency
+    // could be written in pure everything .. efficiency
     pub fn make_newline(&mut self) {
         let func = self
             .module

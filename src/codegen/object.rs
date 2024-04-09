@@ -3,7 +3,7 @@ use inkwell::values::{
 };
 
 use crate::{
-    ast::{Boolean, UMPL2Expr},
+    ast::{Boolean, EverythingExpr},
     interior_mut::RC,
 };
 
@@ -169,7 +169,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         )
     }
 
-    pub(super) fn const_thunk(&mut self, object: &UMPL2Expr) -> Option<StructValue<'ctx>> {
+    pub(super) fn const_thunk(&mut self, object: &EverythingExpr) -> Option<StructValue<'ctx>> {
         let env = self.get_scope();
         let old_fn = self.fn_value;
         let old_block = self.builder.get_insert_block();

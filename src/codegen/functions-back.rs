@@ -1,6 +1,6 @@
 use inkwell::values::{AnyValue, BasicValue, BasicValueEnum, IntValue, PointerValue};
 
-use crate::ast::UMPL2Expr;
+use crate::ast::EverythingExpr;
 
 use super::{Compiler, EvalType, TyprIndex};
 
@@ -9,7 +9,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         &mut self,
         root: PointerValue<'ctx>,
         argc: IntValue<'ctx>,
-        exprs: &[UMPL2Expr],
+        exprs: &[EverythingExpr],
     ) {
         let current_node = self
             .builder
@@ -18,15 +18,15 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         // let arg_cound = self.context.i64_type().const_zero();
 
         let (n, var) = match &exprs[0] {
-            // UMPL2Expr::Number(n) => (n, "".into()),
-            UMPL2Expr::Application(a) => match a.as_slice() {
-                [UMPL2Expr::Number(n), UMPL2Expr::Ident(s)]
+            // EverythingExpr::Number(n) => (n, "".into()),
+            EverythingExpr::Application(a) => match a.as_slice() {
+                [EverythingExpr::Number(n), EverythingExpr::Ident(s)]
                     if ["+".into(), "*".into()].contains(s) =>
                 {
                     (n, (s.clone()))
                 }
 
-                [UMPL2Expr::Number(n)] => (n, "".into()),
+                [EverythingExpr::Number(n)] => (n, "".into()),
                 _ => todo!("self function should return result so self can error"),
             },
             _ => todo!("self function should return result so self can error"),
@@ -128,7 +128,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     // lambda defined as ("lambda" (argc "+"|"*"|"") exprs)
     pub(crate) fn special_form_lambda(
         &mut self,
-        exprs: &[UMPL2Expr],
+        exprs: &[EverythingExpr],
     ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
         if exprs.is_empty() {
             return Err("lambda expression needs at least 2 subexpressions".to_string());
@@ -228,9 +228,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
     pub(crate) fn compile_application(
         &mut self,
-        application: &[UMPL2Expr],
+        application: &[EverythingExpr],
     ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
-        let op = if let UMPL2Expr::Ident(ident) = &application[0] {
+        let op = if let EverythingExpr::Ident(ident) = &application[0] {
             if let Some(var) = self.get_variable(ident) {
                 match var {
                     super::env::VarType::Lisp(val) => {

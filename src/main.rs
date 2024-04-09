@@ -49,7 +49,7 @@ pub mod interior_mut {
     pub type MUTEX<T> = RefCell<T>;
 }
 #[derive(Parser, Debug)]
-#[clap(author = "mendelsshop", version, about, long_about = None, name = "UMPL")]
+#[clap(author = "mendelsshop", version, about, long_about = None, name = "Everything")]
 pub struct Args {
     #[clap(subcommand)]
     arg: ArgType,
@@ -57,7 +57,7 @@ pub struct Args {
 
 #[derive(Subcommand, Clone, Debug)]
 pub enum ArgType {
-    /// Start a `UMPL` repl
+    /// Start an `Everything` repl
     Repl,
     /// Compile some code
     Compile {

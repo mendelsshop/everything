@@ -15,7 +15,7 @@ use inkwell::{
     AddressSpace,
 };
 
-use crate::{ast::UMPL2Expr, interior_mut::RC};
+use crate::{ast::EverythingExpr, interior_mut::RC};
 
 use self::{env::VarType, multimap::MultiMap};
 macro_rules! return_none {
@@ -106,7 +106,7 @@ pub struct Compiler<'a, 'ctx> {
     fn_value: Option<FunctionValue<'ctx>>,
     links: MultiMap<RC<str>, Option<(PointerValue<'ctx>, FunctionValue<'ctx>)>>,
     pub(crate) types: Types<'ctx>,
-    // not were umpl functions are stored
+    // not were everything functions are stored
     functions: Functions<'ctx>,
     state: Vec<EvalType<'ctx>>,
     // used to recover where eval was in when evaling from repl
@@ -330,16 +330,16 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         Ok(build_alloca)
     }
 
-    fn compile_expr(&mut self, expr: &UMPL2Expr) -> Result<Option<BasicValueEnum<'ctx>>, String> {
+    fn compile_expr(&mut self, expr: &EverythingExpr) -> Result<Option<BasicValueEnum<'ctx>>, String> {
         match expr {
-            UMPL2Expr::Number(value) => Ok(Some(self.const_number(*value).as_basic_value_enum())),
-            UMPL2Expr::Bool(value) => Ok(Some(self.const_boolean(*value).as_basic_value_enum())),
-            UMPL2Expr::String(value) => Ok(Some(self.const_string(value).as_basic_value_enum())),
-            UMPL2Expr::Ident(s) => self.get_var(s).map(Some),
-            UMPL2Expr::Application(application) => self.compile_application(application),
-            UMPL2Expr::Label(s) => self.compile_label(s),
-            UMPL2Expr::FnParam(s) => self.get_var(&s.to_string().into()).map(Some),
-            // UMPL2Expr::Hempty => Ok(Some(self.hempty().into())),
+            EverythingExpr::Number(value) => Ok(Some(self.const_number(*value).as_basic_value_enum())),
+            EverythingExpr::Bool(value) => Ok(Some(self.const_boolean(*value).as_basic_value_enum())),
+            EverythingExpr::String(value) => Ok(Some(self.const_string(value).as_basic_value_enum())),
+            EverythingExpr::Ident(s) => self.get_var(s).map(Some),
+            EverythingExpr::Application(application) => self.compile_application(application),
+            EverythingExpr::Label(s) => self.compile_label(s),
+            EverythingExpr::FnParam(s) => self.get_var(&s.to_string().into()).map(Some),
+            // EverythingExpr::Hempty => Ok(Some(self.hempty().into())),
         }
     }
 
@@ -349,7 +349,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     // TODO: keep in mind the fact that the loop might be in outer function
     fn special_form_stop(
         &mut self,
-        exprs: &[UMPL2Expr],
+        exprs: &[EverythingExpr],
     ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
         if exprs.len() != 1 {
             Err("this is an expression oreinted language stopping a loop or function requires a value")?;
@@ -385,14 +385,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
     fn special_form_mod(
         &mut self,
-        exprs: &[UMPL2Expr],
+        exprs: &[EverythingExpr],
     ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
         // we should probalby compile with root env as opposed to whatever env the compiler was in when it reached this mod
         // one way to do this is to keep a list of modules with thein envs including one for the root ...
         if exprs.is_empty() {
             Err("Mod requires either a name and scope")?;
         }
-        let UMPL2Expr::Ident(module_name) = &exprs[0] else {
+        let EverythingExpr::Ident(module_name) = &exprs[0] else {
             return Err("Mod requires a module name as its first argument")?;
         };
         self.module_list.push(module_name.to_string());
@@ -469,7 +469,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
     pub fn compile_scope(
         &mut self,
-        body: &[UMPL2Expr],
+        body: &[EverythingExpr],
     ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
         let mut res = Err("scope does not have value".to_string());
         for expr in body {
@@ -625,7 +625,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
     pub fn compile_program(
         &mut self,
-        program: &[UMPL2Expr],
+        program: &[EverythingExpr],
         links: HashMap<RC<str>, Vec<RC<str>>>,
     ) -> Option<String> {
         // TODO: dont reset links instead add to current (needed for repl to work)

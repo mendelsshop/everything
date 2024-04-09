@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use inkwell::values::{AnyValue, BasicValue, BasicValueEnum, IntValue, PointerValue};
 
-use crate::{ast::UMPL2Expr, interior_mut::RC, pc::unit};
+use crate::{ast::EverythingExpr, interior_mut::RC, pc::unit};
 
 use super::{Compiler, EvalType, TyprIndex};
 
@@ -33,17 +33,17 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     fn special_form_psudo_lambda(
         &mut self,
         mut variables: HashMap<RC<str>, PsudoVariable>,
-        exprs: &[UMPL2Expr],
+        exprs: &[EverythingExpr],
     ) -> Result<Vec<RC<str>>, String> {
-        if let Some(UMPL2Expr::Application(a)) = exprs.first() {
+        if let Some(EverythingExpr::Application(a)) = exprs.first() {
             let n = match a.as_slice() {
-                [UMPL2Expr::Number(n), UMPL2Expr::String(s)]
+                [EverythingExpr::Number(n), EverythingExpr::String(s)]
                     if (&["*", "+"]).contains(&&s.to_string().as_str()) =>
                 {
                     *n + 1.0
                 }
 
-                [UMPL2Expr::Number(n)] => *n,
+                [EverythingExpr::Number(n)] => *n,
                 _ => {
                     return Err(
                         "lambda signature must be (lambda (argc [\"+\"|\"*\"|\"\"]) exprs)"
@@ -67,18 +67,18 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     #[allow(unused)]
     fn find_free_variables_expr(
         &mut self,
-        expr: &UMPL2Expr,
+        expr: &EverythingExpr,
         variables: HashMap<RC<str>, PsudoVariable>,
     ) -> Vec<RC<str>> {
         match expr {
-            UMPL2Expr::Ident(ident) => {
+            EverythingExpr::Ident(ident) => {
                 if !variables.contains_key(ident) {
                     vec![ident.clone()]
                 } else {
                     vec![]
                 }
             }
-            UMPL2Expr::Application(a) => self.find_free_variables(a, variables),
+            EverythingExpr::Application(a) => self.find_free_variables(a, variables),
             _ => vec![],
         }
     }
@@ -86,19 +86,19 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     #[allow(dead_code)]
     fn find_free_variables(
         &mut self,
-        exprs: &[UMPL2Expr],
+        exprs: &[EverythingExpr],
         mut variables: HashMap<RC<str>, PsudoVariable>,
     ) -> Vec<RC<str>> {
         let mut free = vec![];
         for expr in exprs {
             match expr {
-                UMPL2Expr::Ident(ident) => {
+                EverythingExpr::Ident(ident) => {
                     if !variables.contains_key(ident) {
                         free.push(ident.clone());
                     }
                 }
-                UMPL2Expr::Application(a) => {
-                    if let UMPL2Expr::Ident(ident) = &a[0] {
+                EverythingExpr::Application(a) => {
+                    if let EverythingExpr::Ident(ident) = &a[0] {
                         if let Some(PsudoVariable::SpecialForm(sf)) = variables.get(ident) {
                             match sf.to_string().as_str() {
                                 "lambda" => {
@@ -119,14 +119,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     variables.extend(
                         a.iter()
                             .filter_map(|e| match e {
-                                UMPL2Expr::Ident(ident) => {
+                                EverythingExpr::Ident(ident) => {
                                     if !variables_clone.contains_key(ident) {
                                         Some(vec![(ident.clone(), PsudoVariable::UserDefined)])
                                     } else {
                                         None
                                     }
                                 }
-                                UMPL2Expr::Application(a) => Some(
+                                EverythingExpr::Application(a) => Some(
                                     self.find_free_variables(a, variables_clone.clone())
                                         .into_iter()
                                         .map(|v| (v, PsudoVariable::UserDefined))
@@ -146,7 +146,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         &mut self,
         root: PointerValue<'ctx>,
         argc: IntValue<'ctx>,
-        exprs: &[UMPL2Expr],
+        exprs: &[EverythingExpr],
     ) {
         let current_node = self
             .builder
@@ -156,15 +156,15 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         // let arg_cound = self.context.i64_type().const_zero();
 
         let (n, var) = match &exprs[0] {
-            // UMPL2Expr::Number(n) => (n, "".into()),
-            UMPL2Expr::Application(a) => match a.as_slice() {
-                [UMPL2Expr::Number(n), UMPL2Expr::Ident(s)]
+            // EverythingExpr::Number(n) => (n, "".into()),
+            EverythingExpr::Application(a) => match a.as_slice() {
+                [EverythingExpr::Number(n), EverythingExpr::Ident(s)]
                     if ["+".into(), "*".into()].contains(s) =>
                 {
                     (n, (s.clone()))
                 }
 
-                [UMPL2Expr::Number(n)] => (n, "".into()),
+                [EverythingExpr::Number(n)] => (n, "".into()),
                 _ => todo!("self function should return result so self can error"),
             },
             _ => todo!("self function should return result so self can error"),
@@ -294,7 +294,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     /// (x) ; access u in top level environment (which is reacheable from g's environment, but we created different u in g's environment)
     pub(crate) fn special_form_lambda(
         &mut self,
-        exprs: &[UMPL2Expr],
+        exprs: &[EverythingExpr],
     ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
         if exprs.is_empty() {
             return Err("lambda expression needs at least 2 subexpressions".to_string());
@@ -399,9 +399,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
     pub(crate) fn compile_application(
         &mut self,
-        application: &[UMPL2Expr],
+        application: &[EverythingExpr],
     ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
-        let op = if let UMPL2Expr::Ident(ident) = &application[0] {
+        let op = if let EverythingExpr::Ident(ident) = &application[0] {
             if let Some(var) = self.get_variable(ident) {
                 match var {
                     super::env::VarType::Lisp(val) => self

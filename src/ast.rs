@@ -12,7 +12,7 @@ use crate::{
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Tree {
-    pub inner: RC<MUTEX<(UMPL2Expr, UMPL2Expr, UMPL2Expr)>>,
+    pub inner: RC<MUTEX<(EverythingExpr, EverythingExpr, EverythingExpr)>>,
 }
 
 // TODO: flatten trait for quotation
@@ -21,17 +21,17 @@ pub trait FlattenAst<'a, 'ctx> {
 }
 
 #[derive(Clone, PartialEq, Debug)]
-pub enum UMPL2Expr {
+pub enum EverythingExpr {
     Bool(Boolean),
     Number(f64),
     String(RC<str>),
     Ident(RC<str>),
-    Application(Vec<UMPL2Expr>),
+    Application(Vec<EverythingExpr>),
     Label(RC<str>),
     // should simlify to ident or the like ...
     FnParam(usize),
 }
-impl<'a, 'ctx> FlattenAst<'a, 'ctx> for UMPL2Expr {
+impl<'a, 'ctx> FlattenAst<'a, 'ctx> for EverythingExpr {
     fn flatten(self, compiler: &mut Compiler<'a, 'ctx>) -> StructValue<'ctx> {
         match self {
             Self::Bool(b) => compiler.const_boolean(b),
@@ -45,13 +45,13 @@ impl<'a, 'ctx> FlattenAst<'a, 'ctx> for UMPL2Expr {
     }
 }
 
-impl<'a, 'ctx> FlattenAst<'a, 'ctx> for Vec<UMPL2Expr> {
+impl<'a, 'ctx> FlattenAst<'a, 'ctx> for Vec<EverythingExpr> {
     fn flatten(self, compiler: &mut Compiler<'a, 'ctx>) -> StructValue<'ctx> {
         fn list_to_tree<'ctx>(
-            list: Vec<UMPL2Expr>,
+            list: Vec<EverythingExpr>,
             compiler: &mut Compiler<'_, 'ctx>,
             n: usize,
-        ) -> (StructValue<'ctx>, Vec<UMPL2Expr>) {
+        ) -> (StructValue<'ctx>, Vec<EverythingExpr>) {
             if n == 0 {
                 (compiler.hempty(), list)
             } else {
@@ -72,7 +72,7 @@ impl<'a, 'ctx> FlattenAst<'a, 'ctx> for Vec<UMPL2Expr> {
     }
 }
 
-impl fmt::Display for UMPL2Expr {
+impl fmt::Display for EverythingExpr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Bool(f0) => write!(f, "{f0}"),
@@ -88,7 +88,7 @@ impl fmt::Display for UMPL2Expr {
     }
 }
 
-impl<A: Into<RC<str>>> From<A> for UMPL2Expr {
+impl<A: Into<RC<str>>> From<A> for EverythingExpr {
     fn from(value: A) -> Self {
         Self::Ident(value.into())
     }
@@ -261,7 +261,7 @@ pub fn immutable_add_to_vec<T>(mut v: Vec<T>, x: T) -> Vec<T> {
 /// 2 transformations happen during this phase:
 /// 1: all special forms are typified
 /// 2: lambdas are sngle parmaterfied curring
-pub fn pass1(value: (UMPL2Expr, Vec<&str>)) -> Result<(Ast2, Vec<&str>), Error> {
+pub fn pass1(value: (EverythingExpr, Vec<&str>)) -> Result<(Ast2, Vec<&str>), Error> {
     const SPECIAL_FORMS: [&str; 9] = [
         "if", "define", "set!", "quote", "begin", "lambda", "cond", "let", "link",
     ];
@@ -274,7 +274,7 @@ pub fn pass1(value: (UMPL2Expr, Vec<&str>)) -> Result<(Ast2, Vec<&str>), Error> 
     }
     let env = value.1;
 
-    fn convert_begin(exps: Vec<UMPL2Expr>, env: Vec<&str>) -> Result<(Ast2, Vec<&str>), Error> {
+    fn convert_begin(exps: Vec<EverythingExpr>, env: Vec<&str>) -> Result<(Ast2, Vec<&str>), Error> {
         exps.into_iter()
             .try_fold((vec![], env), |(exps, env), current| {
                 pass1((current, env))
@@ -283,31 +283,31 @@ pub fn pass1(value: (UMPL2Expr, Vec<&str>)) -> Result<(Ast2, Vec<&str>), Error> 
             .map(|(app, env)| (Ast2::Begin(app), env))
     }
 
-    fn convert_quoted(exps: Vec<UMPL2Expr>, env: Vec<&str>) -> Result<(Ast2, Vec<&str>), Error> {
+    fn convert_quoted(exps: Vec<EverythingExpr>, env: Vec<&str>) -> Result<(Ast2, Vec<&str>), Error> {
         if exps.len() != 1 {
             return Err("quoted expression can only contain single expression".to_string());
         }
-        fn quote(exp: UMPL2Expr) -> Ast2 {
+        fn quote(exp: EverythingExpr) -> Ast2 {
             match exp {
-                UMPL2Expr::Bool(t) => Ast2::Bool(t),
-                UMPL2Expr::Number(t) => Ast2::Number(t),
-                UMPL2Expr::String(t) => Ast2::String(t),
-                UMPL2Expr::Ident(t) => Ast2::Ident(t),
-                UMPL2Expr::Application(t) => Ast2::Application(t.into_iter().map(quote).collect()),
-                UMPL2Expr::Label(t) => Ast2::Label(t),
-                UMPL2Expr::FnParam(t) => Ast2::FnParam(t),
+                EverythingExpr::Bool(t) => Ast2::Bool(t),
+                EverythingExpr::Number(t) => Ast2::Number(t),
+                EverythingExpr::String(t) => Ast2::String(t),
+                EverythingExpr::Ident(t) => Ast2::Ident(t),
+                EverythingExpr::Application(t) => Ast2::Application(t.into_iter().map(quote).collect()),
+                EverythingExpr::Label(t) => Ast2::Label(t),
+                EverythingExpr::FnParam(t) => Ast2::FnParam(t),
             }
         }
         Ok((Ast2::Quote(Box::new(quote(exps[0].clone()))), env))
     }
 
-    fn convert_set(exps: Vec<UMPL2Expr>, env: Vec<&str>) -> Result<(Ast2, Vec<&str>), Error> {
+    fn convert_set(exps: Vec<EverythingExpr>, env: Vec<&str>) -> Result<(Ast2, Vec<&str>), Error> {
         // TODO: set should only be allowed to be able to set non special forms
         if exps.len() != 2 {
             return Err("the set! form must follow (set! [var] [value])".to_string());
         }
 
-        let UMPL2Expr::Ident(var) = exps[0].clone() else {
+        let EverythingExpr::Ident(var) = exps[0].clone() else {
             return Err("the set! [var] must be a symbol".to_string());
         };
         pass1((exps[1].clone(), env)).map(|(exp, env)| {
@@ -317,23 +317,23 @@ pub fn pass1(value: (UMPL2Expr, Vec<&str>)) -> Result<(Ast2, Vec<&str>), Error> 
             )
         })
     }
-    fn convert_define(exps: Vec<UMPL2Expr>, env: Vec<&str>) -> Result<(Ast2, Vec<&str>), Error> {
+    fn convert_define(exps: Vec<EverythingExpr>, env: Vec<&str>) -> Result<(Ast2, Vec<&str>), Error> {
         if exps.len() < 2 {
             return Err("the define form must follow (define [var] [value]) or (define ([var] [argc] <vararg>) exp+ )".to_string());
         }
         match exps[0].clone() {
-            UMPL2Expr::Application(a) => {
+            EverythingExpr::Application(a) => {
                 if a.len() < 2 || a.len() > 3 {
                     return Err(
                         "the define form signature must follow ([var] [argc] <vararg>)".to_string(),
                     );
                 }
-                let UMPL2Expr::Ident(i) = a[0].clone() else {
+                let EverythingExpr::Ident(i) = a[0].clone() else {
                     return Err("the define form [var] must be a symbol".to_string());
                 };
                 let env = extend_if_found(i.clone(), env);
                 convert_lambda(
-                    vec![UMPL2Expr::Application(a[1..].to_vec())]
+                    vec![EverythingExpr::Application(a[1..].to_vec())]
                         .into_iter()
                         .chain(exps[1..].to_vec())
                         .collect(),
@@ -341,7 +341,7 @@ pub fn pass1(value: (UMPL2Expr, Vec<&str>)) -> Result<(Ast2, Vec<&str>), Error> 
                 )
                 .map(|(exp, env)| (Ast2::Define(i, Box::new(exp)), env))
             }
-            UMPL2Expr::Ident(i) => {
+            EverythingExpr::Ident(i) => {
                 if exps.len() != 2 {
                     return Err(
                         "the define form (define [var] [value]) must follow not have anything else"
@@ -357,15 +357,15 @@ pub fn pass1(value: (UMPL2Expr, Vec<&str>)) -> Result<(Ast2, Vec<&str>), Error> 
             ),
         }
     }
-    fn convert_lambda(exps: Vec<UMPL2Expr>, env: Vec<&str>) -> Result<(Ast2, Vec<&str>), Error> {
+    fn convert_lambda(exps: Vec<EverythingExpr>, env: Vec<&str>) -> Result<(Ast2, Vec<&str>), Error> {
         if exps.len() < 2 {
             return Err(
                 "the lambda form must follow (lambda ([argc] <vararg>) exp+ ) ".to_string(),
             );
         }
-        let (argc, vararg) = if let UMPL2Expr::Application(app) = &exps[0] {
+        let (argc, vararg) = if let EverythingExpr::Application(app) = &exps[0] {
             match app.as_slice() {
-                [UMPL2Expr::Number(n), UMPL2Expr::Ident(s)]
+                [EverythingExpr::Number(n), EverythingExpr::Ident(s)]
                     if ["+".into(), "*".into()].contains(s) =>
                 {
                     (
@@ -378,7 +378,7 @@ pub fn pass1(value: (UMPL2Expr, Vec<&str>)) -> Result<(Ast2, Vec<&str>), Error> 
                     )
                 }
 
-                [UMPL2Expr::Number(n)] => (*n, None),
+                [EverythingExpr::Number(n)] => (*n, None),
                 _ => todo!("self function should return result so self can error"),
             }
         } else {
@@ -387,7 +387,7 @@ pub fn pass1(value: (UMPL2Expr, Vec<&str>)) -> Result<(Ast2, Vec<&str>), Error> 
         let (body, _) = convert_begin(exps[1..].to_vec(), env.clone())?;
         Ok((Ast2::Lambda(argc as usize, vararg, Box::new(body)), env))
     }
-    fn convert_if(exps: Vec<UMPL2Expr>, env: Vec<&str>) -> Result<(Ast2, Vec<&str>), Error> {
+    fn convert_if(exps: Vec<EverythingExpr>, env: Vec<&str>) -> Result<(Ast2, Vec<&str>), Error> {
         if exps.len() != 3 {
             return Err(
                 "the if form must follow (if [condition] [consequent] [alternative])".to_string(),
@@ -403,11 +403,11 @@ pub fn pass1(value: (UMPL2Expr, Vec<&str>)) -> Result<(Ast2, Vec<&str>), Error> 
     }
 
     fn convert_application(
-        app: Vec<UMPL2Expr>,
+        app: Vec<EverythingExpr>,
         env: Vec<&str>,
     ) -> Result<(Ast2, Vec<&str>), Error> {
         match app.first() {
-            Some(UMPL2Expr::Ident(i))
+            Some(EverythingExpr::Ident(i))
                 if !env.contains(&i.to_string().as_str())
                     && SPECIAL_FORMS.contains(&i.to_string().as_str()) =>
             {
@@ -440,13 +440,13 @@ pub fn pass1(value: (UMPL2Expr, Vec<&str>)) -> Result<(Ast2, Vec<&str>), Error> 
         }
     }
     match value.0 {
-        UMPL2Expr::Bool(b) => Ok((Ast2::Bool(b), env)),
-        UMPL2Expr::Number(n) => Ok((Ast2::Number(n), env)),
-        UMPL2Expr::String(s) => Ok((Ast2::String(s), env)),
-        UMPL2Expr::Ident(i) => Ok((Ast2::Ident(i), env)),
-        UMPL2Expr::Application(app) => convert_application(app, env),
-        UMPL2Expr::Label(l) => Ok((Ast2::Label(l), env)),
-        UMPL2Expr::FnParam(p) => Ok((Ast2::FnParam(p), env)),
+        EverythingExpr::Bool(b) => Ok((Ast2::Bool(b), env)),
+        EverythingExpr::Number(n) => Ok((Ast2::Number(n), env)),
+        EverythingExpr::String(s) => Ok((Ast2::String(s), env)),
+        EverythingExpr::Ident(i) => Ok((Ast2::Ident(i), env)),
+        EverythingExpr::Application(app) => convert_application(app, env),
+        EverythingExpr::Label(l) => Ok((Ast2::Label(l), env)),
+        EverythingExpr::FnParam(p) => Ok((Ast2::FnParam(p), env)),
     }
 }
 fn quote(exp: Ast2) -> Ast3 {
