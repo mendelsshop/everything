@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    ast::{Ast3, Varidiac},
+    ast::{Arg, Ast4, Varidiac},
     interior_mut::RC,
 };
 
@@ -260,21 +260,19 @@ impl InstructionSequnce {
     }
 }
 
-pub fn compile(exp: Ast3, target: Register, linkage: Linkage) -> InstructionSequnce {
+pub fn compile(exp: Ast4, target: Register, linkage: Linkage) -> InstructionSequnce {
     match exp {
-        Ast3::Ident(i) => compile_variable(i.to_string(), target, linkage),
-        Ast3::Application(a) => compile_application(a, target, linkage),
-        Ast3::FnParam(i) => compile_variable(format!("'{i}'"), target, linkage),
-        Ast3::Begin(b) => compile_seq(b, target, linkage),
-        Ast3::Define(s, exp) => compile_defeninition((s, *exp), target, linkage),
-        Ast3::Set(s, exp) => compile_assignment((s, *exp), target, linkage),
-        Ast3::Lambda(argc, varidiac, body) => {
-            compile_lambda((argc, varidiac, *body), target, linkage)
-        }
-        Ast3::If(cond, cons, alt) => compile_if((*cond, *cons, *alt), target, linkage),
-        Ast3::Quote(q) => compile_quoted(*q, target, linkage),
-        Ast3::Label(l) => end_with_linkage(linkage, make_label_instruction(l.to_string())),
-        Ast3::Goto(l) => end_with_linkage(
+        Ast4::Ident(i) => compile_variable(i.to_string(), target, linkage),
+        Ast4::Application(a) => compile_application(a, target, linkage),
+        Ast4::FnParam(i) => compile_variable(format!("'{i}'"), target, linkage),
+        Ast4::Begin(b) => compile_seq(b, target, linkage),
+        Ast4::Define(s, exp) => compile_defeninition((s, *exp), target, linkage),
+        Ast4::Set(s, exp) => compile_assignment((s, *exp), target, linkage),
+        Ast4::Lambda(arg, body) => compile_lambda((arg, *body), target, linkage),
+        Ast4::If(cond, cons, alt) => compile_if((*cond, *cons, *alt), target, linkage),
+        Ast4::Quote(q) => compile_quoted(*q, target, linkage),
+        Ast4::Label(l) => end_with_linkage(linkage, make_label_instruction(l.to_string())),
+        Ast4::Goto(l) => end_with_linkage(
             linkage,
             make_intsruction_sequnce(
                 hashset!(),
@@ -396,7 +394,7 @@ fn compile_self_evaluating(exp: Expr, target: Register, linkage: Linkage) -> Ins
     )
 }
 
-fn compile_quoted(quoted: Ast3, target: Register, linkage: Linkage) -> InstructionSequnce {
+fn compile_quoted(quoted: Ast4, target: Register, linkage: Linkage) -> InstructionSequnce {
     end_with_linkage(
         linkage,
         InstructionSequnce::new(
@@ -441,7 +439,7 @@ fn compile_variable(exp: String, target: Register, linkage: Linkage) -> Instruct
 }
 
 fn compile_assignment(
-    exp: (RC<str>, Ast3),
+    exp: (RC<str>, Ast4),
     target: Register,
     linkage: Linkage,
 ) -> InstructionSequnce {
@@ -473,7 +471,7 @@ fn compile_assignment(
 }
 
 fn compile_defeninition(
-    exp: (RC<str>, Ast3),
+    exp: (RC<str>, Ast4),
     target: Register,
     linkage: Linkage,
 ) -> InstructionSequnce {
@@ -504,7 +502,7 @@ fn compile_defeninition(
     )
 }
 
-fn compile_if(exp: (Ast3, Ast3, Ast3), target: Register, linkage: Linkage) -> InstructionSequnce {
+fn compile_if(exp: (Ast4, Ast4, Ast4), target: Register, linkage: Linkage) -> InstructionSequnce {
     let t_branch = make_label_name("true-branch".to_string());
     let f_branch = make_label_name("false-branch".to_string());
     let after_if = make_label_name("after-if".to_string());
@@ -546,7 +544,7 @@ fn compile_if(exp: (Ast3, Ast3, Ast3), target: Register, linkage: Linkage) -> In
     )
 }
 
-fn compile_seq(seq: Vec<Ast3>, target: Register, linkage: Linkage) -> InstructionSequnce {
+fn compile_seq(seq: Vec<Ast4>, target: Register, linkage: Linkage) -> InstructionSequnce {
     let size = seq.len();
     seq.into_iter()
         .enumerate()
@@ -575,11 +573,7 @@ fn tack_on_instruction_seq(
     )
 }
 
-fn compile_lambda(
-    lambda: (usize, Option<Varidiac>, Ast3),
-    target: Register,
-    linkage: Linkage,
-) -> InstructionSequnce {
+fn compile_lambda(lambda: (Arg, Ast4), target: Register, linkage: Linkage) -> InstructionSequnce {
     let proc_entry = make_label_name("entry".to_string());
     let after_lambda = make_label_name("after-lambda".to_string());
     let lambda_linkage = if linkage == Linkage::Next {
@@ -612,53 +606,56 @@ fn compile_lambda(
     )
 }
 
-fn compile_lambda_body(
-    lambda: (usize, Option<Varidiac>, Ast3),
-    proc_entry: String,
-) -> InstructionSequnce {
-    let formals = {
-        let arg_c = match lambda.1 {
-            Some(_) => lambda.0 + 1,
-            None => lambda.0,
-        };
-        (0..arg_c)
-            .map(|i| Expr::Const(Const::Symbol(format!("'{i}'"))))
-            .rfold(Expr::Const(Const::Empty), |a, b| {
-                Expr::Const(Const::List(Box::new(b), Box::new(a)))
-            })
-    };
+fn compile_lambda_body(lambda: (Arg, Ast4), proc_entry: String) -> InstructionSequnce {
     // TODO: do aritty checks by either going through argl and getting the length, having a register that contains the length of the arguments, or combine the 2 together and argl could be a pair of the length of the arguements and the arguements
     append_instruction_sequnce(
-        InstructionSequnce::new(
-            hashset!(Register::Env, Register::Proc, Register::Argl),
-            hashset!(Register::Env),
-            vec![
-                Instruction::Label(proc_entry),
-                Instruction::Assign(
-                    Register::Env,
-                    Expr::Op(Perform {
-                        op: Operation::CompiledProcedureEnv,
-                        args: vec![Expr::Register(Register::Proc)],
-                    }),
-                ),
-                Instruction::Assign(
-                    Register::Env,
-                    Expr::Op(Perform {
-                        op: Operation::ExtendEnvironment,
-                        args: vec![
-                            formals,
-                            Expr::Register(Register::Argl),
-                            Expr::Register(Register::Env),
-                        ],
-                    }),
-                ),
-            ],
-        ),
-        compile(lambda.2, Register::Val, Linkage::Return),
+        if let Arg::One(i) | Arg::AtLeast0(i) | Arg::AtLeast1(i) = lambda.0 {
+            InstructionSequnce::new(
+                hashset!(Register::Env, Register::Proc, Register::Argl),
+                hashset!(Register::Env),
+                vec![
+                    Instruction::Label(proc_entry),
+                    Instruction::Assign(
+                        Register::Env,
+                        Expr::Op(Perform {
+                            op: Operation::CompiledProcedureEnv,
+                            args: vec![Expr::Register(Register::Proc)],
+                        }),
+                    ),
+                    Instruction::Assign(
+                        Register::Env,
+                        Expr::Op(Perform {
+                            op: Operation::ExtendEnvironment,
+                            args: vec![
+                                Expr::Const(Const::Symbol(format!("'{i}'"))),
+                                Expr::Register(Register::Argl),
+                                Expr::Register(Register::Env),
+                            ],
+                        }),
+                    ),
+                ],
+            )
+        } else {
+            InstructionSequnce::new(
+                hashset!(Register::Env, Register::Proc),
+                hashset!(Register::Env),
+                vec![
+                    Instruction::Label(proc_entry),
+                    Instruction::Assign(
+                        Register::Env,
+                        Expr::Op(Perform {
+                            op: Operation::CompiledProcedureEnv,
+                            args: vec![Expr::Register(Register::Proc)],
+                        }),
+                    ),
+                ],
+            )
+        },
+        compile(lambda.1, Register::Val, Linkage::Return),
     )
 }
 
-fn compile_application(exp: Vec<Ast3>, target: Register, linkage: Linkage) -> InstructionSequnce {
+fn compile_application(exp: Vec<Ast4>, target: Register, linkage: Linkage) -> InstructionSequnce {
     #[cfg(feature = "lazy")]
     let proc_code = force_it(exp[0].clone(), Register::Proc, Linkage::Next);
     #[cfg(not(feature = "lazy"))]
@@ -987,7 +984,7 @@ fn add_to_argl(inst: InstructionSequnce) -> InstructionSequnce {
 }
 
 #[cfg(feature = "lazy")]
-fn force_it(exp: Ast3, target: Register, linkage: Linkage) -> InstructionSequnce {
+fn force_it(exp: Ast4, target: Register, linkage: Linkage) -> InstructionSequnce {
     let actual_value_label = make_label_name("actual-value".to_string());
     let force_label = make_label_name("force".to_string());
     let done = make_label_name("done".to_string());
@@ -1030,7 +1027,7 @@ fn force_it(exp: Ast3, target: Register, linkage: Linkage) -> InstructionSequnce
 }
 
 #[cfg(feature = "lazy")]
-fn delay_it(exp: Ast3, target: Register, linkage: Linkage) -> InstructionSequnce {
+fn delay_it(exp: Ast4, target: Register, linkage: Linkage) -> InstructionSequnce {
     let thunk_label = make_label_name("thunk".to_string());
     let after_thunk = make_label_name("after-label".to_string());
     let thunk_linkage = if linkage == Linkage::Next {
@@ -1062,7 +1059,7 @@ fn delay_it(exp: Ast3, target: Register, linkage: Linkage) -> InstructionSequnce
 }
 
 #[cfg(feature = "lazy")]
-fn compile_thunk_body(thunk: Ast3, thunk_entry: Label) -> InstructionSequnce {
+fn compile_thunk_body(thunk: Ast4, thunk_entry: Label) -> InstructionSequnce {
     append_instruction_sequnce(
         InstructionSequnce::new(
             hashset!(Register::Env, Register::Thunk),
@@ -1082,12 +1079,12 @@ fn compile_thunk_body(thunk: Ast3, thunk_entry: Label) -> InstructionSequnce {
     )
 }
 #[cfg(not(feature = "lazy"))]
-fn delay_it(exp: Ast3, target: Register, linkage: Linkage) -> InstructionSequnce {
+fn delay_it(exp: Ast4, target: Register, linkage: Linkage) -> InstructionSequnce {
     compile(exp, target, linkage)
 }
 
 #[cfg(not(feature = "lazy"))]
-fn force_it(exp: Ast3, target: Register, linkage: Linkage) -> InstructionSequnce {
+fn force_it(exp: Ast4, target: Register, linkage: Linkage) -> InstructionSequnce {
     compile(exp, target, linkage)
 }
 fn construct_arg_list(operand_codes: Vec<InstructionSequnce>) -> InstructionSequnce {
@@ -1109,10 +1106,10 @@ fn construct_arg_list(operand_codes: Vec<InstructionSequnce>) -> InstructionSequ
         )
 }
 
-impl From<Ast3> for Expr {
-    fn from(value: Ast3) -> Self {
+impl From<Ast4> for Expr {
+    fn from(value: Ast4) -> Self {
         match value {
-            Ast3::Bool(b) => match b {
+            Ast4::Bool(b) => match b {
                 crate::ast::Boolean::False => Self::Const(Const::Boolean(false)),
                 crate::ast::Boolean::True => Self::Const(Const::Boolean(true)),
                 crate::ast::Boolean::Maybee => Self::Op(Perform {
@@ -1120,16 +1117,16 @@ impl From<Ast3> for Expr {
                     args: vec![],
                 }),
             },
-            Ast3::Number(n) => Self::Const(Const::Number(n)),
-            Ast3::String(s) => Self::Const(Const::String(s.to_string())),
-            Ast3::Ident(i) => Self::Const(Const::Symbol(i.to_string())),
-            Ast3::Application(a) => a
+            Ast4::Number(n) => Self::Const(Const::Number(n)),
+            Ast4::String(s) => Self::Const(Const::String(s.to_string())),
+            Ast4::Ident(i) => Self::Const(Const::Symbol(i.to_string())),
+            Ast4::Application(a) => a
                 .into_iter()
                 .map(Into::into)
                 .rfold(Self::Const(Const::Empty), |a, b| {
                     Self::Const(Const::List(Box::new(b), Box::new(a)))
                 }),
-            Ast3::FnParam(i) => Self::Const(Const::Symbol(format!("'{i}'"))),
+            Ast4::FnParam(i) => Self::Const(Const::Symbol(format!("'{i}'"))),
             _ => unreachable!(),
         }
     }

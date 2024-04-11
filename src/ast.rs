@@ -123,16 +123,19 @@ pub enum Varidiac {
     AtLeast0,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum Arg {
+    // All the variants besides Zero have a number, so even after auto currying the compiler still
+    // knows the arguement index
+
     Zero,
-    One,
+    One(usize),
     /// denotes that besides the usual arg count function will take extra args
     /// in form of tree (requires at least 1 arg)
-    AtLeast1,
+    AtLeast1(usize),
     /// denotes that besides the usual arg count function will take extra args
     /// in form of tree (requires at least 0 args)
-    AtLeast0,
+    AtLeast0(usize),
 }
 
 impl fmt::Display for Varidiac {
@@ -153,10 +156,10 @@ impl fmt::Display for Arg {
             f,
             "{}",
             match self {
-                Self::AtLeast1 => "+",
-                Self::AtLeast0 => "*",
+                Self::AtLeast1(_) => "+",
+                Self::AtLeast0(_) => "*",
                 Self::Zero => "0",
-                Self::One => "1",
+                Self::One(_) => "1",
             }
         )
     }
@@ -202,7 +205,7 @@ pub enum Ast3 {
     Set(RC<str>, Box<Ast3>),
     Quote(Box<Ast3>),
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Ast4 {
     Bool(Boolean),
     Number(f64),
@@ -214,6 +217,7 @@ pub enum Ast4 {
     FnParam(usize),
 
     // special forms
+    Goto(RC<str>),
     If(Box<Ast4>, Box<Ast4>, Box<Ast4>),
     Define(RC<str>, Box<Ast4>),
     Lambda(Arg, Box<Ast4>),
@@ -274,7 +278,10 @@ pub fn pass1(value: (EverythingExpr, Vec<&str>)) -> Result<(Ast2, Vec<&str>), Er
     }
     let env = value.1;
 
-    fn convert_begin(exps: Vec<EverythingExpr>, env: Vec<&str>) -> Result<(Ast2, Vec<&str>), Error> {
+    fn convert_begin(
+        exps: Vec<EverythingExpr>,
+        env: Vec<&str>,
+    ) -> Result<(Ast2, Vec<&str>), Error> {
         exps.into_iter()
             .try_fold((vec![], env), |(exps, env), current| {
                 pass1((current, env))
@@ -283,7 +290,10 @@ pub fn pass1(value: (EverythingExpr, Vec<&str>)) -> Result<(Ast2, Vec<&str>), Er
             .map(|(app, env)| (Ast2::Begin(app), env))
     }
 
-    fn convert_quoted(exps: Vec<EverythingExpr>, env: Vec<&str>) -> Result<(Ast2, Vec<&str>), Error> {
+    fn convert_quoted(
+        exps: Vec<EverythingExpr>,
+        env: Vec<&str>,
+    ) -> Result<(Ast2, Vec<&str>), Error> {
         if exps.len() != 1 {
             return Err("quoted expression can only contain single expression".to_string());
         }
@@ -293,7 +303,9 @@ pub fn pass1(value: (EverythingExpr, Vec<&str>)) -> Result<(Ast2, Vec<&str>), Er
                 EverythingExpr::Number(t) => Ast2::Number(t),
                 EverythingExpr::String(t) => Ast2::String(t),
                 EverythingExpr::Ident(t) => Ast2::Ident(t),
-                EverythingExpr::Application(t) => Ast2::Application(t.into_iter().map(quote).collect()),
+                EverythingExpr::Application(t) => {
+                    Ast2::Application(t.into_iter().map(quote).collect())
+                }
                 EverythingExpr::Label(t) => Ast2::Label(t),
                 EverythingExpr::FnParam(t) => Ast2::FnParam(t),
             }
@@ -317,7 +329,10 @@ pub fn pass1(value: (EverythingExpr, Vec<&str>)) -> Result<(Ast2, Vec<&str>), Er
             )
         })
     }
-    fn convert_define(exps: Vec<EverythingExpr>, env: Vec<&str>) -> Result<(Ast2, Vec<&str>), Error> {
+    fn convert_define(
+        exps: Vec<EverythingExpr>,
+        env: Vec<&str>,
+    ) -> Result<(Ast2, Vec<&str>), Error> {
         if exps.len() < 2 {
             return Err("the define form must follow (define [var] [value]) or (define ([var] [argc] <vararg>) exp+ )".to_string());
         }
@@ -357,7 +372,10 @@ pub fn pass1(value: (EverythingExpr, Vec<&str>)) -> Result<(Ast2, Vec<&str>), Er
             ),
         }
     }
-    fn convert_lambda(exps: Vec<EverythingExpr>, env: Vec<&str>) -> Result<(Ast2, Vec<&str>), Error> {
+    fn convert_lambda(
+        exps: Vec<EverythingExpr>,
+        env: Vec<&str>,
+    ) -> Result<(Ast2, Vec<&str>), Error> {
         if exps.len() < 2 {
             return Err(
                 "the lambda form must follow (lambda ([argc] <vararg>) exp+ ) ".to_string(),
@@ -498,54 +516,57 @@ pub fn pass2(expr: Ast2, links: &MultiMap<RC<str>, RC<str>>) -> Result<Ast3, Err
     }
 }
 
-impl From<Ast2> for Ast4 {
-    fn from(value: Ast2) -> Self {
-        fn quote(exp: Ast2) -> Ast4 {
+impl From<Ast3> for Ast4 {
+    fn from(value: Ast3) -> Self {
+        fn quote(exp: Ast3) -> Ast4 {
             match exp {
-                Ast2::Bool(t) => Ast4::Bool(t),
-                Ast2::Number(t) => Ast4::Number(t),
-                Ast2::String(t) => Ast4::String(t),
-                Ast2::Ident(t) => Ast4::Ident(t),
-                Ast2::Application(t) => Ast4::Application(t.into_iter().map(quote).collect()),
-                Ast2::Label(t) => Ast4::Label(t),
-                Ast2::FnParam(t) => Ast4::FnParam(t),
+                Ast3::Bool(t) => Ast4::Bool(t),
+                Ast3::Number(t) => Ast4::Number(t),
+                Ast3::String(t) => Ast4::String(t),
+                Ast3::Ident(t) => Ast4::Ident(t),
+                Ast3::Application(t) => Ast4::Application(t.into_iter().map(quote).collect()),
+                Ast3::Label(t) => Ast4::Label(t),
+                Ast3::FnParam(t) => Ast4::FnParam(t),
                 _ => unreachable!(),
             }
         }
 
-        fn curryify(argc: usize, varidiac: Option<Varidiac>, body: Box<Ast2>) -> Ast4 {
+        fn curryify(argc: usize, varidiac: Option<Varidiac>, body: Box<Ast3>) -> Ast4 {
+            fn inner(argc: usize, varidiac: Option<Varidiac>, body: Box<Ast3>, arg_count: usize) -> Ast4 {
             if argc == 0 {
                 let body = map_into(body);
                 match varidiac {
-                    Some(Varidiac::AtLeast0) => Ast4::Lambda(Arg::AtLeast0, body),
-                    Some(Varidiac::AtLeast1) => Ast4::Lambda(Arg::AtLeast1, body),
+                    Some(Varidiac::AtLeast0) => Ast4::Lambda(Arg::AtLeast0(arg_count), body),
+                    Some(Varidiac::AtLeast1) => Ast4::Lambda(Arg::AtLeast1(arg_count), body),
                     None => *body,
                 }
             } else {
-                Ast4::Lambda(Arg::One, Box::new(curryify(argc - 1, varidiac, body)))
-            }
+                Ast4::Lambda(Arg::One(arg_count), Box::new(inner(argc - 1, varidiac, body, arg_count +1)))
+            }}
+            inner(argc, varidiac, body, 0)
         }
 
         match value {
-            Ast2::Bool(t) => Self::Bool(t),
-            Ast2::Number(t) => Self::Number(t),
-            Ast2::String(t) => Self::String(t),
-            Ast2::Ident(t) => Self::Ident(t),
-            Ast2::Application(t) => Self::Application(t.into_iter().map(Into::into).collect()),
-            Ast2::Label(t) => Self::Label(t),
-            Ast2::FnParam(t) => Self::FnParam(t),
-            Ast2::If(cond, cons, alt) => Self::If(map_into(cond), map_into(cons), map_into(alt)),
-            Ast2::Define(s, exp) => Self::Define(s, map_into(exp)),
-            Ast2::Lambda(argc, varidiac, body) => {
+            Ast3::Bool(t) => Self::Bool(t),
+            Ast3::Number(t) => Self::Number(t),
+            Ast3::String(t) => Self::String(t),
+            Ast3::Ident(t) => Self::Ident(t),
+            Ast3::Application(t) => Self::Application(t.into_iter().map(Into::into).collect()),
+            Ast3::Label(t) => Self::Label(t),
+            Ast3::FnParam(t) => Self::FnParam(t),
+            Ast3::If(cond, cons, alt) => Self::If(map_into(cond), map_into(cons), map_into(alt)),
+            Ast3::Define(s, exp) => Self::Define(s, map_into(exp)),
+            Ast3::Lambda(argc, varidiac, body) => {
                 if argc == 0 && varidiac.is_none() {
                     Self::Lambda(Arg::Zero, map_into(body))
                 } else {
                     curryify(argc, varidiac, body)
                 }
             }
-            Ast2::Begin(b) => Self::Begin(b.into_iter().map(Into::into).collect()),
-            Ast2::Set(s, exp) => Self::Set(s, map_into(exp)),
-            Ast2::Quote(q) => Self::Quote(map_box(q, quote)),
+            Ast3::Begin(b) => Self::Begin(b.into_iter().map(Into::into).collect()),
+            Ast3::Set(s, exp) => Self::Set(s, map_into(exp)),
+            Ast3::Quote(q) => Self::Quote(map_box(q, quote)),
+            Ast3::Goto(l) => Self::Goto(l),
         }
     }
 }

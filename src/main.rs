@@ -231,7 +231,7 @@ fn sicp(file: &str) {
         .into_iter()
         .try_fold((vec![], vec![]), |(exps, env), exp| {
             pass1((exp, env)).and_then(|(exp, env)| {
-                pass2(exp, &links).map(|exp| (immutable_add_to_vec(exps, exp), env))
+                pass2(exp, &links).map(|exp| (immutable_add_to_vec(exps, exp.into()), env))
             })
         })
         .unwrap();
