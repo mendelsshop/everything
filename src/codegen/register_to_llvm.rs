@@ -1141,6 +1141,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                 // TODO: hack technically (in most cases) if we have a branch, the next instruction after it will be a label so we dont need a new block for each branch but rather we should either "peek" ahead to the next instruction to obtain the label
                 // or encode the label as part of the branch variant
                 let next_label = self.context.append_basic_block(self.current, "next-block");
+                // eprintln!("{:?}", self.labels.keys());
                 self.builder.build_conditional_branch(
                     self.truthy(flag.into_struct_value()),
                     *self.labels.get(&l).unwrap(),
@@ -1524,7 +1525,10 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                 let vals = args[1];
                 let env = args[2];
 
-                let frame = self.make_cons(vars, vals);
+                let frame = self.make_cons(
+                    self.make_cons(vars, self.empty()),
+                    self.make_cons(vals, self.empty()),
+                );
                 self.make_cons(frame, env)
             }
             Operation::Cons => {
@@ -1614,6 +1618,10 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                 let is_thunk = self.is_thunk(thunk);
                 let is_not_thunk = self.builder.build_not(is_thunk, "not thunk").unwrap();
                 self.make_object(&is_not_thunk, TypeIndex::bool)
+            }
+            Operation::VariadiacProcedure => {
+                let boolean = self.context.bool_type().const_int(u64::from(false), false);
+                self.make_object(&boolean, TypeIndex::bool)
             }
         }
     }
