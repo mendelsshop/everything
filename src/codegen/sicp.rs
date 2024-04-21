@@ -2,6 +2,7 @@ use std::{
     collections::HashSet,
     fmt::{self, Formatter},
     iter::Peekable,
+    usize,
 };
 
 use itertools::Itertools;
@@ -604,6 +605,7 @@ fn compile_lambda(lambda: (Arg, Ast4), target: Register, linkage: Linkage) -> In
                             args: vec![
                                 Expr::Label(proc_entry.clone()),
                                 Expr::Register(Register::Env),
+                                Expr::Const(Const::Number(<Arg as Into<usize>>::into(lambda.0) as f64)),
                             ],
                         }),
                     )],

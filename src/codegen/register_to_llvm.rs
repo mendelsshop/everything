@@ -15,6 +15,8 @@ use inkwell::{module::Linkage, types::BasicTypeEnum};
 use itertools::Itertools;
 use std::{collections::HashMap, iter, primitive};
 
+use crate::ast::{ONE_VARIADIAC_ARG, ZERO_VARIADIAC_ARG};
+
 use super::sicp::{Const, Expr, Goto, Instruction, Operation, Perform, Register};
 
 macro_rules! fixed_map {
@@ -337,8 +339,9 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                 context
                     .struct_type(&[object.into(), object.into()], false)
                     .into(),
+                // TODO: make these be not objects but the actual only type that each can be
                 context
-                    .struct_type(&[object.into(), object.into()], false)
+                    .struct_type(&[object.into(), object.into(), object.into()], false)
                     .into(),
             ),
         };
@@ -1574,12 +1577,14 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                     self.make_object(&compiled_procedure_string, TypeIndex::symbol);
                 let compiled_procedure_entry = *args.first().unwrap();
                 let compiled_procedure_env = args.get(1).unwrap();
+                let compiled_procedure_type = args.get(2).unwrap();
                 self.make_object(
                     &self.list_to_struct(
                         self.types.types.get(TypeIndex::lambda).into_struct_type(),
                         &[
                             compiled_procedure_entry.into(),
                             (*compiled_procedure_env).into(),
+                            (*compiled_procedure_type).into(),
                         ],
                     ),
                     TypeIndex::lambda,
@@ -1620,8 +1625,46 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                 self.make_object(&is_not_thunk, TypeIndex::bool)
             }
             Operation::VariadiacProcedure => {
-                let boolean = self.context.bool_type().const_int(u64::from(false), false);
-                self.make_object(&boolean, TypeIndex::bool)
+                let proc = args[0];
+                let proc = self.unchecked_get_lambda(proc).into_struct_value();
+                let lambda_type = self
+                    .get_number(
+                        self.builder
+                            .build_extract_value(proc, 2, "proc entry")
+                            .unwrap()
+                            .into_struct_value(),
+                    )
+                    .into_float_value();
+                self.make_object(
+                    &self.builder.build_or(
+                        self.builder
+                            .build_float_compare(
+                                FloatPredicate::OEQ,
+                                lambda_type,
+                                self.types
+                                    .types
+                                    .number
+                                    .into_float_type()
+                                    .const_float(ZERO_VARIADIAC_ARG as f64),
+                                "is zero variadiac",
+                            )
+                            .unwrap(),
+                        self.builder
+                            .build_float_compare(
+                                FloatPredicate::OEQ,
+                                lambda_type,
+                                self.types
+                                    .types
+                                    .number
+                                    .into_float_type()
+                                    .const_float(ONE_VARIADIAC_ARG as f64),
+                                "is one variadiac",
+                            )
+                            .unwrap(),
+                        "is variadiac",
+                    ).unwrap(),
+                    TypeIndex::bool,
+                )
             }
         }
     }

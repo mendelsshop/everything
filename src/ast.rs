@@ -1,4 +1,5 @@
 use std::fmt::Display;
+use std::usize;
 use std::{collections::HashMap, fmt};
 
 use inkwell::values::StructValue;
@@ -10,6 +11,10 @@ use crate::{
     interior_mut::{MUTEX, RC},
 };
 
+pub(crate) const ZERO_ARG: usize = 0;
+pub(crate) const ONE_ARG: usize = 1;
+pub(crate) const ZERO_VARIADIAC_ARG: usize = 2;
+pub(crate) const ONE_VARIADIAC_ARG: usize = 3;
 #[derive(Clone, Debug, PartialEq)]
 pub struct Tree {
     pub inner: RC<MUTEX<(EverythingExpr, EverythingExpr, EverythingExpr)>>,
@@ -127,7 +132,6 @@ pub enum Varidiac {
 pub enum Arg {
     // All the variants besides Zero have a number, so even after auto currying the compiler still
     // knows the arguement index
-
     Zero,
     One(usize),
     /// denotes that besides the usual arg count function will take extra args
@@ -136,6 +140,17 @@ pub enum Arg {
     /// denotes that besides the usual arg count function will take extra args
     /// in form of tree (requires at least 0 args)
     AtLeast0(usize),
+}
+
+impl From<Arg> for usize {
+    fn from(value: Arg) -> Self {
+        match value {
+            Arg::Zero => ZERO_ARG,
+            Arg::One(_) => ONE_ARG,
+            Arg::AtLeast1(_) => ONE_VARIADIAC_ARG,
+            Arg::AtLeast0(_) => ZERO_VARIADIAC_ARG,
+        }
+    }
 }
 
 impl fmt::Display for Varidiac {
@@ -532,17 +547,26 @@ impl From<Ast3> for Ast4 {
         }
 
         fn curryify(argc: usize, varidiac: Option<Varidiac>, body: Box<Ast3>) -> Ast4 {
-            fn inner(argc: usize, varidiac: Option<Varidiac>, body: Box<Ast3>, arg_count: usize) -> Ast4 {
-            if argc == 0 {
-                let body = map_into(body);
-                match varidiac {
-                    Some(Varidiac::AtLeast0) => Ast4::Lambda(Arg::AtLeast0(arg_count), body),
-                    Some(Varidiac::AtLeast1) => Ast4::Lambda(Arg::AtLeast1(arg_count), body),
-                    None => *body,
+            fn inner(
+                argc: usize,
+                varidiac: Option<Varidiac>,
+                body: Box<Ast3>,
+                arg_count: usize,
+            ) -> Ast4 {
+                if argc == 0 {
+                    let body = map_into(body);
+                    match varidiac {
+                        Some(Varidiac::AtLeast0) => Ast4::Lambda(Arg::AtLeast0(arg_count), body),
+                        Some(Varidiac::AtLeast1) => Ast4::Lambda(Arg::AtLeast1(arg_count), body),
+                        None => *body,
+                    }
+                } else {
+                    Ast4::Lambda(
+                        Arg::One(arg_count),
+                        Box::new(inner(argc - 1, varidiac, body, arg_count + 1)),
+                    )
                 }
-            } else {
-                Ast4::Lambda(Arg::One(arg_count), Box::new(inner(argc - 1, varidiac, body, arg_count +1)))
-            }}
+            }
             inner(argc, varidiac, body, 0)
         }
 
