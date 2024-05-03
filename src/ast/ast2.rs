@@ -4,7 +4,7 @@ use itertools::Itertools;
 
 use crate::interior_mut::RC;
 
-use super::{ast1::Ast1, Boolean, Varidiac};
+use super::{Boolean, Varidiac};
 
 #[derive(Debug, Clone)]
 pub enum Ast2 {
@@ -59,33 +59,59 @@ pub fn immutable_add_to_vec<T>(mut v: Vec<T>, x: T) -> Vec<T> {
     v
 }
 
-type Error = String;
-/// 2 transformations happen during this phase:
-/// 1: all special forms are typified
-/// 2: lambdas are sngle parmaterfied curring
-pub fn pass1(value: (Ast1, Vec<&str>)) -> Result<(Ast2, Vec<&str>), Error> {
+mod impl_transformer {
+    use std::fmt;
+
+    use crate::ast::{
+        ast1::Ast1,
+        ast2::{immutable_add_to_vec, Ast2},
+        AstTransformFrom, Varidiac,
+    };
+
     const SPECIAL_FORMS: [&str; 9] = [
         "if", "define", "set!", "quote", "begin", "lambda", "cond", "let", "link",
     ];
-    fn extend_if_found(name: impl fmt::Display, env: Vec<&str>) -> Vec<&str> {
+    type Error = String;
+
+    type State = Vec<&'static str>;
+    impl AstTransformFrom<Ast1> for Ast2 {
+        type Error = String;
+
+        type State = State;
+
+        fn transform(value: Ast1, state: Self::State) -> Result<(Self, Self::State), Self::Error> {
+            match value {
+                Ast1::Bool(b) => Ok((Ast2::Bool(b), state)),
+                Ast1::Number(n) => Ok((Ast2::Number(n), state)),
+                Ast1::String(s) => Ok((Ast2::String(s), state)),
+                Ast1::Ident(i) => Ok((Ast2::Ident(i), state)),
+                Ast1::Application(app) => convert_application(app, state),
+                Ast1::Label(l) => Ok((Ast2::Label(l), state)),
+                Ast1::FnParam(p) => Ok((Ast2::FnParam(p), state)),
+            }
+        }
+    }
+    /// 2 transformations happen during this phase:
+    /// 1: all special forms are typified
+    /// 2: lambdas are sngle parmaterfied curring
+    fn extend_if_found(name: impl fmt::Display, env: State) -> State {
         if let Some(i) = SPECIAL_FORMS.iter().position(|&x| x == name.to_string()) {
             immutable_add_to_vec(env, SPECIAL_FORMS[i])
         } else {
             env
         }
     }
-    let env = value.1;
 
-    fn convert_begin(exps: Vec<Ast1>, env: Vec<&str>) -> Result<(Ast2, Vec<&str>), Error> {
+    fn convert_begin(exps: Vec<Ast1>, env: State) -> Result<(Ast2, State), Error> {
         exps.into_iter()
             .try_fold((vec![], env), |(exps, env), current| {
-                pass1((current, env))
+                Ast2::transform(current, env)
                     .map(|(current, env)| (immutable_add_to_vec(exps, current), env))
             })
             .map(|(app, env)| (Ast2::Begin(app), env))
     }
 
-    fn convert_quoted(exps: Vec<Ast1>, env: Vec<&str>) -> Result<(Ast2, Vec<&str>), Error> {
+    fn convert_quoted(exps: Vec<Ast1>, env: State) -> Result<(Ast2, State), Error> {
         if exps.len() != 1 {
             return Err("quoted expression can only contain single expression".to_string());
         }
@@ -103,7 +129,7 @@ pub fn pass1(value: (Ast1, Vec<&str>)) -> Result<(Ast2, Vec<&str>), Error> {
         Ok((Ast2::Quote(Box::new(quote(exps[0].clone()))), env))
     }
 
-    fn convert_set(exps: Vec<Ast1>, env: Vec<&str>) -> Result<(Ast2, Vec<&str>), Error> {
+    fn convert_set(exps: Vec<Ast1>, env: State) -> Result<(Ast2, State), Error> {
         // TODO: set should only be allowed to be able to set non special forms
         if exps.len() != 2 {
             return Err("the set! form must follow (set! [var] [value])".to_string());
@@ -112,14 +138,14 @@ pub fn pass1(value: (Ast1, Vec<&str>)) -> Result<(Ast2, Vec<&str>), Error> {
         let Ast1::Ident(var) = exps[0].clone() else {
             return Err("the set! [var] must be a symbol".to_string());
         };
-        pass1((exps[1].clone(), env)).map(|(exp, env)| {
+        Ast2::transform(exps[1].clone(), env).map(|(exp, env)| {
             (
                 Ast2::Set(var.clone(), Box::new(exp)),
                 extend_if_found(var, env),
             )
         })
     }
-    fn convert_define(exps: Vec<Ast1>, env: Vec<&str>) -> Result<(Ast2, Vec<&str>), Error> {
+    fn convert_define(exps: Vec<Ast1>, env: State) -> Result<(Ast2, State), Error> {
         if exps.len() < 2 {
             return Err("the define form must follow (define [var] [value]) or (define ([var] [argc] <vararg>) exp+ )".to_string());
         }
@@ -151,7 +177,7 @@ pub fn pass1(value: (Ast1, Vec<&str>)) -> Result<(Ast2, Vec<&str>), Error> {
                     );
                 }
                 let env = extend_if_found(i.clone(), env);
-                pass1((exps[1].clone(), env))
+                Ast2::transform(exps[1].clone(), env)
                     .map(|(exp, env)| (Ast2::Define(i, Box::new(exp)), env))
             }
             _ => Err(
@@ -159,7 +185,7 @@ pub fn pass1(value: (Ast1, Vec<&str>)) -> Result<(Ast2, Vec<&str>), Error> {
             ),
         }
     }
-    fn convert_lambda(exps: Vec<Ast1>, env: Vec<&str>) -> Result<(Ast2, Vec<&str>), Error> {
+    fn convert_lambda(exps: Vec<Ast1>, env: State) -> Result<(Ast2, State), Error> {
         if exps.len() < 2 {
             return Err(
                 "the lambda form must follow (lambda ([argc] <vararg>) exp+ ) ".to_string(),
@@ -185,22 +211,22 @@ pub fn pass1(value: (Ast1, Vec<&str>)) -> Result<(Ast2, Vec<&str>), Error> {
         let (body, _) = convert_begin(exps[1..].to_vec(), env.clone())?;
         Ok((Ast2::Lambda(argc as usize, vararg, Box::new(body)), env))
     }
-    fn convert_if(exps: Vec<Ast1>, env: Vec<&str>) -> Result<(Ast2, Vec<&str>), Error> {
+    fn convert_if(exps: Vec<Ast1>, env: State) -> Result<(Ast2, State), Error> {
         if exps.len() != 3 {
             return Err(
                 "the if form must follow (if [condition] [consequent] [alternative])".to_string(),
             );
         }
-        pass1((exps[0].clone(), env)).and_then(|(cond, env)| {
-            pass1((exps[1].clone(), env)).and_then(|(cons, env)| {
-                pass1((exps[2].clone(), env)).map(|(alt, env)| {
+        Ast2::transform(exps[0].clone(), env).and_then(|(cond, env)| {
+            Ast2::transform(exps[1].clone(), env).and_then(|(cons, env)| {
+                Ast2::transform(exps[2].clone(), env).map(|(alt, env)| {
                     (Ast2::If(Box::new(cond), Box::new(cons), Box::new(alt)), env)
                 })
             })
         })
     }
 
-    fn convert_application(app: Vec<Ast1>, env: Vec<&str>) -> Result<(Ast2, Vec<&str>), Error> {
+    fn convert_application(app: Vec<Ast1>, env: State) -> Result<(Ast2, State), Error> {
         match app.first() {
             Some(Ast1::Ident(i))
                 if !env.contains(&i.to_string().as_str())
@@ -220,27 +246,18 @@ pub fn pass1(value: (Ast1, Vec<&str>)) -> Result<(Ast2, Vec<&str>), Error> {
             }
 
             Some(fst) => {
-                let fst = pass1((fst.clone(), env))?;
+                let fst = Ast2::transform(fst.clone(), env)?;
                 let fst = (vec![fst.0], fst.1);
                 app[1..]
                     .iter()
                     .cloned()
                     .try_fold(fst, |(app, env), current| {
-                        pass1((current, env))
+                        Ast2::transform(current, env)
                             .map(|(current, env)| (immutable_add_to_vec(app, current), env))
                     })
                     .map(|(app, env)| (Ast2::Application(app), env))
             }
             None => Err("application must have at least one argument".to_string()),
         }
-    }
-    match value.0 {
-        Ast1::Bool(b) => Ok((Ast2::Bool(b), env)),
-        Ast1::Number(n) => Ok((Ast2::Number(n), env)),
-        Ast1::String(s) => Ok((Ast2::String(s), env)),
-        Ast1::Ident(i) => Ok((Ast2::Ident(i), env)),
-        Ast1::Application(app) => convert_application(app, env),
-        Ast1::Label(l) => Ok((Ast2::Label(l), env)),
-        Ast1::FnParam(p) => Ok((Ast2::FnParam(p), env)),
     }
 }

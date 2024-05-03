@@ -3,7 +3,7 @@ use crate::{
     interior_mut::RC,
 };
 
-use super::{Arg, Boolean};
+use super::{Arg, AstTransformFrom, Boolean};
 
 #[derive(Debug, Clone)]
 pub enum Ast4 {
@@ -24,6 +24,16 @@ pub enum Ast4 {
     Begin(Vec<Ast4>),
     Set(RC<str>, Box<Ast4>),
     Quote(Box<Ast4>),
+}
+
+impl AstTransformFrom<Ast3> for Ast4 {
+    type Error = ();
+
+    type State = ();
+
+    fn transform(value: Ast3, state: Self::State) -> Result<(Self, Self::State), Self::Error> {
+        Ok((Self::from(value), state))
+    }
 }
 
 impl From<Ast3> for Ast4 {

@@ -1,11 +1,86 @@
-use std::fmt;
 use std::fmt::Display;
 use std::usize;
+use std::{
+    fmt::{self},
+    iter,
+};
 
 pub(crate) mod ast1;
 pub(crate) mod ast2;
 pub(crate) mod ast3;
 pub(crate) mod ast4;
+
+pub trait AstTransformFrom<T>: Sized {
+    type Error;
+    type State;
+
+    fn transform(value: T, state: Self::State) -> Result<(Self, Self::State), Self::Error>;
+}
+
+#[allow(missing_debug_implementations)]
+pub struct Transformer<I, T, U>
+where
+    I: Iterator<Item = T>,
+    U: AstTransformFrom<T>,
+{
+    iter: I,
+    // Has to be option result so that we can take ownership of it mem::take
+    state: Option<Result<U::State, U::Error>>,
+}
+
+impl<I, T, U> Iterator for Transformer<I, T, U>
+where
+    I: Iterator<Item = T>,
+    U: AstTransformFrom<T>,
+{
+    type Item = U;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter.next().and_then(|ast| {
+            self.state
+                .take()?
+                .ok()
+                .and_then(|state| match U::transform(ast, state) {
+                    Ok((ast, state)) => {
+                        self.state = Some(Ok(state));
+                        Some(ast)
+                    }
+                    Err(e) => {
+                        self.state = Some(Err(e));
+                        None
+                    }
+                })
+        })
+    }
+}
+
+impl<I, T, U> Transformer<I, T, U>
+where
+    I: Iterator<Item = T>,
+    U: AstTransformFrom<T>,
+{
+    pub fn new(iter: I, state: U::State) -> Self {
+        Self {
+            iter,
+            state: Some(Ok(state)),
+        }
+    }
+
+    pub fn transform_all<B: FromIterator<U>>(mut self) -> Result<(B, U::State), U::Error> {
+        let values: B = iter::from_fn(|| self.next()).collect();
+        self.state.unwrap().map(|state| (values, state))
+    }
+}
+pub trait IteratorTransformer<T>: Iterator<Item = T> {
+    fn transform<U: AstTransformFrom<T>>(self, state: U::State) -> Transformer<Self, T, U>
+    where
+        Self: Sized,
+    {
+        Transformer::new(self, state)
+    }
+}
+
+impl<I, T> IteratorTransformer<T> for I where I: Iterator<Item = T> {}
 
 pub(crate) const ZERO_ARG: usize = 0;
 pub(crate) const ONE_ARG: usize = 1;

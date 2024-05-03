@@ -7,7 +7,7 @@
 )]
 // #![allow(clippy::similar_names, dead_code, unused)]
 
-use std::fs;
+use std::{fs, vec};
 
 use codegen::{
     register_to_llvm::CodeGen,
@@ -17,10 +17,7 @@ use inkwell::{context::Context, passes::PassManager};
 use itertools::Itertools;
 
 use crate::{
-    ast::{
-        ast2::{immutable_add_to_vec, pass1},
-        ast3::pass2,
-    },
+    ast::{ast2::Ast2, ast3::Ast3, ast4::Ast4, IteratorTransformer},
     codegen::multimap::MultiMap,
     macros::parse_and_expand,
 };
@@ -127,21 +124,24 @@ fn compile(file: &str, out: &str) {
     let contents = fs::read_to_string(file).unwrap();
     let program = parse_and_expand(&contents).unwrap();
     let links = MultiMap::from(program.1.into_iter().map(|(k, ks)| (ks, k.clone(), k)));
-    let typed_program = program
+    let (ast, _): (Vec<_>, _) = program
         .0
         .into_iter()
-        .try_fold((vec![], vec![]), |(exps, env), exp| {
-            pass1((exp, env)).and_then(|(exp, env)| {
-                pass2(exp, &links).map(|exp| (immutable_add_to_vec(exps, exp.into()), env))
-            })
-        })
+        .transform::<Ast2>(vec![])
+        .transform_all()
         .unwrap();
-    eprintln!(
-        "{}\n",
-        typed_program.0.iter().map(|e| format!("{e:?}")).join("\n")
-    );
-    let ir: Vec<_> = typed_program
-        .0
+    let (ast, _): (Vec<_>, _) = ast
+        .into_iter()
+        .transform::<Ast3>(links)
+        .transform_all()
+        .unwrap();
+    let (ast, _): (Vec<_>, _) = ast
+        .into_iter()
+        .transform::<Ast4>(())
+        .transform_all()
+        .unwrap();
+    eprintln!("{}\n", ast.iter().map(|e| format!("{e:?}")).join("\n"));
+    let ir: Vec<_> = ast
         .into_iter()
         .flat_map(|expr| {
             codegen::sicp::compile(expr, Register::Val, Linkage::Next)
