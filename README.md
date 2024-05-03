@@ -1,5 +1,7 @@
 # Everything
 
+[Docs](docs/README.md)
+
 Everything(-lang) is a joke programming language implentation/compiler written in rust that targets llvm (version 15)
 Eveything's tag line (and goal) is "taking multi paradigm to the extreme".
 This goal is acomplished by adopting syntax, and features, from many different languages to support the paradigms from those languages.
