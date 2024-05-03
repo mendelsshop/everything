@@ -12,6 +12,7 @@
 // for now this will be a non-hygenic macro expander
 
 // TODO more builtins an cleanup better error handlin,g types, andrmesages
+use crate::lexer::Error;
 use std::collections::HashMap;
 
 use itertools::Itertools;
@@ -21,14 +22,14 @@ use std::fs;
 use std::io::BufReader;
 use std::io::Read;
 #[derive(Debug)]
-pub enum ParseError<'a> {
+pub enum ParseError<'a, E> {
     Macro(MacroError),
-    Parse(super::pc::ParseError<'a>),
+    Parse(super::pc::ParseError<'a, E>),
 }
 
 pub fn parse_and_expand(
     input: &str,
-) -> Result<(Vec<Ast1>, HashMap<RC<str>, Vec<RC<str>>>), ParseError<'_>> {
+) -> Result<(Vec<Ast1>, HashMap<RC<str>, Vec<RC<str>>>), ParseError<'_, Error>> {
     let ast = everything_parse(input).map_err(ParseError::Parse)?;
     let mut expander = MacroExpander::new();
     let expanded = expander.expand_get_link(&ast).map_err(ParseError::Macro)?;

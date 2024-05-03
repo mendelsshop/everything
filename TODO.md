@@ -10,7 +10,7 @@ How does modules work with gotos, can a module define a label that a user of tha
 - [ ] Remove all explicit panics (unwraps, excepts, ...), and replace them with results.
 - [ ] Use proper error types for reuslts (not String).
 - [x] Make trait for ast transformations, to clean up ast transformations.
-- [ ] Have better parser errors (and have better errors in general).
+- [/] Have better parser errors (and have better errors in general).
 - [ ] Test parser.
 - [ ] Test macro expander.
 - [ ] Test ast transformers.

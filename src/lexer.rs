@@ -15,8 +15,8 @@ use crate::{
         Parser,
     },
 };
-
-fn ws_or_comment() -> Box<Parser<Option<Box<dyn Iterator<Item = char>>>>> {
+pub type Error = ();
+fn ws_or_comment() -> Box<Parser<Option<Box<dyn Iterator<Item = char>>>, Error>> {
     map(
         many(alt(
             keep_right(char('!'), keep_left(many(not_char('\n')), opt(char('\n')))),
@@ -31,20 +31,20 @@ fn ws_or_comment() -> Box<Parser<Option<Box<dyn Iterator<Item = char>>>>> {
 fn opaquify(f: impl Iterator<Item = char> + 'static) -> Box<dyn Iterator<Item = char>> {
     Box::new(f)
 }
-fn scope_list(p: Box<Parser<Ast1>>) -> Box<Parser<Vec<Ast1>>> {
+fn scope_list(p: Box<Parser<Ast1, Error>>) -> Box<Parser<Vec<Ast1>, Error>> {
     inbetween(
         keep_right(ws_or_comment(), char('᚜')),
         map(many(p), |r| r.map_or_else(Vec::new, Iterator::collect)),
         opt(keep_right(ws_or_comment(), char('᚛'))),
     )
 }
-fn scope(p: Box<Parser<Ast1>>) -> Box<Parser<Ast1>> {
+fn scope(p: Box<Parser<Ast1, Error>>) -> Box<Parser<Ast1, Error>> {
     map(scope_list(p), |mut scope| {
         scope.insert(0, "begin".into());
         Ast1::Application(scope)
     })
 }
-fn everythingexpr() -> Box<Parser<Ast1>> {
+fn everythingexpr() -> Box<Parser<Ast1, Error>> {
     // needs to be its own new closure so that we don't have infinite recursion while creating the parser (so we add a level of indirection)
     map(
         chain(
@@ -102,7 +102,7 @@ fn everythingexpr() -> Box<Parser<Ast1>> {
     )
 }
 
-fn application() -> Box<Parser<Ast1>> {
+fn application() -> Box<Parser<Ast1, Error>> {
     map(
         inbetween(
             keep_right(ws_or_comment(), any_of(call_start().iter().copied())),
@@ -116,22 +116,22 @@ fn application() -> Box<Parser<Ast1>> {
     )
 }
 
-pub fn parse_everything(input: &str) -> Result<Ast1, ParseError<'_>> {
+pub fn parse_everything(input: &str) -> Result<Ast1, ParseError<'_, Error>> {
     everythingexpr()(input).map(|res| res.0)
 }
 
-pub fn everything_parse(input: &str) -> Result<Vec<Ast1>, ParseError<'_>> {
+pub fn everything_parse(input: &str) -> Result<Vec<Ast1>, ParseError<'_, Error>> {
     map(many(everythingexpr()), |r| {
         r.map_or(vec![], Iterator::collect)
     })(input)
     .map(|res| res.0)
 }
 
-fn literal() -> Box<Parser<Ast1>> {
+fn literal() -> Box<Parser<Ast1, Error>> {
     choice([boolean(), hexnumber(), stringdot()].to_vec())
 }
 
-fn boolean() -> Box<Parser<Ast1>> {
+fn boolean() -> Box<Parser<Ast1, Error>> {
     choice(vec![
         map(string("&"), |_| Ast1::Bool(Boolean::True)),
         map(string("|"), |_| Ast1::Bool(Boolean::False)),
@@ -139,10 +139,10 @@ fn boolean() -> Box<Parser<Ast1>> {
     ])
 }
 
-fn hexnumber() -> Box<Parser<Ast1>> {
+fn hexnumber() -> Box<Parser<Ast1, Error>> {
     let digit = any_of(['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']);
     let hex_digit = choice([digit.clone(), any_of(['a', 'b', 'c', 'd', 'e', 'f'])].to_vec());
-    let parese_num = |digit_type: Box<Parser<char>>| {
+    let parese_num = |digit_type: Box<Parser<char, Error>>| {
         try_map(
             chain(
                 many(digit_type.clone()),
@@ -154,6 +154,7 @@ fn hexnumber() -> Box<Parser<Ast1>> {
                         return Err(ParseError {
                             kind: ParseErrorType::Other("not a digit".into()),
                             input: "",
+                            error: None,
                         })
                     }
                     (None, Some(s)) => (String::new(), s.collect()),
@@ -175,7 +176,7 @@ fn hexnumber() -> Box<Parser<Ast1>> {
     )
 }
 
-fn stringdot() -> Box<Parser<Ast1>> {
+fn stringdot() -> Box<Parser<Ast1, Error>> {
     inbetween(
         char('.'),
         map(many(alt(escape_string(), not_char('.'))), |r| {
@@ -198,7 +199,7 @@ fn stringdot() -> Box<Parser<Ast1>> {
 /// | ```\` ``` | single quote |
 /// | ```\x{hex}``` | hexadecimal value in ascii representation |
 /// | `\u{hex}` | Unicode character |\
-fn escape_string() -> Box<Parser<char>> {
+fn escape_string() -> Box<Parser<char, Error>> {
     keep_right(
         // TODO: this more escape characters
         char('\\'),
@@ -211,7 +212,7 @@ fn escape_string() -> Box<Parser<char>> {
     )
 }
 
-fn stmt() -> Box<Parser<Ast1>> {
+fn stmt() -> Box<Parser<Ast1, Error>> {
     choice(
         [
             mod_stmt(),
@@ -228,7 +229,7 @@ fn stmt() -> Box<Parser<Ast1>> {
     )
 }
 
-fn mod_stmt() -> Box<Parser<Ast1>> {
+fn mod_stmt() -> Box<Parser<Ast1, Error>> {
     keep_right(
         string("mod"),
         keep_right(
@@ -251,7 +252,7 @@ fn mod_stmt() -> Box<Parser<Ast1>> {
     )
 }
 
-fn let_stmt() -> Box<Parser<Ast1>> {
+fn let_stmt() -> Box<Parser<Ast1, Error>> {
     map(
         keep_right(
             string("let"),
@@ -264,7 +265,7 @@ fn let_stmt() -> Box<Parser<Ast1>> {
     )
 }
 
-fn method_stmt() -> Box<Parser<Ast1>> {
+fn method_stmt() -> Box<Parser<Ast1, Error>> {
     map(
         chain(
             keep_right(
@@ -317,7 +318,7 @@ fn method_stmt() -> Box<Parser<Ast1>> {
     )
 }
 
-fn class_stmt() -> Box<Parser<Ast1>> {
+fn class_stmt() -> Box<Parser<Ast1, Error>> {
     // lisp version of class will be
     // (class name (method1 (lambda ...)) (filed1 value) (filed2) ...)
     map(
@@ -346,7 +347,7 @@ fn class_stmt() -> Box<Parser<Ast1>> {
     )
 }
 
-fn if_stmt() -> Box<Parser<Ast1>> {
+fn if_stmt() -> Box<Parser<Ast1, Error>> {
     // TODO: allow if else if
     map(
         seq(vec![
@@ -370,7 +371,7 @@ fn if_stmt() -> Box<Parser<Ast1>> {
     )
 }
 
-fn until_stmt() -> Box<Parser<Ast1>> {
+fn until_stmt() -> Box<Parser<Ast1, Error>> {
     map(
         chain(
             keep_right(string("while"), everythingexpr()),
@@ -386,7 +387,7 @@ fn until_stmt() -> Box<Parser<Ast1>> {
     )
 }
 
-fn go_through_stmt() -> Box<Parser<Ast1>> {
+fn go_through_stmt() -> Box<Parser<Ast1, Error>> {
     map(
         chain(
             keep_right(
@@ -405,14 +406,14 @@ fn go_through_stmt() -> Box<Parser<Ast1>> {
     )
 }
 
-fn continue_doing_stmt() -> Box<Parser<Ast1>> {
+fn continue_doing_stmt() -> Box<Parser<Ast1, Error>> {
     map(
         chain(string("loop"), scope_list(everythingexpr())),
         |(ident, scope)| Ast1::Application(vec_splat(vec![ident.into()], scope).collect()),
     )
 }
 
-fn link_stmt() -> Box<Parser<Ast1>> {
+fn link_stmt() -> Box<Parser<Ast1, Error>> {
     map(
         chain(
             keep_right(
@@ -432,7 +433,7 @@ fn link_stmt() -> Box<Parser<Ast1>> {
     )
 }
 
-fn fn_stmt() -> Box<Parser<Ast1>> {
+fn fn_stmt() -> Box<Parser<Ast1, Error>> {
     // fanction - through away, name - keep char | everythingexpr
     // optinal param count (base10) - keep -> optinal everythingexpr | usize
     // optinal varidac keep scope > optional char | varidac
@@ -494,11 +495,11 @@ fn fn_stmt() -> Box<Parser<Ast1>> {
     )
 }
 
-fn ident_everything() -> Box<Parser<Ast1>> {
+fn ident_everything() -> Box<Parser<Ast1, Error>> {
     map(ident(), Into::into)
 }
 
-fn ident() -> Box<Parser<String>> {
+fn ident() -> Box<Parser<String, Error>> {
     map(
         many1(not_any_of(
             call_start()
@@ -535,14 +536,14 @@ const fn call_end() -> &'static [char] {
     ]
 }
 
-fn terminal_everything() -> Box<Parser<Ast1>> {
+fn terminal_everything() -> Box<Parser<Ast1, Error>> {
     alt(
         map(string("skip"), |s| Ast1::Application(vec![s.into()])),
         list_expr(string("stop")),
     )
 }
 
-fn special_start() -> Box<Parser<Ast1>> {
+fn special_start() -> Box<Parser<Ast1, Error>> {
     choice(vec![
         quoted_everything(),
         label_everything(),
@@ -552,32 +553,32 @@ fn special_start() -> Box<Parser<Ast1>> {
     ])
 }
 
-fn list_expr(first: Box<Parser<impl Into<Ast1> + 'static>>) -> Box<Parser<Ast1>> {
+fn list_expr(first: Box<Parser<impl Into<Ast1> + 'static, Error>>) -> Box<Parser<Ast1, Error>> {
     map(
         chain(map(first, Into::into), everythingexpr()),
         |(first, expr)| Ast1::Application(vec![first, expr]),
     )
 }
 
-fn quoted_everything() -> Box<Parser<Ast1>> {
+fn quoted_everything() -> Box<Parser<Ast1, Error>> {
     list_expr(map(string(";"), |_| "quote"))
 }
 
-fn quassi_quoted_everything() -> Box<Parser<Ast1>> {
+fn quassi_quoted_everything() -> Box<Parser<Ast1, Error>> {
     list_expr(map(string(":"), |_| "quasiquote"))
 }
 
-fn unquoted_everything() -> Box<Parser<Ast1>> {
+fn unquoted_everything() -> Box<Parser<Ast1, Error>> {
     list_expr(map(string("$"), |_| "unquote"))
 }
 
-fn label_everything() -> Box<Parser<Ast1>> {
+fn label_everything() -> Box<Parser<Ast1, Error>> {
     map(keep_right(char('@'), ident()), |res| {
         Ast1::Label(res.into())
     })
 }
 
-fn param_everything() -> Box<Parser<Ast1>> {
+fn param_everything() -> Box<Parser<Ast1, Error>> {
     inbetween(
         any_of(['\'', '"']),
         map(
