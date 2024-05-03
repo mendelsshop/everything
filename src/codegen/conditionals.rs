@@ -1,6 +1,6 @@
 use inkwell::values::BasicValueEnum;
 
-use crate::ast::EverythingExpr;
+use crate::ast::ast1::Ast1;
 
 use super::Compiler;
 
@@ -8,7 +8,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     // special form if
     pub fn special_form_if(
         &mut self,
-        exprs: &[EverythingExpr],
+        exprs: &[Ast1],
     ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
         if exprs.len() < 2 || exprs.len() > 3 {
             return Err("bad form for if expression".to_string());

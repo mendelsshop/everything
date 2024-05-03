@@ -1,13 +1,13 @@
 use inkwell::values::{BasicValue, BasicValueEnum, StructValue};
 
-use crate::ast::{FlattenAst, EverythingExpr};
+use crate::ast::ast1::{Ast1, FlattenAst};
 
 use super::Compiler;
 
 impl<'a, 'ctx> Compiler<'a, 'ctx> {
     pub fn special_form_quote(
         &mut self,
-        exprs: &[EverythingExpr],
+        exprs: &[Ast1],
     ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
         if exprs.len() != 1 {
             Err("quoted expressiion needs to have one expression")?;
@@ -16,18 +16,18 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     }
     pub fn special_form_unquote(
         _: &mut Compiler<'_, '_>,
-        _: &[EverythingExpr],
+        _: &[Ast1],
     ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
         Err("unquote outside of a quasiquote expression".to_string())
     }
     pub fn special_form_quasiquote(
         &mut self,
-        exprs: &[EverythingExpr],
+        exprs: &[Ast1],
     ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
         let list = return_none!(exprs
             .iter()
             .map(|expr| {
-                if let EverythingExpr::Application(list) = expr {
+                if let Ast1::Application(list) = expr {
                     if list.get(0) == Some(&"unquote".into()) {
                         list.get(1)
                             .map(|expr| self.compile_expr(expr))

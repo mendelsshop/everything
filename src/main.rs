@@ -5,13 +5,9 @@
     missing_debug_implementations,
     clippy::missing_panics_doc
 )]
-#![allow(clippy::similar_names, dead_code, unused)]
+// #![allow(clippy::similar_names, dead_code, unused)]
 
-use std::{
-    fs,
-    io::{self, Write},
-    process::exit,
-};
+use std::fs;
 
 use codegen::{
     register_to_llvm::CodeGen,
@@ -21,8 +17,11 @@ use inkwell::{context::Context, passes::PassManager};
 use itertools::Itertools;
 
 use crate::{
-    ast::{immutable_add_to_vec, pass1, pass2},
-    codegen::{multimap::MultiMap, Compiler},
+    ast::{
+        ast2::{immutable_add_to_vec, pass1},
+        ast3::pass2,
+    },
+    codegen::multimap::MultiMap,
     macros::parse_and_expand,
 };
 use clap::{Parser, Subcommand};
@@ -72,9 +71,6 @@ pub enum ArgType {
     Expand {
         filename: String,
     },
-    Sicp {
-        filename: String,
-    },
 }
 
 fn main() {
@@ -84,7 +80,6 @@ fn main() {
         ArgType::Compile { filename, output } => compile(&filename, &output),
         ArgType::Run { filename } => run(&filename),
         ArgType::Expand { filename } => expand(&filename),
-        ArgType::Sicp { filename } => sicp(&filename),
     }
 }
 
@@ -118,103 +113,9 @@ fn init_function_optimizer<'ctx>(
     fpm
 }
 
-fn repl() {
-    let context = Context::create();
-    let module = context.create_module("repl");
-    let builder = context.create_builder();
+fn repl() {}
 
-    // Create FPM
-    let fpm = init_function_optimizer(&module);
-
-    let mut input = String::new();
-    let mut input_new = String::new();
-    // we use repl as opposed to jit see https://github.com/TheDan64/inkwell/issues/397
-    let mut complier =
-        { Compiler::new(&context, &module, &builder, &fpm, &codegen::EngineType::Jit) };
-    while {
-        print!(">>> ");
-        io::stdout().flush().expect("couldn't flush output");
-        io::stdin().read_line(&mut input_new)
-    }
-    .is_ok()
-    {
-        if input_new.trim() == "run" {
-            // really eneffecient to create a new compiler every time (and not whats expected either)
-            // but currently there is no way to add onto main function after first compile
-
-            let program = parse_and_expand(&input).unwrap();
-            complier.compile_program(&program.0, program.1).map_or_else(
-                || {
-                    complier.export_ir("bin/main");
-                    complier.run().expect("no execution engine found");
-                    println!();
-                },
-                |err| {
-                    println!("error: {err}");
-                    exit(1);
-                },
-            );
-            input.clear();
-        } else if input_new.trim() == "quit" {
-            exit(0)
-        } else {
-            input += &input_new;
-        }
-        input_new.clear();
-    }
-}
-
-fn compile(file: &str, out: &str) {
-    let contents = fs::read_to_string(file).unwrap();
-    let program = parse_and_expand(&contents).unwrap();
-    let context = Context::create();
-    let module = context.create_module(file);
-    let builder = context.create_builder();
-    // Create FPM
-    let fpm = init_function_optimizer(&module);
-    let mut complier = {
-        Compiler::new(
-            &context,
-            &module,
-            &builder,
-            &fpm,
-            &codegen::EngineType::None,
-        )
-    };
-    complier.compile_program(&program.0, program.1).map_or_else(
-        || {
-            // TODO: actually compile the program not just generate llvm ir
-            complier.export_ir(out);
-        },
-        |err| {
-            println!("error: {err}");
-            exit(1);
-        },
-    );
-}
-
-fn run(file: &str) {
-    let contents = fs::read_to_string(file).unwrap();
-    let program = parse_and_expand(&contents).unwrap();
-    let context = Context::create();
-    let module = context.create_module(file);
-    let builder = context.create_builder();
-    // Create FPM
-    // println!("{program:?}");
-    let fpm = init_function_optimizer(&module);
-    let mut complier =
-        { Compiler::new(&context, &module, &builder, &fpm, &codegen::EngineType::Jit) };
-    complier.compile_program(&program.0, program.1).map_or_else(
-        || {
-            let ret = complier.run().expect("no execution engine found");
-            exit(ret);
-        },
-        |err| {
-            println!("error: {err}");
-            exit(1);
-        },
-    );
-}
+fn run(file: &str) {}
 
 fn expand(file: &str) {
     let contents = fs::read_to_string(file).unwrap();
@@ -222,7 +123,7 @@ fn expand(file: &str) {
     println!("{program:?}");
 }
 
-fn sicp(file: &str) {
+fn compile(file: &str, out: &str) {
     let contents = fs::read_to_string(file).unwrap();
     let program = parse_and_expand(&contents).unwrap();
     let links = MultiMap::from(program.1.into_iter().map(|(k, ks)| (ks, k.clone(), k)));

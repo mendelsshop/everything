@@ -15,7 +15,7 @@ use inkwell::{
     AddressSpace,
 };
 
-use crate::{ast::EverythingExpr, interior_mut::RC};
+use crate::{ast::ast1::Ast1, interior_mut::RC};
 
 use self::{env::VarType, multimap::MultiMap};
 macro_rules! return_none {
@@ -330,15 +330,15 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         Ok(build_alloca)
     }
 
-    fn compile_expr(&mut self, expr: &EverythingExpr) -> Result<Option<BasicValueEnum<'ctx>>, String> {
+    fn compile_expr(&mut self, expr: &Ast1) -> Result<Option<BasicValueEnum<'ctx>>, String> {
         match expr {
-            EverythingExpr::Number(value) => Ok(Some(self.const_number(*value).as_basic_value_enum())),
-            EverythingExpr::Bool(value) => Ok(Some(self.const_boolean(*value).as_basic_value_enum())),
-            EverythingExpr::String(value) => Ok(Some(self.const_string(value).as_basic_value_enum())),
-            EverythingExpr::Ident(s) => self.get_var(s).map(Some),
-            EverythingExpr::Application(application) => self.compile_application(application),
-            EverythingExpr::Label(s) => self.compile_label(s),
-            EverythingExpr::FnParam(s) => self.get_var(&s.to_string().into()).map(Some),
+            Ast1::Number(value) => Ok(Some(self.const_number(*value).as_basic_value_enum())),
+            Ast1::Bool(value) => Ok(Some(self.const_boolean(*value).as_basic_value_enum())),
+            Ast1::String(value) => Ok(Some(self.const_string(value).as_basic_value_enum())),
+            Ast1::Ident(s) => self.get_var(s).map(Some),
+            Ast1::Application(application) => self.compile_application(application),
+            Ast1::Label(s) => self.compile_label(s),
+            Ast1::FnParam(s) => self.get_var(&s.to_string().into()).map(Some),
             // EverythingExpr::Hempty => Ok(Some(self.hempty().into())),
         }
     }
@@ -349,7 +349,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     // TODO: keep in mind the fact that the loop might be in outer function
     fn special_form_stop(
         &mut self,
-        exprs: &[EverythingExpr],
+        exprs: &[Ast1],
     ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
         if exprs.len() != 1 {
             Err("this is an expression oreinted language stopping a loop or function requires a value")?;
@@ -383,16 +383,13 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         Ok(None)
     }
 
-    fn special_form_mod(
-        &mut self,
-        exprs: &[EverythingExpr],
-    ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
+    fn special_form_mod(&mut self, exprs: &[Ast1]) -> Result<Option<BasicValueEnum<'ctx>>, String> {
         // we should probalby compile with root env as opposed to whatever env the compiler was in when it reached this mod
         // one way to do this is to keep a list of modules with thein envs including one for the root ...
         if exprs.is_empty() {
             Err("Mod requires either a name and scope")?;
         }
-        let EverythingExpr::Ident(module_name) = &exprs[0] else {
+        let Ast1::Ident(module_name) = &exprs[0] else {
             return Err("Mod requires a module name as its first argument")?;
         };
         self.module_list.push(module_name.to_string());
@@ -467,10 +464,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         object.as_basic_value().into_struct_value()
     }
 
-    pub fn compile_scope(
-        &mut self,
-        body: &[EverythingExpr],
-    ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
+    pub fn compile_scope(&mut self, body: &[Ast1]) -> Result<Option<BasicValueEnum<'ctx>>, String> {
         let mut res = Err("scope does not have value".to_string());
         for expr in body {
             res = Ok(return_none!(self.compile_expr(expr)?));
@@ -625,7 +619,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
     pub fn compile_program(
         &mut self,
-        program: &[EverythingExpr],
+        program: &[Ast1],
         links: HashMap<RC<str>, Vec<RC<str>>>,
     ) -> Option<String> {
         // TODO: dont reset links instead add to current (needed for repl to work)

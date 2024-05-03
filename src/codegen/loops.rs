@@ -1,13 +1,13 @@
 use inkwell::values::{BasicValueEnum, PhiValue, StructValue};
 
-use crate::{ast::EverythingExpr, interior_mut::RC};
+use crate::{ast::ast1::Ast1, interior_mut::RC};
 
 use super::{Compiler, EvalType, TyprIndex};
 
 impl<'a, 'ctx> Compiler<'a, 'ctx> {
     pub(crate) fn special_form_loop(
         &mut self,
-        exprs: &[EverythingExpr],
+        exprs: &[Ast1],
     ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
         let loop_bb = self
             .context
@@ -39,13 +39,13 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
     pub(crate) fn special_form_for_loop(
         &mut self,
-        exprs: &[EverythingExpr],
+        exprs: &[Ast1],
     ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
         if exprs.len() < 2 {
             return Err("Expected 3 expression for for loop".to_string());
         }
         // iterates with `in order`
-        let EverythingExpr::Ident(name) = &exprs[0] else {
+        let Ast1::Ident(name) = &exprs[0] else {
             return Err("no identifier to usef for iteration".to_string());
         };
         let iter = &exprs[1];
@@ -58,7 +58,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         &mut self,
         expr: StructValue<'ctx>,
         name: RC<str>,
-        iter_scope: &[EverythingExpr],
+        iter_scope: &[Ast1],
     ) -> Result<PhiValue<'ctx>, String> {
         let helper_struct = self.context.struct_type(
             &[self.types.object.into(), self.types.generic_pointer.into()],
@@ -354,7 +354,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
     pub(crate) fn special_form_while_loop(
         &mut self,
-        exprs: &[EverythingExpr],
+        exprs: &[Ast1],
     ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
         if exprs.is_empty() {
             return Err("expected 2 expression for while loop".to_string());
@@ -406,7 +406,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
     pub(crate) fn special_form_skip(
         &mut self,
-        exprs: &[EverythingExpr],
+        exprs: &[Ast1],
     ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
         if !exprs.is_empty() {
             return Err("skip just skips no need for a value".to_string());

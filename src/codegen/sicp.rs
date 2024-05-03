@@ -8,7 +8,7 @@ use std::{
 use itertools::Itertools;
 
 use crate::{
-    ast::{Arg, Ast4, Varidiac},
+    ast::{ast4::Ast4, Arg, Varidiac},
     interior_mut::RC,
 };
 
@@ -605,7 +605,9 @@ fn compile_lambda(lambda: (Arg, Ast4), target: Register, linkage: Linkage) -> In
                             args: vec![
                                 Expr::Label(proc_entry.clone()),
                                 Expr::Register(Register::Env),
-                                Expr::Const(Const::Number(<Arg as Into<usize>>::into(lambda.0) as f64)),
+                                Expr::Const(Const::Number(
+                                    <Arg as Into<usize>>::into(lambda.0) as f64
+                                )),
                             ],
                         }),
                     )],

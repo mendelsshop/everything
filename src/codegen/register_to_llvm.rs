@@ -1636,33 +1636,36 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                     )
                     .into_float_value();
                 self.make_object(
-                    &self.builder.build_or(
-                        self.builder
-                            .build_float_compare(
-                                FloatPredicate::OEQ,
-                                lambda_type,
-                                self.types
-                                    .types
-                                    .number
-                                    .into_float_type()
-                                    .const_float(ZERO_VARIADIAC_ARG as f64),
-                                "is zero variadiac",
-                            )
-                            .unwrap(),
-                        self.builder
-                            .build_float_compare(
-                                FloatPredicate::OEQ,
-                                lambda_type,
-                                self.types
-                                    .types
-                                    .number
-                                    .into_float_type()
-                                    .const_float(ONE_VARIADIAC_ARG as f64),
-                                "is one variadiac",
-                            )
-                            .unwrap(),
-                        "is variadiac",
-                    ).unwrap(),
+                    &self
+                        .builder
+                        .build_or(
+                            self.builder
+                                .build_float_compare(
+                                    FloatPredicate::OEQ,
+                                    lambda_type,
+                                    self.types
+                                        .types
+                                        .number
+                                        .into_float_type()
+                                        .const_float(ZERO_VARIADIAC_ARG as f64),
+                                    "is zero variadiac",
+                                )
+                                .unwrap(),
+                            self.builder
+                                .build_float_compare(
+                                    FloatPredicate::OEQ,
+                                    lambda_type,
+                                    self.types
+                                        .types
+                                        .number
+                                        .into_float_type()
+                                        .const_float(ONE_VARIADIAC_ARG as f64),
+                                    "is one variadiac",
+                                )
+                                .unwrap(),
+                            "is variadiac",
+                        )
+                        .unwrap(),
                     TypeIndex::bool,
                 )
             }

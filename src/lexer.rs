@@ -7,7 +7,7 @@ use std::iter;
 // qussiquote -> :
 // unquote -> $
 use crate::{
-    ast::{Boolean, EverythingExpr},
+    ast::{ast1::Ast1, Boolean},
     interior_mut::RC,
     pc::{
         alt, any_of, chain, char, choice, inbetween, keep_left, keep_right, many, many1, map,
@@ -31,20 +31,20 @@ fn ws_or_comment() -> Box<Parser<Option<Box<dyn Iterator<Item = char>>>>> {
 fn opaquify(f: impl Iterator<Item = char> + 'static) -> Box<dyn Iterator<Item = char>> {
     Box::new(f)
 }
-fn scope_list(p: Box<Parser<EverythingExpr>>) -> Box<Parser<Vec<EverythingExpr>>> {
+fn scope_list(p: Box<Parser<Ast1>>) -> Box<Parser<Vec<Ast1>>> {
     inbetween(
         keep_right(ws_or_comment(), char('᚜')),
         map(many(p), |r| r.map_or_else(Vec::new, Iterator::collect)),
         opt(keep_right(ws_or_comment(), char('᚛'))),
     )
 }
-fn scope(p: Box<Parser<EverythingExpr>>) -> Box<Parser<EverythingExpr>> {
+fn scope(p: Box<Parser<Ast1>>) -> Box<Parser<Ast1>> {
     map(scope_list(p), |mut scope| {
         scope.insert(0, "begin".into());
-        EverythingExpr::Application(scope)
+        Ast1::Application(scope)
     })
 }
-fn everythingexpr() -> Box<Parser<EverythingExpr>> {
+fn everythingexpr() -> Box<Parser<Ast1>> {
     // needs to be its own new closure so that we don't have infinite recursion while creating the parser (so we add a level of indirection)
     map(
         chain(
@@ -79,7 +79,7 @@ fn everythingexpr() -> Box<Parser<EverythingExpr>> {
         |mut r| {
             if let Some(accesors) = r.1 {
                 let new_acces =
-                    |accesor: String, expr| EverythingExpr::Application(vec![accesor.into(), expr]);
+                    |accesor: String, expr| Ast1::Application(vec![accesor.into(), expr]);
                 for mut accesor in accesors {
                     if accesor == ">>" {
                         accesor.clear();
@@ -102,7 +102,7 @@ fn everythingexpr() -> Box<Parser<EverythingExpr>> {
     )
 }
 
-fn application() -> Box<Parser<EverythingExpr>> {
+fn application() -> Box<Parser<Ast1>> {
     map(
         inbetween(
             keep_right(ws_or_comment(), any_of(call_start().iter().copied())),
@@ -112,31 +112,34 @@ fn application() -> Box<Parser<EverythingExpr>> {
                 any_of(call_end().iter().copied()),
             )),
         ),
-        |r| EverythingExpr::Application(r.map_or_else(Vec::new, Iterator::collect)),
+        |r| Ast1::Application(r.map_or_else(Vec::new, Iterator::collect)),
     )
 }
 
-pub fn parse_everything(input: &str) -> Result<EverythingExpr, ParseError<'_>> {
+pub fn parse_everything(input: &str) -> Result<Ast1, ParseError<'_>> {
     everythingexpr()(input).map(|res| res.0)
 }
 
-pub fn everything_parse(input: &str) -> Result<Vec<EverythingExpr>, ParseError<'_>> {
-    map(many(everythingexpr()), |r| r.map_or(vec![], Iterator::collect))(input).map(|res| res.0)
+pub fn everything_parse(input: &str) -> Result<Vec<Ast1>, ParseError<'_>> {
+    map(many(everythingexpr()), |r| {
+        r.map_or(vec![], Iterator::collect)
+    })(input)
+    .map(|res| res.0)
 }
 
-fn literal() -> Box<Parser<EverythingExpr>> {
+fn literal() -> Box<Parser<Ast1>> {
     choice([boolean(), hexnumber(), stringdot()].to_vec())
 }
 
-fn boolean() -> Box<Parser<EverythingExpr>> {
+fn boolean() -> Box<Parser<Ast1>> {
     choice(vec![
-        map(string("&"), |_| EverythingExpr::Bool(Boolean::True)),
-        map(string("|"), |_| EverythingExpr::Bool(Boolean::False)),
-        map(string("?"), |_| EverythingExpr::Bool(Boolean::Maybee)),
+        map(string("&"), |_| Ast1::Bool(Boolean::True)),
+        map(string("|"), |_| Ast1::Bool(Boolean::False)),
+        map(string("?"), |_| Ast1::Bool(Boolean::Maybee)),
     ])
 }
 
-fn hexnumber() -> Box<Parser<EverythingExpr>> {
+fn hexnumber() -> Box<Parser<Ast1>> {
     let digit = any_of(['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']);
     let hex_digit = choice([digit.clone(), any_of(['a', 'b', 'c', 'd', 'e', 'f'])].to_vec());
     let parese_num = |digit_type: Box<Parser<char>>| {
@@ -157,7 +160,7 @@ fn hexnumber() -> Box<Parser<EverythingExpr>> {
                     (Some(s), None) => (s.collect(), String::new()),
                     (Some(s), Some(r)) => (s.collect(), r.collect()),
                 };
-                Ok(EverythingExpr::Number(
+                Ok(Ast1::Number(
                     format!("0x{}.{}", number.0, number.1)
                         .parse::<hexponent::FloatLiteral>()
                         .unwrap()
@@ -172,11 +175,11 @@ fn hexnumber() -> Box<Parser<EverythingExpr>> {
     )
 }
 
-fn stringdot() -> Box<Parser<EverythingExpr>> {
+fn stringdot() -> Box<Parser<Ast1>> {
     inbetween(
         char('.'),
         map(many(alt(escape_string(), not_char('.'))), |r| {
-            EverythingExpr::String(r.map_or_else(String::new, Iterator::collect).into())
+            Ast1::String(r.map_or_else(String::new, Iterator::collect).into())
         }),
         opt(char('.')),
     )
@@ -208,7 +211,7 @@ fn escape_string() -> Box<Parser<char>> {
     )
 }
 
-fn stmt() -> Box<Parser<EverythingExpr>> {
+fn stmt() -> Box<Parser<Ast1>> {
     choice(
         [
             mod_stmt(),
@@ -225,7 +228,7 @@ fn stmt() -> Box<Parser<EverythingExpr>> {
     )
 }
 
-fn mod_stmt() -> Box<Parser<EverythingExpr>> {
+fn mod_stmt() -> Box<Parser<Ast1>> {
     keep_right(
         string("mod"),
         keep_right(
@@ -241,14 +244,14 @@ fn mod_stmt() -> Box<Parser<EverythingExpr>> {
                 |(name, code)| {
                     let mut module = vec!["module".into(), name.to_string().into()];
                     module.extend(code);
-                    EverythingExpr::Application(module)
+                    Ast1::Application(module)
                 },
             ),
         ),
     )
 }
 
-fn let_stmt() -> Box<Parser<EverythingExpr>> {
+fn let_stmt() -> Box<Parser<Ast1>> {
     map(
         keep_right(
             string("let"),
@@ -257,11 +260,11 @@ fn let_stmt() -> Box<Parser<EverythingExpr>> {
                 keep_right(keep_right(ws_or_comment(), char('=')), everythingexpr()),
             ),
         ),
-        |r| EverythingExpr::Application(vec!["define".into(), r.0, r.1]),
+        |r| Ast1::Application(vec!["define".into(), r.0, r.1]),
     )
 }
 
-fn method_stmt() -> Box<Parser<EverythingExpr>> {
+fn method_stmt() -> Box<Parser<Ast1>> {
     map(
         chain(
             keep_right(
@@ -303,18 +306,18 @@ fn method_stmt() -> Box<Parser<EverythingExpr>> {
             let number = r.0 .1 .0;
             let varidiac = r.0 .1 .1;
             let fn_info = varidiac.map_or(number.clone(), |varidiac| {
-                EverythingExpr::Application(vec![number, varidiac.to_string().into()])
+                Ast1::Application(vec![number, varidiac.to_string().into()])
             });
             let scope = r.1;
-            EverythingExpr::Application(vec![
+            Ast1::Application(vec![
                 name,
-                EverythingExpr::Application(vec_splat!(vec!["lambda".into(), fn_info], scope).collect()),
+                Ast1::Application(vec_splat!(vec!["lambda".into(), fn_info], scope).collect()),
             ])
         },
     )
 }
 
-fn class_stmt() -> Box<Parser<EverythingExpr>> {
+fn class_stmt() -> Box<Parser<Ast1>> {
     // lisp version of class will be
     // (class name (method1 (lambda ...)) (filed1 value) (filed2) ...)
     map(
@@ -329,7 +332,7 @@ fn class_stmt() -> Box<Parser<EverythingExpr>> {
                     ws_or_comment(),
                     alt(
                         method_stmt(),
-                        map(ident_everything(), |r| EverythingExpr::Application(vec![r])),
+                        map(ident_everything(), |r| Ast1::Application(vec![r])),
                     ),
                 )),
                 opt(keep_right(ws_or_comment(), char('᚛'))),
@@ -338,12 +341,12 @@ fn class_stmt() -> Box<Parser<EverythingExpr>> {
         |r| {
             let name = r.0;
             let fields = r.1.map_or_else(Vec::new, Iterator::collect);
-            EverythingExpr::Application(vec_splat!(vec!["class".into(), name.into()], fields).collect())
+            Ast1::Application(vec_splat!(vec!["class".into(), name.into()], fields).collect())
         },
     )
 }
 
-fn if_stmt() -> Box<Parser<EverythingExpr>> {
+fn if_stmt() -> Box<Parser<Ast1>> {
     // TODO: allow if else if
     map(
         seq(vec![
@@ -362,12 +365,12 @@ fn if_stmt() -> Box<Parser<EverythingExpr>> {
             let cond = r.next().unwrap();
             let cons = r.next().unwrap();
             let alt = r.next().unwrap();
-            EverythingExpr::Application(vec![if_ident, cond, cons, alt])
+            Ast1::Application(vec![if_ident, cond, cons, alt])
         },
     )
 }
 
-fn until_stmt() -> Box<Parser<EverythingExpr>> {
+fn until_stmt() -> Box<Parser<Ast1>> {
     map(
         chain(
             keep_right(string("while"), everythingexpr()),
@@ -378,15 +381,18 @@ fn until_stmt() -> Box<Parser<EverythingExpr>> {
         ),
         |(cond, scope)| {
             let while_ident = "while".into();
-            EverythingExpr::Application(vec_splat(vec![while_ident, cond], scope).collect())
+            Ast1::Application(vec_splat(vec![while_ident, cond], scope).collect())
         },
     )
 }
 
-fn go_through_stmt() -> Box<Parser<EverythingExpr>> {
+fn go_through_stmt() -> Box<Parser<Ast1>> {
     map(
         chain(
-            keep_right(string("for"), keep_right(ws_or_comment(), ident_everything())), // TODO: use identifier parserl, not the full blown expression parser
+            keep_right(
+                string("for"),
+                keep_right(ws_or_comment(), ident_everything()),
+            ), // TODO: use identifier parserl, not the full blown expression parser
             chain(
                 keep_right(keep_right(ws_or_comment(), string("in")), everythingexpr()),
                 scope_list(everythingexpr()),
@@ -394,19 +400,19 @@ fn go_through_stmt() -> Box<Parser<EverythingExpr>> {
         ),
         |(name, (iter, scope))| {
             let for_ident = "for".into();
-            EverythingExpr::Application(vec_splat(vec![for_ident, name, iter], scope).collect())
+            Ast1::Application(vec_splat(vec![for_ident, name, iter], scope).collect())
         },
     )
 }
 
-fn continue_doing_stmt() -> Box<Parser<EverythingExpr>> {
+fn continue_doing_stmt() -> Box<Parser<Ast1>> {
     map(
         chain(string("loop"), scope_list(everythingexpr())),
-        |(ident, scope)| EverythingExpr::Application(vec_splat(vec![ident.into()], scope).collect()),
+        |(ident, scope)| Ast1::Application(vec_splat(vec![ident.into()], scope).collect()),
     )
 }
 
-fn link_stmt() -> Box<Parser<EverythingExpr>> {
+fn link_stmt() -> Box<Parser<Ast1>> {
     map(
         chain(
             keep_right(
@@ -421,12 +427,12 @@ fn link_stmt() -> Box<Parser<EverythingExpr>> {
             let goto = res.0;
             let mut link = vec![link_ident, goto];
             link.extend(res.1);
-            EverythingExpr::Application(link)
+            Ast1::Application(link)
         },
     )
 }
 
-fn fn_stmt() -> Box<Parser<EverythingExpr>> {
+fn fn_stmt() -> Box<Parser<Ast1>> {
     // fanction - through away, name - keep char | everythingexpr
     // optinal param count (base10) - keep -> optinal everythingexpr | usize
     // optinal varidac keep scope > optional char | varidac
@@ -451,42 +457,36 @@ fn fn_stmt() -> Box<Parser<EverythingExpr>> {
             ),
         ),
         |r| {
-            let map_to_everything = |c: Option<char>, mapper: fn(RC<str>) -> EverythingExpr| {
+            let map_to_everything = |c: Option<char>, mapper: fn(RC<str>) -> Ast1| {
                 c.as_ref()
                     .map(ToString::to_string)
                     .map(Into::into)
                     .map(mapper)
             };
-            let name = map_to_everything(r.0, EverythingExpr::Ident);
+            let name = map_to_everything(r.0, Ast1::Ident);
             // TODO: maybe if no count given then randomly choose a count
             let param_count = r.1 .0.unwrap();
-            let variadic = map_to_everything(r.1 .1 .0, EverythingExpr::Ident);
+            let variadic = map_to_everything(r.1 .1 .0, Ast1::Ident);
             let scope = r.1 .1 .1;
             let fn_ident = "lambda".into();
             // function can either be (lambda (n *) exprs) or (lambda (n +) exprs) or (lambda n exprs) n = arg count
             let lambda = if let Some(variadic) = variadic {
-                EverythingExpr::Application(
+                Ast1::Application(
                     vec_splat!(
-                        vec![
-                            fn_ident,
-                            EverythingExpr::Application(vec![param_count, variadic])
-                        ],
+                        vec![fn_ident, Ast1::Application(vec![param_count, variadic])],
                         scope
                     )
                     .collect(),
                 )
             } else {
-                EverythingExpr::Application(
-                    vec_splat(
-                        vec![fn_ident, EverythingExpr::Application(vec![param_count])],
-                        scope,
-                    )
-                    .collect(),
+                Ast1::Application(
+                    vec_splat(vec![fn_ident, Ast1::Application(vec![param_count])], scope)
+                        .collect(),
                 )
             };
             if let Some(name) = name {
                 let fn_ident = "define".into();
-                EverythingExpr::Application(vec![fn_ident, name, lambda])
+                Ast1::Application(vec![fn_ident, name, lambda])
             } else {
                 lambda
             }
@@ -494,7 +494,7 @@ fn fn_stmt() -> Box<Parser<EverythingExpr>> {
     )
 }
 
-fn ident_everything() -> Box<Parser<EverythingExpr>> {
+fn ident_everything() -> Box<Parser<Ast1>> {
     map(ident(), Into::into)
 }
 
@@ -535,14 +535,14 @@ const fn call_end() -> &'static [char] {
     ]
 }
 
-fn terminal_everything() -> Box<Parser<EverythingExpr>> {
+fn terminal_everything() -> Box<Parser<Ast1>> {
     alt(
-        map(string("skip"), |s| EverythingExpr::Application(vec![s.into()])),
+        map(string("skip"), |s| Ast1::Application(vec![s.into()])),
         list_expr(string("stop")),
     )
 }
 
-fn special_start() -> Box<Parser<EverythingExpr>> {
+fn special_start() -> Box<Parser<Ast1>> {
     choice(vec![
         quoted_everything(),
         label_everything(),
@@ -552,37 +552,37 @@ fn special_start() -> Box<Parser<EverythingExpr>> {
     ])
 }
 
-fn list_expr(first: Box<Parser<impl Into<EverythingExpr> + 'static>>) -> Box<Parser<EverythingExpr>> {
+fn list_expr(first: Box<Parser<impl Into<Ast1> + 'static>>) -> Box<Parser<Ast1>> {
     map(
         chain(map(first, Into::into), everythingexpr()),
-        |(first, expr)| EverythingExpr::Application(vec![first, expr]),
+        |(first, expr)| Ast1::Application(vec![first, expr]),
     )
 }
 
-fn quoted_everything() -> Box<Parser<EverythingExpr>> {
+fn quoted_everything() -> Box<Parser<Ast1>> {
     list_expr(map(string(";"), |_| "quote"))
 }
 
-fn quassi_quoted_everything() -> Box<Parser<EverythingExpr>> {
+fn quassi_quoted_everything() -> Box<Parser<Ast1>> {
     list_expr(map(string(":"), |_| "quasiquote"))
 }
 
-fn unquoted_everything() -> Box<Parser<EverythingExpr>> {
+fn unquoted_everything() -> Box<Parser<Ast1>> {
     list_expr(map(string("$"), |_| "unquote"))
 }
 
-fn label_everything() -> Box<Parser<EverythingExpr>> {
+fn label_everything() -> Box<Parser<Ast1>> {
     map(keep_right(char('@'), ident()), |res| {
-        EverythingExpr::Label(res.into())
+        Ast1::Label(res.into())
     })
 }
 
-fn param_everything() -> Box<Parser<EverythingExpr>> {
+fn param_everything() -> Box<Parser<Ast1>> {
     inbetween(
         any_of(['\'', '"']),
         map(
             many1(any_of(['0', '1', '2', '3', '4', '5', '6', '7'])),
-            |res| EverythingExpr::FnParam(parse(&format!("0o{}", res.collect::<String>())).unwrap()),
+            |res| Ast1::FnParam(parse(&format!("0o{}", res.collect::<String>())).unwrap()),
         ),
         opt(any_of(['\'', '"'])),
     )
@@ -591,7 +591,7 @@ fn param_everything() -> Box<Parser<EverythingExpr>> {
 #[cfg(test)]
 mod tests {
     // TODO: remake some of thests now that >> > < are valid in any expression
-    use crate::lexer::{parse_everything, Boolean, EverythingExpr};
+    use crate::lexer::{parse_everything, Ast1, Boolean};
 
     #[test]
     pub fn everything() {
@@ -703,14 +703,14 @@ mod tests {
     fn everything_number() {
         let test_result = parse_everything("0xf%9");
         assert!(test_result.is_ok());
-        assert_eq!(test_result.unwrap(), EverythingExpr::Number(15.5625));
+        assert_eq!(test_result.unwrap(), Ast1::Number(15.5625));
     }
 
     #[test]
     fn everything_bool() {
         let test_result = parse_everything("?");
         assert!(test_result.is_ok());
-        assert_eq!(test_result.unwrap(), EverythingExpr::Bool(Boolean::Maybee));
+        assert_eq!(test_result.unwrap(), Ast1::Bool(Boolean::Maybee));
     }
 
     // #[test]
@@ -731,7 +731,7 @@ mod tests {
     fn everything_acces_param() {
         let test_result = parse_everything("'10'");
         assert!(test_result.is_ok());
-        assert_eq!(test_result.unwrap(), EverythingExpr::FnParam(8));
+        assert_eq!(test_result.unwrap(), Ast1::FnParam(8));
     }
 
     #[test]

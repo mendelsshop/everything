@@ -2,7 +2,7 @@ use inkwell::values::{BasicValueEnum, FunctionValue, PointerValue};
 use std::collections::HashMap;
 
 use crate::{
-    ast::EverythingExpr,
+    ast::ast1::Ast1,
     interior_mut::{MUTEX, RC},
 };
 
@@ -28,30 +28,30 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
     pub fn special_form_define(
         &mut self,
-        exprs: &[EverythingExpr],
+        exprs: &[Ast1],
     ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
         if exprs.len() < 2 {
             return Err("define must have 2 expressions".to_string());
         }
         match &exprs[0] {
-            EverythingExpr::Ident(i) => {
+            Ast1::Ident(i) => {
                 let v = return_none!(self.compile_expr(&exprs[1])?);
                 self.insert_variable_new_ptr(i, v)?;
                 Ok(Some(self.hempty().into()))
             }
-            EverythingExpr::Application(app) => {
+            Ast1::Application(app) => {
                 if app.len() < 2 {
                     return Err("defining procedures with define must specify name, arg count and possibly varidicity".to_string());
                 }
-                let EverythingExpr::Ident(name) = &app[0] else {
+                let Ast1::Ident(name) = &app[0] else {
                     return Err("first expression in define procedure not a symbol".to_string());
                 };
                 let argc = &app[1];
                 let varidicity = app.get(2).cloned();
                 let mut scope = exprs[1..].to_vec();
                 let signature = varidicity.map_or_else(
-                    || EverythingExpr::Application(vec![argc.clone()]),
-                    |vard| EverythingExpr::Application(vec![argc.clone(), vard]),
+                    || Ast1::Application(vec![argc.clone()]),
+                    |vard| Ast1::Application(vec![argc.clone(), vard]),
                 );
                 scope.insert(0, signature);
                 let lambda = return_none!(self.special_form_lambda(&scope)?);
@@ -126,12 +126,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     }
     pub fn special_form_set(
         &mut self,
-        exprs: &[EverythingExpr],
+        exprs: &[Ast1],
     ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
         if exprs.len() != 2 {
             return Err("set must have 2 expressions".to_string());
         }
-        if let EverythingExpr::Ident(i) = &exprs[0] {
+        if let Ast1::Ident(i) = &exprs[0] {
             let v = return_none!(self.compile_expr(&exprs[1])?);
             self.set_variable(i.clone(), v)?;
             Ok(Some(self.hempty().into()))
@@ -197,10 +197,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     pub fn insert_special_form(
         &mut self,
         name: RC<str>,
-        func: fn(
-            &mut Compiler<'a, 'ctx>,
-            &[EverythingExpr],
-        ) -> Result<Option<BasicValueEnum<'ctx>>, String>,
+        func: fn(&mut Compiler<'a, 'ctx>, &[Ast1]) -> Result<Option<BasicValueEnum<'ctx>>, String>,
     ) {
         if let Some(scope) = self.variables.last_mut() {
             scope.insert(name, VarType::SpecialForm(func));
@@ -212,7 +209,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 pub enum VarType<'a, 'ctx> {
     Lisp(PointerValue<'ctx>),
     SpecialForm(
-        fn(&mut Compiler<'a, 'ctx>, &[EverythingExpr]) -> Result<Option<BasicValueEnum<'ctx>>, String>,
+        fn(&mut Compiler<'a, 'ctx>, &[Ast1]) -> Result<Option<BasicValueEnum<'ctx>>, String>,
     ),
 }
 

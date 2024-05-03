@@ -16,7 +16,7 @@ use std::collections::HashMap;
 
 use itertools::Itertools;
 
-use crate::{ast::EverythingExpr, interior_mut::RC, lexer::everything_parse};
+use crate::{ast::ast1::Ast1, interior_mut::RC, lexer::everything_parse};
 use std::fs;
 use std::io::BufReader;
 use std::io::Read;
@@ -28,7 +28,7 @@ pub enum ParseError<'a> {
 
 pub fn parse_and_expand(
     input: &str,
-) -> Result<(Vec<EverythingExpr>, HashMap<RC<str>, Vec<RC<str>>>), ParseError<'_>> {
+) -> Result<(Vec<Ast1>, HashMap<RC<str>, Vec<RC<str>>>), ParseError<'_>> {
     let ast = everything_parse(input).map_err(ParseError::Parse)?;
     let mut expander = MacroExpander::new();
     let expanded = expander.expand_get_link(&ast).map_err(ParseError::Macro)?;
@@ -38,7 +38,7 @@ pub fn parse_and_expand(
 trait HashMapExtend {
     fn push_nested(&mut self, nested: Self) -> Option<()>;
     fn merge(&mut self, other: Self);
-    fn get(&self, key: &RC<str>) -> Result<&EverythingExpr, MacroExpansionError>;
+    fn get(&self, key: &RC<str>) -> Result<&Ast1, MacroExpansionError>;
 }
 
 impl HashMapExtend for HashMap<RC<str>, MacroBinding> {
@@ -60,7 +60,7 @@ impl HashMapExtend for HashMap<RC<str>, MacroBinding> {
         self.extend(other);
     }
 
-    fn get(&self, key: &RC<str>) -> Result<&EverythingExpr, MacroExpansionError> {
+    fn get(&self, key: &RC<str>) -> Result<&Ast1, MacroExpansionError> {
         let b = self
             .get(key)
             .ok_or_else(|| MacroExpansionError::MetaVariableNotFound(key.clone()))?;
@@ -126,22 +126,22 @@ impl MacroExpander {
     /// it clears the links from the expander
     pub fn expand_get_link(
         &mut self,
-        exprs: &[EverythingExpr],
-    ) -> Result<(Vec<EverythingExpr>, HashMap<RC<str>, Vec<RC<str>>>), MacroError> {
+        exprs: &[Ast1],
+    ) -> Result<(Vec<Ast1>, HashMap<RC<str>, Vec<RC<str>>>), MacroError> {
         self.expand(exprs)
             .map(|res| (res, std::mem::take(&mut self.links)))
     }
 
-    fn expand(&mut self, exprs: &[EverythingExpr]) -> Result<Vec<EverythingExpr>, MacroError> {
+    fn expand(&mut self, exprs: &[Ast1]) -> Result<Vec<Ast1>, MacroError> {
         let mut res = vec![];
         for expr in exprs {
             match expr {
-                EverythingExpr::Application(a) => {
+                Ast1::Application(a) => {
                     // we expand all the sub expressions of the application before expanding the application itself
                     // which most macro expandets dont do so we should probably expand outer than inner if possible
                     // TODO: we aslo need recurasve macro epxansiion working ie try to expand list if not possbile try to expandsubexpression ....
                     let a = self.expand(a)?;
-                    if let Some(EverythingExpr::Ident(op)) = a.first() {
+                    if let Some(Ast1::Ident(op)) = a.first() {
                         if let Some(r#macro) = self.macro_env.get(op) {
                             match r#macro {
                                 MacroType::SpecialForm(sf) => {
@@ -183,17 +183,17 @@ impl MacroExpander {
 }
 fn expand_macro(
     bindings: &HashMap<RC<str>, MacroBinding>,
-    expansion: Vec<EverythingExpr>,
-) -> Result<Vec<EverythingExpr>, MacroExpansionError> {
+    expansion: Vec<Ast1>,
+) -> Result<Vec<Ast1>, MacroExpansionError> {
     fn expand_macro_inner(
         bindings: &HashMap<RC<str>, MacroBinding>,
-        expansion: EverythingExpr,
-    ) -> Result<EverythingExpr, MacroExpansionError> {
+        expansion: Ast1,
+    ) -> Result<Ast1, MacroExpansionError> {
         match expansion {
-            EverythingExpr::Application(a) => expand_macro(bindings, a).map(EverythingExpr::Application),
-            EverythingExpr::Ident(i) => match HashMapExtend::get(bindings, &i) {
+            Ast1::Application(a) => expand_macro(bindings, a).map(Ast1::Application),
+            Ast1::Ident(i) => match HashMapExtend::get(bindings, &i) {
                 Ok(res) => Ok(res.clone()),
-                Err(MacroExpansionError::MetaVariableNotFound(_)) => Ok(EverythingExpr::Ident(i)),
+                Err(MacroExpansionError::MetaVariableNotFound(_)) => Ok(Ast1::Ident(i)),
                 Err(e) => Err(e),
             },
             other => Ok(other),
@@ -203,11 +203,11 @@ fn expand_macro(
     let mut expansion = expansion.into_iter().peekable();
     while let Some(expander) = expansion.next() {
         // TODO: handle more than one kleene expansion ie (a * *)
-        if expansion.peek() == Some(&EverythingExpr::Ident("*".into())) {
+        if expansion.peek() == Some(&Ast1::Ident("*".into())) {
             expansion.next(); // swallow kleene closure
 
             let mut expander = vec![expander];
-            while expansion.peek() == Some(&EverythingExpr::Ident("*".into())) {
+            while expansion.peek() == Some(&Ast1::Ident("*".into())) {
                 expander.push(expansion.next().unwrap());
             }
             let expander = expander;
@@ -277,9 +277,9 @@ fn expand_macro(
 
 // special forms
 impl MacroExpander {
-    fn special_form_module(&mut self, exprs: &[EverythingExpr]) -> Result<Vec<EverythingExpr>, MacroError> {
-        let mut body = if exprs.len() == 1 && matches!(exprs[0], EverythingExpr::String(_)) {
-            let EverythingExpr::String(path) = &exprs[0] else {
+    fn special_form_module(&mut self, exprs: &[Ast1]) -> Result<Vec<Ast1>, MacroError> {
+        let mut body = if exprs.len() == 1 && matches!(exprs[0], Ast1::String(_)) {
+            let Ast1::String(path) = &exprs[0] else {
                 unreachable!()
             };
             // it must be module as a path
@@ -298,8 +298,8 @@ impl MacroExpander {
         Ok(body)
     }
     // TODO: module import special form - class special form
-    fn special_form_link(&mut self, exprs: &[EverythingExpr]) -> Result<Vec<EverythingExpr>, MacroError> {
-        let Some(EverythingExpr::Label(linked)) = exprs.get(0) else {
+    fn special_form_link(&mut self, exprs: &[Ast1]) -> Result<Vec<Ast1>, MacroError> {
+        let Some(Ast1::Label(linked)) = exprs.get(0) else {
             return Err(MacroError::InvalidForm(
                 "first expr of link must be a label".into(),
             ));
@@ -308,7 +308,7 @@ impl MacroExpander {
             links
                 .iter()
                 .map(|expr| match expr {
-                    EverythingExpr::Label(l) => Some(l.clone()),
+                    Ast1::Label(l) => Some(l.clone()),
                     _ => None,
                 })
                 .collect::<Option<Vec<RC<str>>>>()
@@ -324,8 +324,8 @@ impl MacroExpander {
         Ok(vec![])
     }
 
-    fn special_form_macro(&mut self, exprs: &[EverythingExpr]) -> Result<Vec<EverythingExpr>, MacroError> {
-        let Some(EverythingExpr::Ident(macro_name)) = exprs.get(0) else {
+    fn special_form_macro(&mut self, exprs: &[Ast1]) -> Result<Vec<Ast1>, MacroError> {
+        let Some(Ast1::Ident(macro_name)) = exprs.get(0) else {
             return Err(MacroError::InvalidForm(
                 "defmacro expects a name for the macro".into(),
             ));
@@ -335,11 +335,11 @@ impl MacroExpander {
                 cases
                     .iter()
                     .map(|case| {
-                        let EverythingExpr::Application(rule) = case else {
+                        let Ast1::Application(rule) = case else {
                             return Err(MacroError::InvalidMacroCase);
                         };
 
-                        let Some(EverythingExpr::Application(case)) = rule.first() else {
+                        let Some(Ast1::Application(case)) = rule.first() else {
                             return Err(MacroError::InvalidMacroCase);
                         };
                         let cond: MacroArg = case.as_slice().try_into()?;
@@ -359,26 +359,26 @@ impl MacroExpander {
         }
     }
 
-    fn special_form_cond(_: &mut Self, exprs: &[EverythingExpr]) -> Result<Vec<EverythingExpr>, MacroError> {
-        fn cond_expand(exprs: &[EverythingExpr]) -> Result<EverythingExpr, MacroError> {
+    fn special_form_cond(_: &mut Self, exprs: &[Ast1]) -> Result<Vec<Ast1>, MacroError> {
+        fn cond_expand(exprs: &[Ast1]) -> Result<Ast1, MacroError> {
             if let Some(case) = exprs.first() {
-                if let EverythingExpr::Application(case) = case {
+                if let Ast1::Application(case) = case {
                     let mut case = case.clone();
                     match case.first() {
-                        Some(EverythingExpr::Ident(e)) if (e.clone()) == "else".into() => {
+                        Some(Ast1::Ident(e)) if (e.clone()) == "else".into() => {
                             if exprs.get(1).is_some() {
                                 Err(MacroError::InvalidForm("else with cases after it".into()))
                             } else {
-                                Ok(EverythingExpr::Application({
+                                Ok(Ast1::Application({
                                     case[0] = "begin".into();
                                     case
                                 }))
                             }
                         }
-                        Some(expr) => Ok(EverythingExpr::Application(vec![
+                        Some(expr) => Ok(Ast1::Application(vec![
                             "if".into(),
                             expr.clone(),
-                            EverythingExpr::Application({
+                            Ast1::Application({
                                 case[0] = "begin".into();
                                 case
                             }),
@@ -394,7 +394,7 @@ impl MacroExpander {
                     Err(MacroError::InvalidForm("macro case is not a list".into()))
                 }
             } else {
-                Ok(EverythingExpr::Bool(crate::ast::Boolean::False))
+                Ok(Ast1::Bool(crate::ast::Boolean::False))
             }
         }
         Ok(vec![cond_expand(exprs)?])
@@ -402,9 +402,9 @@ impl MacroExpander {
 }
 
 pub enum MacroType {
-    SpecialForm(fn(&mut MacroExpander, &[EverythingExpr]) -> Result<Vec<EverythingExpr>, MacroError>),
+    SpecialForm(fn(&mut MacroExpander, &[Ast1]) -> Result<Vec<Ast1>, MacroError>),
     // the parameters of a macro can nested lists and can have constraints such taht certain symbols are required
-    UserDefined(Vec<(MacroArg, Vec<EverythingExpr>)>),
+    UserDefined(Vec<(MacroArg, Vec<Ast1>)>),
 }
 
 #[derive(Debug)]
@@ -418,10 +418,10 @@ pub enum MacroArg {
     KleeneClosure(Option<Box<MacroArg>>),
 }
 
-impl TryFrom<&[EverythingExpr]> for MacroArg {
+impl TryFrom<&[Ast1]> for MacroArg {
     type Error = MacroError;
 
-    fn try_from(value: &[EverythingExpr]) -> Result<Self, Self::Error> {
+    fn try_from(value: &[Ast1]) -> Result<Self, Self::Error> {
         // TOOD: check for empty kleene closures if they have something before them
         // and if more than one kleene closure error
         let mut ret: Vec<_> = value
@@ -463,18 +463,18 @@ impl TryFrom<&[EverythingExpr]> for MacroArg {
     }
 }
 
-impl TryFrom<&EverythingExpr> for MacroArg {
+impl TryFrom<&Ast1> for MacroArg {
     type Error = MacroError;
 
-    fn try_from(value: &EverythingExpr) -> Result<Self, Self::Error> {
+    fn try_from(value: &Ast1) -> Result<Self, Self::Error> {
         match value {
-            EverythingExpr::Application(a) => a.as_slice().try_into(),
-            EverythingExpr::Ident(i) => Ok(if i == &("*".into()) {
+            Ast1::Application(a) => a.as_slice().try_into(),
+            Ast1::Ident(i) => Ok(if i == &("*".into()) {
                 Self::KleeneClosure(None)
             } else {
                 Self::Ident(i.clone())
             }),
-            EverythingExpr::String(s) => Ok(Self::Constant(s.clone())),
+            Ast1::String(s) => Ok(Self::Constant(s.clone())),
             _ => todo!("error"),
         }
     }
@@ -484,7 +484,7 @@ impl TryFrom<&EverythingExpr> for MacroArg {
 pub enum MacroBinding {
     // generated from matching *
     List(Vec<MacroBinding>),
-    Expr(EverythingExpr),
+    Expr(Ast1),
     Unbound,
 }
 
@@ -492,11 +492,11 @@ pub enum MacroBinding {
 pub enum MacroMatchError {}
 
 impl MacroArg {
-    fn matches(&self, pattern: &EverythingExpr) -> Result<HashMap<RC<str>, MacroBinding>, MacroError> {
+    fn matches(&self, pattern: &Ast1) -> Result<HashMap<RC<str>, MacroBinding>, MacroError> {
         let mut bindings = HashMap::new();
         // TODO: i think a lot/most of the todo cases are unreachable
         match (self, pattern) {
-            (Self::List(pattern), EverythingExpr::Application(expr)) => {
+            (Self::List(pattern), Ast1::Application(expr)) => {
                 bindings.merge(matches(expr, pattern)?);
             }
             // error
@@ -505,16 +505,16 @@ impl MacroArg {
                 bindings.insert(i.clone(), MacroBinding::Expr(expr.clone()));
             }
 
-            (Self::Constant(a), EverythingExpr::Ident(b)) if a == b => todo!(),
+            (Self::Constant(a), Ast1::Ident(b)) if a == b => todo!(),
             // error
             (Self::Constant(_), _) => todo!(),
-            (Self::KleeneClosure(_), EverythingExpr::Bool(_)) => todo!(),
-            (Self::KleeneClosure(_), EverythingExpr::Number(_)) => todo!(),
-            (Self::KleeneClosure(_), EverythingExpr::String(_)) => todo!(),
-            (Self::KleeneClosure(_), EverythingExpr::Ident(_)) => todo!(),
-            (Self::KleeneClosure(_), EverythingExpr::Application(_)) => todo!(),
-            (Self::KleeneClosure(_), EverythingExpr::Label(_)) => todo!(),
-            (Self::KleeneClosure(_), EverythingExpr::FnParam(_)) => todo!(),
+            (Self::KleeneClosure(_), Ast1::Bool(_)) => todo!(),
+            (Self::KleeneClosure(_), Ast1::Number(_)) => todo!(),
+            (Self::KleeneClosure(_), Ast1::String(_)) => todo!(),
+            (Self::KleeneClosure(_), Ast1::Ident(_)) => todo!(),
+            (Self::KleeneClosure(_), Ast1::Application(_)) => todo!(),
+            (Self::KleeneClosure(_), Ast1::Label(_)) => todo!(),
+            (Self::KleeneClosure(_), Ast1::FnParam(_)) => todo!(),
         }
         Ok(bindings)
     }
@@ -535,7 +535,7 @@ impl MacroArg {
 }
 
 fn matches(
-    expr: &[EverythingExpr],
+    expr: &[Ast1],
     pattern: &[MacroArg],
 ) -> Result<HashMap<RC<str>, MacroBinding>, MacroError> {
     let mut expr_count = expr.len();
@@ -545,7 +545,7 @@ fn matches(
     for pat in pattern {
         match pat {
             MacroArg::List(pat) => {
-                let Some(EverythingExpr::Application(expr)) = expr.next() else {
+                let Some(Ast1::Application(expr)) = expr.next() else {
                     return Err(MacroError::CaseMismatch);
                 };
                 bindings.merge(matches(expr, pat)?);
@@ -557,7 +557,7 @@ fn matches(
                 expr_count -= 1;
             }
             MacroArg::Constant(c) => {
-                if Some(&EverythingExpr::Ident(c.clone())) != expr.next() {
+                if Some(&Ast1::Ident(c.clone())) != expr.next() {
                     return Err(MacroError::CaseMismatch);
                 }
                 expr_count -= 1;
@@ -589,7 +589,7 @@ fn matches(
 
 #[cfg(test)]
 mod tests {
-    use crate::{ast::EverythingExpr, lexer::everything_parse};
+    use crate::{ast::ast1::Ast1, lexer::everything_parse};
 
     use super::MacroExpander;
 
@@ -603,9 +603,9 @@ mod tests {
         let expanded = MacroExpander::new().expand(&parsed).unwrap();
         assert_eq!(
             expanded,
-            vec![EverythingExpr::Application(vec![
-                EverythingExpr::Number(1.0),
-                EverythingExpr::Number(1.0)
+            vec![Ast1::Application(vec![
+                Ast1::Number(1.0),
+                Ast1::Number(1.0)
             ])]
         );
     }
@@ -620,9 +620,9 @@ mod tests {
         let expanded = MacroExpander::new().expand(&parsed).unwrap();
         assert_eq!(
             expanded,
-            vec![EverythingExpr::Application(vec![
-                EverythingExpr::Number(1.0),
-                EverythingExpr::Number(1.0)
+            vec![Ast1::Application(vec![
+                Ast1::Number(1.0),
+                Ast1::Number(1.0)
             ])]
         );
     }
@@ -638,18 +638,9 @@ mod tests {
         assert_eq!(
             expanded,
             vec![
-                EverythingExpr::Application(vec![
-                    EverythingExpr::Ident("display".into()),
-                    EverythingExpr::Number(1.0)
-                ]),
-                EverythingExpr::Application(vec![
-                    EverythingExpr::Ident("display".into()),
-                    EverythingExpr::Number(2.0)
-                ]),
-                EverythingExpr::Application(vec![
-                    EverythingExpr::Ident("display".into()),
-                    EverythingExpr::Number(3.0)
-                ]),
+                Ast1::Application(vec![Ast1::Ident("display".into()), Ast1::Number(1.0)]),
+                Ast1::Application(vec![Ast1::Ident("display".into()), Ast1::Number(2.0)]),
+                Ast1::Application(vec![Ast1::Ident("display".into()), Ast1::Number(3.0)]),
             ]
         );
     }
@@ -665,18 +656,9 @@ mod tests {
         assert_eq!(
             expanded,
             vec![
-                EverythingExpr::Application(vec![
-                    EverythingExpr::Ident("display".into()),
-                    EverythingExpr::Number(5.0)
-                ]),
-                EverythingExpr::Application(vec![
-                    EverythingExpr::Ident("display".into()),
-                    EverythingExpr::Number(8.0)
-                ]),
-                EverythingExpr::Application(vec![
-                    EverythingExpr::Ident("display".into()),
-                    EverythingExpr::Number(7.0)
-                ]),
+                Ast1::Application(vec![Ast1::Ident("display".into()), Ast1::Number(5.0)]),
+                Ast1::Application(vec![Ast1::Ident("display".into()), Ast1::Number(8.0)]),
+                Ast1::Application(vec![Ast1::Ident("display".into()), Ast1::Number(7.0)]),
             ]
         );
     }
@@ -691,9 +673,9 @@ mod tests {
         let expanded = MacroExpander::new().expand(&parsed).unwrap();
         assert_eq!(
             expanded,
-            vec![EverythingExpr::Application(vec![
-                EverythingExpr::Ident("display".into()),
-                EverythingExpr::Number(6.0)
+            vec![Ast1::Application(vec![
+                Ast1::Ident("display".into()),
+                Ast1::Number(6.0)
             ]),]
         );
     }
@@ -708,9 +690,9 @@ mod tests {
         let expanded = MacroExpander::new().expand(&parsed).unwrap();
         assert_eq!(
             expanded,
-            vec![EverythingExpr::Application(vec![
-                EverythingExpr::Ident("display".into()),
-                EverythingExpr::Number(6.0)
+            vec![Ast1::Application(vec![
+                Ast1::Ident("display".into()),
+                Ast1::Number(6.0)
             ]),]
         );
     }

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use inkwell::values::{AnyValue, BasicValue, BasicValueEnum, IntValue, PointerValue};
 
-use crate::{ast::EverythingExpr, interior_mut::RC, pc::unit};
+use crate::{ast::ast1::Ast1, interior_mut::RC};
 
 use super::{Compiler, EvalType, TyprIndex};
 
@@ -33,17 +33,17 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     fn special_form_psudo_lambda(
         &mut self,
         mut variables: HashMap<RC<str>, PsudoVariable>,
-        exprs: &[EverythingExpr],
+        exprs: &[Ast1],
     ) -> Result<Vec<RC<str>>, String> {
-        if let Some(EverythingExpr::Application(a)) = exprs.first() {
+        if let Some(Ast1::Application(a)) = exprs.first() {
             let n = match a.as_slice() {
-                [EverythingExpr::Number(n), EverythingExpr::String(s)]
+                [Ast1::Number(n), Ast1::String(s)]
                     if (&["*", "+"]).contains(&&s.to_string().as_str()) =>
                 {
                     *n + 1.0
                 }
 
-                [EverythingExpr::Number(n)] => *n,
+                [Ast1::Number(n)] => *n,
                 _ => {
                     return Err(
                         "lambda signature must be (lambda (argc [\"+\"|\"*\"|\"\"]) exprs)"
@@ -67,18 +67,18 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     #[allow(unused)]
     fn find_free_variables_expr(
         &mut self,
-        expr: &EverythingExpr,
+        expr: &Ast1,
         variables: HashMap<RC<str>, PsudoVariable>,
     ) -> Vec<RC<str>> {
         match expr {
-            EverythingExpr::Ident(ident) => {
+            Ast1::Ident(ident) => {
                 if !variables.contains_key(ident) {
                     vec![ident.clone()]
                 } else {
                     vec![]
                 }
             }
-            EverythingExpr::Application(a) => self.find_free_variables(a, variables),
+            Ast1::Application(a) => self.find_free_variables(a, variables),
             _ => vec![],
         }
     }
@@ -86,19 +86,19 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     #[allow(dead_code)]
     fn find_free_variables(
         &mut self,
-        exprs: &[EverythingExpr],
+        exprs: &[Ast1],
         mut variables: HashMap<RC<str>, PsudoVariable>,
     ) -> Vec<RC<str>> {
         let mut free = vec![];
         for expr in exprs {
             match expr {
-                EverythingExpr::Ident(ident) => {
+                Ast1::Ident(ident) => {
                     if !variables.contains_key(ident) {
                         free.push(ident.clone());
                     }
                 }
-                EverythingExpr::Application(a) => {
-                    if let EverythingExpr::Ident(ident) = &a[0] {
+                Ast1::Application(a) => {
+                    if let Ast1::Ident(ident) = &a[0] {
                         if let Some(PsudoVariable::SpecialForm(sf)) = variables.get(ident) {
                             match sf.to_string().as_str() {
                                 "lambda" => {
@@ -119,14 +119,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     variables.extend(
                         a.iter()
                             .filter_map(|e| match e {
-                                EverythingExpr::Ident(ident) => {
+                                Ast1::Ident(ident) => {
                                     if !variables_clone.contains_key(ident) {
                                         Some(vec![(ident.clone(), PsudoVariable::UserDefined)])
                                     } else {
                                         None
                                     }
                                 }
-                                EverythingExpr::Application(a) => Some(
+                                Ast1::Application(a) => Some(
                                     self.find_free_variables(a, variables_clone.clone())
                                         .into_iter()
                                         .map(|v| (v, PsudoVariable::UserDefined))
@@ -146,7 +146,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         &mut self,
         root: PointerValue<'ctx>,
         argc: IntValue<'ctx>,
-        exprs: &[EverythingExpr],
+        exprs: &[Ast1],
     ) {
         let current_node = self
             .builder
@@ -157,14 +157,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
         let (n, var) = match &exprs[0] {
             // EverythingExpr::Number(n) => (n, "".into()),
-            EverythingExpr::Application(a) => match a.as_slice() {
-                [EverythingExpr::Number(n), EverythingExpr::Ident(s)]
-                    if ["+".into(), "*".into()].contains(s) =>
-                {
+            Ast1::Application(a) => match a.as_slice() {
+                [Ast1::Number(n), Ast1::Ident(s)] if ["+".into(), "*".into()].contains(s) => {
                     (n, (s.clone()))
                 }
 
-                [EverythingExpr::Number(n)] => (n, "".into()),
+                [Ast1::Number(n)] => (n, "".into()),
                 _ => todo!("self function should return result so self can error"),
             },
             _ => todo!("self function should return result so self can error"),
@@ -294,7 +292,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     /// (x) ; access u in top level environment (which is reacheable from g's environment, but we created different u in g's environment)
     pub(crate) fn special_form_lambda(
         &mut self,
-        exprs: &[EverythingExpr],
+        exprs: &[Ast1],
     ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
         if exprs.is_empty() {
             return Err("lambda expression needs at least 2 subexpressions".to_string());
@@ -399,9 +397,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
     pub(crate) fn compile_application(
         &mut self,
-        application: &[EverythingExpr],
+        application: &[Ast1],
     ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
-        let op = if let EverythingExpr::Ident(ident) = &application[0] {
+        let op = if let Ast1::Ident(ident) = &application[0] {
             if let Some(var) = self.get_variable(ident) {
                 match var {
                     super::env::VarType::Lisp(val) => self
