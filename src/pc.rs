@@ -5,13 +5,15 @@ use std::iter;
 #[derive(Debug)]
 pub enum ParseErrorType {
     EOF,
-    Other(String),
+    // TODO: maybe be put the custom error in here instead of in parse error
+    Custom,
     NotADigit(char),
     Mismatch(char, char),
     Fail,
     NotEnoughMatches,
     NoMatchFound,
     SatisfyMismatch(char),
+    Unkown,
 }
 
 #[derive(Debug)]
@@ -19,6 +21,21 @@ pub struct ParseError<'a, E> {
     pub kind: ParseErrorType,
     pub input: &'a str,
     pub error: Option<E>,
+}
+
+pub fn run<'a, T, E>(parser: Box<Parser<T, E>>, input: &'a str) -> Result<T, ParseError<'a, E>> {
+    let (result, input) = parser(input)?;
+    if input.chars().count() == 0 {
+        Ok(result)
+    } else {
+        Err(ParseError {
+            // TODO: see if theres any previous errors that were not used because of something like
+            // an choice or the like
+            kind: ParseErrorType::Unkown,
+            input,
+            error: None,
+        })
+    }
 }
 
 #[must_use]
@@ -97,18 +114,19 @@ pub fn map<T: 'static, U: 'static, F: Fn(T) -> U + 'static + Clone, E: 'static>(
     })
 }
 
-pub fn try_map<
-    T: 'static,
-    U: 'static,
-    E: 'static,
-    F: Fn(T) -> Result<U, ParseError<'static, E>> + 'static + Clone,
->(
+pub fn try_map<T: 'static, U: 'static, E: 'static, F: Fn(T) -> Result<U, E> + 'static + Clone>(
     parser: Box<Parser<T, E>>,
     map_fn: F,
 ) -> Box<Parser<U, E>> {
     Box::new(move |input| {
-        let (ir, input) = parser(input)?;
-        map_fn(ir).map(|ir| (ir, input))
+        let (ir, new_input) = parser(input)?;
+        map_fn(ir)
+            .map(|ir| (ir, new_input))
+            .map_err(|e| ParseError {
+                kind: ParseErrorType::Custom,
+                input,
+                error: Some(e),
+            })
     })
 }
 
@@ -207,11 +225,12 @@ pub fn unit<T: 'static + Clone, E>(val: T) -> Box<Parser<T, E>> {
 }
 pub fn with_error<T: 'static + Clone, E: 'static + Clone>(
     parser: Box<Parser<T, E>>,
-    error: E,
+    error: impl FnOnce(&str) -> E + Clone + 'static,
 ) -> Box<Parser<T, E>> {
     Box::new(move |input| {
         parser(input).map_err(|mut e| {
-            e.error = Some(error.clone());
+            // only set the error if its not been set yet
+            e.error = e.error.or(Some(error.clone()(input)));
             e
         })
     })

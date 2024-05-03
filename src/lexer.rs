@@ -11,11 +11,17 @@ use crate::{
     interior_mut::RC,
     pc::{
         alt, any_of, chain, char, choice, inbetween, keep_left, keep_right, many, many1, map,
-        not_any_of, not_char, opt, satify, seq, string, try_map, ParseError, ParseErrorType,
+        not_any_of, not_char, opt, run, satify, seq, string, try_map, with_error, ParseError,
         Parser,
     },
 };
-pub type Error = ();
+#[derive(Debug, Clone)]
+pub enum Error {
+    InvalidNumber,
+    InvalidModuleName,
+    MissingThenBlock,
+    MissingElseBlock,
+}
 fn ws_or_comment() -> Box<Parser<Option<Box<dyn Iterator<Item = char>>>, Error>> {
     map(
         many(alt(
@@ -121,10 +127,12 @@ pub fn parse_everything(input: &str) -> Result<Ast1, ParseError<'_, Error>> {
 }
 
 pub fn everything_parse(input: &str) -> Result<Vec<Ast1>, ParseError<'_, Error>> {
-    map(many(everythingexpr()), |r| {
-        r.map_or(vec![], Iterator::collect)
-    })(input)
-    .map(|res| res.0)
+    run(
+        map(many(everythingexpr()), |r| {
+            r.map_or(vec![], Iterator::collect)
+        }),
+        input,
+    )
 }
 
 fn literal() -> Box<Parser<Ast1, Error>> {
@@ -150,13 +158,7 @@ fn hexnumber() -> Box<Parser<Ast1, Error>> {
             ),
             |r| {
                 let number = match r {
-                    (None, None) => {
-                        return Err(ParseError {
-                            kind: ParseErrorType::Other("not a digit".into()),
-                            input: "",
-                            error: None,
-                        })
-                    }
+                    (None, None) => return Err(Error::InvalidNumber),
                     (None, Some(s)) => (String::new(), s.collect()),
                     (Some(s), None) => (s.collect(), String::new()),
                     (Some(s), Some(r)) => (s.collect(), r.collect()),
@@ -236,7 +238,9 @@ fn mod_stmt() -> Box<Parser<Ast1, Error>> {
             ws_or_comment(),
             map(
                 chain(
-                    satify(|c| c.is_ascii_alphabetic()),
+                    with_error(satify(|c| c.is_ascii_alphabetic()), |_| {
+                        Error::InvalidModuleName
+                    }),
                     keep_right(
                         ws_or_comment(),
                         alt(scope_list(everythingexpr()), map(stringdot(), |s| vec![s])),
@@ -354,11 +358,11 @@ fn if_stmt() -> Box<Parser<Ast1, Error>> {
             keep_right(string("if"), everythingexpr()),
             keep_right(
                 keep_right(ws_or_comment(), string("then")),
-                scope(everythingexpr()),
+                with_error(scope(everythingexpr()), |_| Error::MissingThenBlock),
             ),
             keep_right(
                 keep_right(ws_or_comment(), string("else")),
-                scope(everythingexpr()),
+                with_error(scope(everythingexpr()), |_| Error::MissingElseBlock),
             ),
         ]),
         |mut r| {

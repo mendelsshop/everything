@@ -1,0 +1,6 @@
+
+let println = (lambda (1) (print '0') (newline))
+    
+    %%
+    if &  ! & means true
+        then %% 
