@@ -53,34 +53,37 @@ fn scope(p: Box<Parser<Ast1, Error>>) -> Box<Parser<Ast1, Error>> {
 fn everythingexpr() -> Box<Parser<Ast1, Error>> {
     // needs to be its own new closure so that we don't have infinite recursion while creating the parser (so we add a level of indirection)
     map(
-        chain(
-            Box::new(|input| {
-                keep_right(
-                    ws_or_comment(),
-                    choice(
-                        [
-                            literal(),
-                            stmt(),
-                            terminal_everything(),
-                            ident_everything(),
-                            application(),
-                            special_start(),
-                            scope(everythingexpr()),
-                        ]
-                        .to_vec(),
+        keep_left(
+            chain(
+                Box::new(|input| {
+                    keep_right(
+                        ws_or_comment(),
+                        choice(
+                            [
+                                literal(),
+                                stmt(),
+                                terminal_everything(),
+                                ident_everything(),
+                                application(),
+                                special_start(),
+                                scope(everythingexpr()),
+                            ]
+                            .to_vec(),
+                        ),
+                    )(input)
+                }),
+                many(choice(vec![
+                    // match >> before > so >> doesn't become >, >
+                    string(">>"),
+                    string(">"),
+                    string("<"),
+                    keep_right(
+                        char('^'),
+                        choice(vec![string("car"), string("cdr"), string("cgr")]),
                     ),
-                )(input)
-            }),
-            many(choice(vec![
-                // match >> before > so >> doesn't become >, >
-                string(">>"),
-                string(">"),
-                string("<"),
-                keep_right(
-                    char('^'),
-                    choice(vec![string("car"), string("cdr"), string("cgr")]),
-                ),
-            ])),
+                ])),
+            ),
+            ws_or_comment(),
         ),
         |mut r| {
             if let Some(accesors) = r.1 {

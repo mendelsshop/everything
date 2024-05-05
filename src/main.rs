@@ -144,7 +144,7 @@ fn compile(file: &str, out: &str) {
     let ir: Vec<_> = ast
         .into_iter()
         .flat_map(|expr| {
-            codegen::sicp::compile(expr, Register::Val, Linkage::Next)
+            codegen::sicp::compile(expr, Register::Val, Linkage::Next, Linkage::Next)
                 .instructions()
                 .to_vec()
         })

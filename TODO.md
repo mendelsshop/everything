@@ -1,7 +1,9 @@
 - [ ] Have a REPL.
 - [ ] Support loops.
 Would this just be mapped to something like a foreach function? (What about early returns?)
-- [ ] Support early returns from loops and functions.
+- [/] Support early returns from loops and functions.
+During (sicp.rs), we need to pass around a the linkage that the function was compiled with, and then we get to return we use compile linkage, or we could have a label at the end of each function and just remember that and do a goto to it on return, similiar logic can be applied to loops (depends on how loops work).
+But this might not work with thunks which do set their continue register.
 - [ ] Have a Class system.
 How should this be implmented?
 - [ ] Create a module system.
