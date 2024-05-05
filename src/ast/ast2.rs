@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, ops::Deref};
 
 use itertools::Itertools;
 
@@ -24,6 +24,7 @@ pub enum Ast2 {
     Begin(Vec<Ast2>),
     Set(RC<str>, Box<Ast2>),
     Quote(Box<Ast2>),
+    Stop(Option<Box<Ast2>>),
 }
 
 impl fmt::Display for Ast2 {
@@ -50,7 +51,12 @@ impl fmt::Display for Ast2 {
             ),
             Self::Begin(b) => write!(f, "(begin {})", b.iter().map(ToString::to_string).join(" ")),
             Self::Set(v, val) => write!(f, "(set! {v} {val})"),
-            Self::Quote(q) => write!(f, "'{q}"),
+            Self::Quote(q) => write!(f, ";{q}"),
+            Self::Stop(s) => write!(
+                f,
+                "(stop{})",
+                s.as_ref().map(|s| format!(" {s}")).unwrap_or_else(|| String::new())
+            ),
         }
     }
 }
@@ -68,8 +74,8 @@ mod impl_transformer {
         AstTransformFrom, Varidiac,
     };
 
-    const SPECIAL_FORMS: [&str; 9] = [
-        "if", "define", "set!", "quote", "begin", "lambda", "cond", "let", "link",
+    const SPECIAL_FORMS: [&str; 10] = [
+        "if", "define", "set!", "quote", "begin", "lambda", "cond", "let", "link", "stop",
     ];
     type Error = String;
 
@@ -241,6 +247,7 @@ mod impl_transformer {
                     "begin" => convert_begin(exps, env),
                     "if" => convert_if(exps, env),
                     "quote" => convert_quoted(exps, env),
+                    "stop" => convert_return(exps, env),
                     _ => unreachable!(),
                 }
             }
@@ -258,6 +265,21 @@ mod impl_transformer {
                     .map(|(app, env)| (Ast2::Application(app), env))
             }
             None => Err("application must have at least one argument".to_string()),
+        }
+    }
+
+    fn convert_return(exps: Vec<Ast1>, env: State) -> Result<(Ast2, State), Error> {
+        if exps.len() >= 1 {
+            Err(format!(
+                "Stop's can only hace at most one expression found {} expressions: {}",
+                exps.len(),
+                exps.into_iter()
+                    .map(|e| e.to_string())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            ))
+        } else {
+            todo!()
         }
     }
 }

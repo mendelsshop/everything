@@ -293,6 +293,7 @@ pub fn compile(
                 vec![Instruction::Goto(Goto::Label(l.to_string()))],
             ),
         ),
+        Ast4::Stop(s) => todo!("compile stops"),
         exp => compile_self_evaluating(exp.into(), target, linkage),
     }
 }
@@ -766,7 +767,12 @@ fn compile_application(
     lambda_linkage: Linkage,
 ) -> InstructionSequnce {
     #[cfg(feature = "lazy")]
-    let proc_code = force_it(exp[0].clone(), Register::Proc, Linkage::Next, lambda_linkage.clone());
+    let proc_code = force_it(
+        exp[0].clone(),
+        Register::Proc,
+        Linkage::Next,
+        lambda_linkage.clone(),
+    );
     #[cfg(not(feature = "lazy"))]
     let proc_code = compile(
         exp[0].clone(),
@@ -776,32 +782,42 @@ fn compile_application(
     );
     // TODO: make it non strict by essentially turning each argument into zero parameter function and then when we need to unthunk the parameter we just call the function with the env
     let operand_codes_primitive = {
-        exp[1..]
-            .iter()
-            .map(|exp| force_it(exp.clone(), Register::Val, Linkage::Next, lambda_linkage.clone()))
-            // .map(|exp| {
-            //     compile(
-            //         exp.clone(),
-            //         Register::Val,
-            //         Linkage::Next,
-            //         lambda_linkage.clone(),
-            //     )
-            // })
+        exp[1..].iter().map(|exp| {
+            force_it(
+                exp.clone(),
+                Register::Val,
+                Linkage::Next,
+                lambda_linkage.clone(),
+            )
+        })
+        // .map(|exp| {
+        //     compile(
+        //         exp.clone(),
+        //         Register::Val,
+        //         Linkage::Next,
+        //         lambda_linkage.clone(),
+        //     )
+        // })
         // .collect()
     };
     #[cfg(feature = "lazy")]
     let operand_codes_compiled = {
-        exp[1..]
-            .iter()
-            .map(|exp| delay_it(exp.clone(), Register::Val, Linkage::Next, lambda_linkage.clone()))
-            // .map(|exp| {
-            //     compile(
-            //         exp.clone(),
-            //         Register::Val,
-            //         Linkage::Next,
-            //         lambda_linkage.clone(),
-            //     )
-            // })
+        exp[1..].iter().map(|exp| {
+            delay_it(
+                exp.clone(),
+                Register::Val,
+                Linkage::Next,
+                lambda_linkage.clone(),
+            )
+        })
+        // .map(|exp| {
+        //     compile(
+        //         exp.clone(),
+        //         Register::Val,
+        //         Linkage::Next,
+        //         lambda_linkage.clone(),
+        //     )
+        // })
         // .collect()
     };
     operand_codes_primitive

@@ -21,6 +21,7 @@ pub enum Ast3 {
     Begin(Vec<Ast3>),
     Set(RC<str>, Box<Ast3>),
     Quote(Box<Ast3>),
+    Stop(Option<Box<Ast3>>),
 }
 // replaces labels with gotos
 mod impl_transformer {
@@ -94,6 +95,13 @@ mod impl_transformer {
                     .map(|(ast, state)| (Ast3::Begin(ast), state)),
                 Ast2::Set(i, expr) => {
                     pass2_box(expr, state).map(|(expr, state)| (Ast3::Set(i, expr), state))
+                }
+                Ast2::Stop(s) => {
+                    let (s, state) = match s {
+                        Some(s) => pass2_box(s, state).map(|(s, state)| (Some(s), state)),
+                        None => Ok((None, state)),
+                    }?;
+                    Ok((Self::Stop(s), state))
                 }
             }
         }
