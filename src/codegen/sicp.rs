@@ -293,7 +293,15 @@ pub fn compile(
                 vec![Instruction::Goto(Goto::Label(l.to_string()))],
             ),
         ),
-        Ast4::Stop(s) => todo!("compile stops"),
+        Ast4::Stop(s) => append_instruction_sequnce(
+            // this only works when we don't modify the continue register, aka any type of call
+            // should we even allow return in function calls
+            s.map_or_else(
+                || empty_instruction_seqeunce(),
+                |s| compile(*s, target, Linkage::Next, lambda_linkage),
+            ),
+            compile_linkage(Linkage::Return),
+        ),
         exp => compile_self_evaluating(exp.into(), target, linkage),
     }
 }
@@ -1216,6 +1224,7 @@ fn add_to_argl(inst: InstructionSequnce) -> InstructionSequnce {
 }
 
 #[cfg(feature = "lazy")]
+// #[cfg(not(feature = "lazy"))]
 fn force_it(
     exp: Ast4,
     target: Register,
@@ -1268,6 +1277,7 @@ fn force_it(
 }
 
 #[cfg(feature = "lazy")]
+// #[cfg(not(feature = "lazy"))]
 fn delay_it(
     exp: Ast4,
     target: Register,
@@ -1332,6 +1342,7 @@ fn compile_thunk_body(
         compile(thunk, Register::Thunk, Linkage::Return, lambda_linkage),
     )
 }
+// #[cfg(feature = "lazy")]
 #[cfg(not(feature = "lazy"))]
 fn delay_it(
     exp: Ast4,
@@ -1339,9 +1350,10 @@ fn delay_it(
     linkage: Linkage,
     lambda_linkage: Linkage,
 ) -> InstructionSequnce {
-    compile(exp, target, linkage)
+    compile(exp, target, linkage, lambda_linkage)
 }
 
+// #[cfg(feature = "lazy")]
 #[cfg(not(feature = "lazy"))]
 fn force_it(
     exp: Ast4,
@@ -1349,7 +1361,7 @@ fn force_it(
     linkage: Linkage,
     lambda_linkage: Linkage,
 ) -> InstructionSequnce {
-    compile(exp, target, linkage)
+    compile(exp, target, linkage, lambda_linkage)
 }
 fn construct_arg_list(operand_codes: Vec<InstructionSequnce>) -> InstructionSequnce {
     operand_codes

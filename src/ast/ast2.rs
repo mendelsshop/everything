@@ -55,7 +55,9 @@ impl fmt::Display for Ast2 {
             Self::Stop(s) => write!(
                 f,
                 "(stop{})",
-                s.as_ref().map(|s| format!(" {s}")).unwrap_or_else(|| String::new())
+                s.as_ref()
+                    .map(|s| format!(" {s}"))
+                    .unwrap_or_else(|| String::new())
             ),
         }
     }
@@ -268,8 +270,8 @@ mod impl_transformer {
         }
     }
 
-    fn convert_return(exps: Vec<Ast1>, env: State) -> Result<(Ast2, State), Error> {
-        if exps.len() >= 1 {
+    fn convert_return(exps: Vec<Ast1>, state: State) -> Result<(Ast2, State), Error> {
+        if exps.len() > 1 {
             Err(format!(
                 "Stop's can only hace at most one expression found {} expressions: {}",
                 exps.len(),
@@ -279,7 +281,13 @@ mod impl_transformer {
                     .join(" ")
             ))
         } else {
-            todo!()
+            let (s, state) = match exps.first() {
+                Some(s) => {
+                    Ast2::transform(s.clone(), state).map(|(s, state)| (Some(Box::new(s)), state))
+                }
+                None => Ok((None, state)),
+            }?;
+            Ok((Ast2::Stop(s), state))
         }
     }
 }

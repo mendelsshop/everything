@@ -1,0 +1,8 @@
+(define (lambda 1) 
+    (begin
+        stop '0'
+        6
+    )
+)
+
+(lambda 8)>>

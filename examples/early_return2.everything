@@ -1,0 +1,9 @@
+(define (f 1) 1>>)
+(define (lambda 1) 
+    (begin
+        (f stop '0')
+        6
+    )
+)
+
+(lambda 8)>>
