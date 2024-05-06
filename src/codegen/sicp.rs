@@ -302,6 +302,7 @@ pub fn compile(
             ),
             compile_linkage(Linkage::Return),
         ),
+        Ast4::Loop(l) => todo!("compile loop"),
         exp => compile_self_evaluating(exp.into(), target, linkage),
     }
 }

@@ -1,4 +1,4 @@
-use std::{fmt, ops::Deref};
+use std::fmt;
 
 use itertools::Itertools;
 
@@ -25,6 +25,7 @@ pub enum Ast2 {
     Set(RC<str>, Box<Ast2>),
     Quote(Box<Ast2>),
     Stop(Option<Box<Ast2>>),
+    Loop(Box<Ast2>),
 }
 
 impl fmt::Display for Ast2 {
@@ -52,6 +53,7 @@ impl fmt::Display for Ast2 {
             Self::Begin(b) => write!(f, "(begin {})", b.iter().map(ToString::to_string).join(" ")),
             Self::Set(v, val) => write!(f, "(set! {v} {val})"),
             Self::Quote(q) => write!(f, ";{q}"),
+            Self::Loop(l) => write!(f, "(loop {l}"),
             Self::Stop(s) => write!(
                 f,
                 "(stop{})",
@@ -76,14 +78,14 @@ mod impl_transformer {
         AstTransformFrom, Varidiac,
     };
 
-    const SPECIAL_FORMS: [&str; 10] = [
-        "if", "define", "set!", "quote", "begin", "lambda", "cond", "let", "link", "stop",
+    const SPECIAL_FORMS: [&str; 11] = [
+        "if", "define", "set!", "quote", "begin", "lambda", "cond", "let", "link", "stop", "loop",
     ];
     type Error = String;
 
     type State = Vec<&'static str>;
     impl AstTransformFrom<Ast1> for Ast2 {
-        type Error = String;
+        type Error = Error;
 
         type State = State;
 
@@ -250,6 +252,7 @@ mod impl_transformer {
                     "if" => convert_if(exps, env),
                     "quote" => convert_quoted(exps, env),
                     "stop" => convert_return(exps, env),
+                    "loop" => convert_loop(exps, env),
                     _ => unreachable!(),
                 }
             }
@@ -267,6 +270,20 @@ mod impl_transformer {
                     .map(|(app, env)| (Ast2::Application(app), env))
             }
             None => Err("application must have at least one argument".to_string()),
+        }
+    }
+
+    fn convert_loop(exps: Vec<Ast1>, env: State) -> Result<(Ast2, State), Error> {
+        match &exps[..] {
+            [body] => Ast2::transform(body.clone(), env)
+                .map(|(ast, env)| (Ast2::Loop(Box::new(ast)), env)),
+            _ => Err(format!(
+                "loop with to many statements {}",
+                exps.into_iter()
+                    .map(|e| e.to_string())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            )),
         }
     }
 

@@ -24,6 +24,7 @@ pub enum Ast4 {
     Begin(Vec<Ast4>),
     Set(RC<str>, Box<Ast4>),
     Quote(Box<Ast4>),
+    Loop(Box<Ast4>),
     Stop(Option<Box<Ast4>>),
 }
 
@@ -95,6 +96,7 @@ impl From<Ast3> for Ast4 {
             }
             Ast3::Begin(b) => Self::Begin(b.into_iter().map(Into::into).collect()),
             Ast3::Set(s, exp) => Self::Set(s, map_into(exp)),
+            Ast3::Loop(exp) => Self::Loop(map_into(exp)),
             Ast3::Stop(s) => Self::Stop(s.map(map_into)),
             Ast3::Quote(q) => Self::Quote(map_box(q, quote)),
             Ast3::Goto(l) => Self::Goto(l),
