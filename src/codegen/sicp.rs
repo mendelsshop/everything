@@ -297,7 +297,15 @@ pub fn compile(
             // this only works when we don't modify the continue register, aka any type of call
             // should we even allow return in function calls
             s.map_or_else(
-                || empty_instruction_seqeunce(),
+                // default break is hempty, another way to do this is to make stop not an option
+                // and when parsing it default to empty
+                || {
+                    make_intsruction_sequnce(
+                        hashset!(),
+                        hashset!(target),
+                        vec![Instruction::Assign(target, Expr::Const(Const::Empty))],
+                    )
+                },
                 |s| compile(*s, target, Linkage::Next, lambda_linkage),
             ),
             compile_linkage(Linkage::Return),
