@@ -79,6 +79,7 @@ pub enum Operation {
     NotThunk,
     NotStop,
     ResetStop,
+    SetStop,
 }
 
 impl fmt::Display for Register {
@@ -298,21 +299,31 @@ pub fn compile(
             ),
         ),
         Ast4::Stop(s) => append_instruction_sequnce(
-            // this only works when we don't modify the continue register, aka any type of call
-            // should we even allow return in function calls
-            s.map_or_else(
-                // default break is hempty, another way to do this is to make stop not an option
-                // and when parsing it default to empty
-                || {
-                    make_intsruction_sequnce(
-                        hashset!(),
-                        hashset!(target),
-                        vec![Instruction::Assign(target, Expr::Const(Const::Empty))],
-                    )
-                },
-                |s| compile(*s, target, Linkage::Next, lambda_linkage),
+            make_intsruction_sequnce(
+                hashset!(),
+                hashset!(),
+                vec![Instruction::Perform(Perform {
+                    op: Operation::SetStop,
+                    args: vec![],
+                })],
             ),
-            compile_linkage(Linkage::Return),
+            append_instruction_sequnce(
+                // this only works when we don't modify the continue register, aka any type of call
+                // should we even allow return in function calls
+                s.map_or_else(
+                    // default break is hempty, another way to do this is to make stop not an option
+                    // and when parsing it default to empty
+                    || {
+                        make_intsruction_sequnce(
+                            hashset!(),
+                            hashset!(target),
+                            vec![Instruction::Assign(target, Expr::Const(Const::Empty))],
+                        )
+                    },
+                    |s| compile(*s, target, Linkage::Next, lambda_linkage),
+                ),
+                compile_linkage(Linkage::Return),
+            ),
         ),
         Ast4::Loop(loop_function) => compile_loop(loop_function, target, linkage, lambda_linkage),
         exp => compile_self_evaluating(exp.into(), target, linkage),

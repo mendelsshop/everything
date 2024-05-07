@@ -1702,6 +1702,12 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                     .unwrap();
                 self.empty()
             }
+            Operation::SetStop => {
+                self.builder
+                    .build_store(self.stop, self.types.small_number.const_int(1, false))
+                    .unwrap();
+                self.empty()
+            }
         }
     }
 

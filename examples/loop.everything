@@ -1,1 +1,4 @@
-(loop (lambda (0) (stop 6) 5))
+let f = (loop (lambda (0) (newline 0)  (stop 6)  5))
+let foo = ((lambda (1) '0') 5)
+foo>>
+
