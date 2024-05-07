@@ -1,1 +1,1 @@
-(loop (begin (stop 6) 5))
+(loop (lambda (0) (stop 6) 5))

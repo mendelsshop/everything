@@ -4,7 +4,7 @@ use inkwell::{
     context::Context,
     module::Module,
     passes::PassManager,
-    types::{BasicType, FunctionType, PointerType, StructType},
+    types::{BasicType, FunctionType, IntType, PointerType, StructType},
     values::{
         AggregateValue, BasicValue, BasicValueEnum, FunctionValue, IntValue, PhiValue,
         PointerValue, StructValue,
@@ -13,7 +13,7 @@ use inkwell::{
 };
 use inkwell::{module::Linkage, types::BasicTypeEnum};
 use itertools::Itertools;
-use std::{collections::HashMap, iter, primitive};
+use std::{collections::HashMap, iter};
 
 use crate::ast::{ONE_VARIADIAC_ARG, ZERO_VARIADIAC_ARG};
 
@@ -164,6 +164,7 @@ pub struct Types<'ctx> {
     stack: StructType<'ctx>,
     primitive: FunctionType<'ctx>,
     error: StructType<'ctx>,
+    small_number: IntType<'ctx>,
 }
 /// Important function that the compiler needs to access
 pub struct Functions<'ctx> {
@@ -275,6 +276,7 @@ pub struct CodeGen<'a, 'ctx> {
     stack: PointerValue<'ctx>,
     error_block: BasicBlock<'ctx>,
     error_phi: inkwell::values::PhiValue<'ctx>,
+    stop: PointerValue<'ctx>,
 }
 
 impl<'a, 'ctx> CodeGen<'a, 'ctx> {
@@ -319,6 +321,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
         let stack = context.struct_type(&[object.into(), pointer.into()], false);
         let primitive_type = object.fn_type(&[object.into()], false);
         let error = context.struct_type(&[pointer.into(), context.i32_type().into()], false);
+        let small_number = context.i8_type();
         let types = Types {
             object,
             string,
@@ -327,6 +330,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
             stack,
             primitive: primitive_type,
             error,
+            small_number,
             types: TypeMap::new(
                 context.struct_type(&[], false).into(),
                 context.bool_type().into(),
@@ -374,12 +378,17 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                 .unwrap();
         }
         let registers = RegiMap::new(builder, object);
+        let stop = builder.build_alloca(small_number, "stop").unwrap();
+        builder
+            .build_store(stop, small_number.const_zero())
+            .unwrap();
         let mut this = Self {
             stack: builder.build_alloca(stack, "stack").unwrap(),
             context,
             flag: builder.build_alloca(types.object, "flag").unwrap(),
             current: main,
             builder,
+            stop,
             module,
             labels: HashMap::new(),
             registers,
@@ -1668,6 +1677,30 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                         .unwrap(),
                     TypeIndex::bool,
                 )
+            }
+            Operation::NotStop => {
+                // if stop is not 1
+                self.make_object(
+                    &self
+                        .builder
+                        .build_int_compare(
+                            IntPredicate::NE,
+                            self.builder
+                                .build_load(self.types.small_number, self.stop, "laod stop")
+                                .unwrap()
+                                .into_int_value(),
+                            self.types.small_number.const_int(1, false),
+                            "is not stop",
+                        )
+                        .unwrap(),
+                    TypeIndex::bool,
+                )
+            }
+            Operation::ResetStop => {
+                self.builder
+                    .build_store(self.stop, self.types.small_number.const_zero())
+                    .unwrap();
+                self.empty()
             }
         }
     }

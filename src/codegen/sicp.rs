@@ -77,6 +77,8 @@ pub enum Operation {
     ThunkEntry,
     ThunkEnv,
     NotThunk,
+    NotStop,
+    ResetStop,
 }
 
 impl fmt::Display for Register {
@@ -190,7 +192,9 @@ impl fmt::Display for Operation {
         };
         let kebabified = decamel(format!("{self:?}"));
         match self {
-            Self::False | Self::PrimitiveProcedure | Self::NotThunk => write!(f, "{kebabified}?"),
+            Self::False | Self::PrimitiveProcedure | Self::NotThunk | Self::NotStop => {
+                write!(f, "{kebabified}?")
+            }
             _ => write!(f, "{kebabified}"),
         }
     }
@@ -310,9 +314,72 @@ pub fn compile(
             ),
             compile_linkage(Linkage::Return),
         ),
-        Ast4::Loop(l) => todo!("compile loop"),
+        Ast4::Loop(loop_function) => compile_loop(loop_function, target, linkage, lambda_linkage),
         exp => compile_self_evaluating(exp.into(), target, linkage),
     }
+}
+
+fn compile_loop(
+    loop_function: Box<Ast4>,
+    target: Register,
+    linkage: Linkage,
+    lambda_linkage: Linkage,
+) -> InstructionSequnce {
+    // TODO: should we use an itermidiate register to hold loop_function
+    let loop_function = compile(
+        *loop_function,
+        Register::Proc,
+        Linkage::Next,
+        lambda_linkage,
+    );
+    let loop_label = make_label_name("loop".to_owned());
+    let after_loop_label = make_label_name("after_loop".to_owned());
+    let done_label = make_label_name("done".to_owned());
+    end_with_linkage(
+        linkage,
+        append_instruction_sequnce(
+            loop_function,
+            append_instruction_sequnce(
+                make_intsruction_sequnce(
+                    hashset!(Register::Continue),
+                    hashset!(Register::Continue),
+                    vec![
+                        Instruction::Assign(
+                            Register::Continue,
+                            Expr::Label(after_loop_label.clone()),
+                        ),
+                        Instruction::Label(loop_label.clone()),
+                    ],
+                ),
+                preserving(
+                    hashset!(Register::Continue, Register::Proc),
+                    // we don't actually care about result of application so we throw it in target
+                    // which is overwritten when loop is done
+                    compile_procedure_call_loop(target, Linkage::Next),
+                    make_intsruction_sequnce(
+                        hashset!(Register::Continue, Register::Proc),
+                        hashset!(target),
+                        vec![
+                            Instruction::Label(after_loop_label),
+                            Instruction::Test(Perform {
+                                op: Operation::NotStop,
+                                args: vec![],
+                            }),
+                            Instruction::Branch(loop_label),
+                            Instruction::Label(done_label),
+                            // TODO: do we need to save and restore stop in case of recursion
+                            // in that case delegate to register
+                            Instruction::Perform(Perform {
+                                op: Operation::ResetStop,
+                                args: vec![],
+                            }),
+                            Instruction::Assign(target, Expr::Register(Register::Val)),
+                        ],
+                    ),
+                ),
+            ),
+        ),
+    )
 }
 
 fn empty_instruction_seqeunce() -> InstructionSequnce {
@@ -1089,7 +1156,70 @@ fn compile_procedure_call(
         // ),
     )
 }
-
+// this is special function caller for loops where functions for loop are zero arg
+fn compile_procedure_call_loop(target: Register, linkage: Linkage) -> InstructionSequnce {
+    // TODO: make cfg for lazy so when its not we can just have one set of operand codes
+    let primitive_branch = make_label_name("primitive-branch".to_string());
+    let compiled_branch = make_label_name("compiled-branch".to_string());
+    let after_call = make_label_name("after-call".to_string());
+    let linkage = if linkage == Linkage::Next {
+        Linkage::Label(after_call.clone())
+    } else {
+        linkage
+    };
+    // preserving(
+    //     hashset!(Register::Proc, Register::Continue),
+    //     construct_arg_list(operand_codes_primitive),
+    append_instruction_sequnce(
+        InstructionSequnce::new(
+            hashset!(Register::Proc),
+            hashset!(),
+            vec![
+                Instruction::Test(Perform {
+                    op: Operation::PrimitiveProcedure,
+                    args: vec![Expr::Register(Register::Proc)],
+                }),
+                Instruction::Branch(primitive_branch.clone()),
+            ],
+            // ),
+        ),
+        parallel_instruction_sequnce(
+            append_instruction_sequnce(
+                InstructionSequnce::new(
+                    hashset!(Register::Proc),
+                    hashset!(),
+                    vec![Instruction::Label(compiled_branch.clone())],
+                    // ),
+                ),
+                compile_proc_appl::<Procedure>(target, linkage.clone()),
+            ),
+            append_instruction_sequnce(
+                make_label_instruction(primitive_branch),
+                append_instruction_sequnce(
+                    end_with_linkage(
+                        linkage,
+                        make_intsruction_sequnce(
+                            hashset!(Register::Proc, Register::Argl),
+                            hashset!(target),
+                            vec![Instruction::Assign(
+                                target,
+                                Expr::Op(Perform {
+                                    op: Operation::ApplyPrimitiveProcedure,
+                                    args: vec![
+                                        Expr::Register(Register::Proc),
+                                        Expr::Register(Register::Argl),
+                                    ],
+                                }),
+                            )],
+                        ),
+                    ),
+                    make_label_instruction(after_call),
+                ),
+            ),
+        ),
+        // ),
+    )
+}
 trait Application {
     fn register() -> Register;
     fn entry() -> Operation;
