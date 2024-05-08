@@ -18,3 +18,4 @@ How does modules work with gotos, can a module define a label that a user of tha
 - [ ] Test macro expander.
 - [ ] Test ast transformers.
 - [ ] Test compiler.
+- [/] Adding logging

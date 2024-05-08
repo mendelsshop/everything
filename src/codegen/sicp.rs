@@ -3,6 +3,9 @@ use std::{
     fmt::{self, Formatter},
 };
 
+use itertools::Itertools;
+use log::info;
+
 use crate::{
     ast::{ast4::Ast4, Arg},
     interior_mut::RC,
@@ -337,6 +340,10 @@ fn compile_loop(
     lambda_linkage: Linkage,
 ) -> InstructionSequnce {
     // TODO: should we use an itermidiate register to hold loop_function
+    info!(
+        "generating ir for loop {loop_function:?}, with register {target}, with linkage {linkage:?}",
+
+    );
     let loop_function = compile(
         *loop_function,
         Register::Proc,
@@ -493,6 +500,7 @@ fn end_with_linkage(
 }
 
 fn compile_self_evaluating(exp: Expr, target: Register, linkage: Linkage) -> InstructionSequnce {
+    info!("generating ir for primitive expression {exp:?}, with register {target}, with linkage {linkage:?}");
     end_with_linkage(
         linkage,
         InstructionSequnce::new(
@@ -504,6 +512,7 @@ fn compile_self_evaluating(exp: Expr, target: Register, linkage: Linkage) -> Ins
 }
 
 fn compile_quoted(quoted: Ast4, target: Register, linkage: Linkage) -> InstructionSequnce {
+    info!("generating ir for quoted expression {quoted:?}, with register {target}, with linkage {linkage:?}");
     end_with_linkage(
         linkage,
         InstructionSequnce::new(
@@ -528,6 +537,7 @@ fn make_label_name(label: String) -> Label {
 }
 
 fn compile_variable(exp: String, target: Register, linkage: Linkage) -> InstructionSequnce {
+    info!("generating ir for looking up variable {exp:?}, with register {target}, with linkage {linkage:?}");
     end_with_linkage(
         linkage,
         InstructionSequnce::new(
@@ -553,6 +563,10 @@ fn compile_assignment(
     linkage: Linkage,
     lambda_linkage: Linkage,
 ) -> InstructionSequnce {
+    info!(
+        "generating ir for assigning {:?} to {}, with register {target}, with linkage {linkage:?}",
+        exp.1, exp.0
+    );
     let var = exp.0.to_string();
     let get_value_code = compile(exp.1, Register::Val, Linkage::Next, lambda_linkage);
 
@@ -586,6 +600,10 @@ fn compile_defeninition(
     linkage: Linkage,
     lambda_linkage: Linkage,
 ) -> InstructionSequnce {
+    info!(
+        "generating ir for assigning {:?} to {}, with register {target}, with linkage {linkage:?}",
+        exp.1, exp.0
+    );
     let var = exp.0.to_string();
     let val = compile(exp.1, Register::Val, Linkage::Next, lambda_linkage);
 
@@ -619,6 +637,7 @@ fn compile_if(
     linkage: Linkage,
     lambda_linkage: Linkage,
 ) -> InstructionSequnce {
+    info!("generating ir for if expresion (condition) {:?} (consequent) {:?} (alternative) {:?}, with register {target}, with linkage {linkage:?}", exp.0, exp.1, exp.2);
     let t_branch = make_label_name("true-branch".to_string());
     let f_branch = make_label_name("false-branch".to_string());
     let after_if = make_label_name("after-if".to_string());
@@ -668,6 +687,10 @@ fn compile_seq(
     linkage: Linkage,
     lambda_linkage: Linkage,
 ) -> InstructionSequnce {
+    info!(
+        "generating ir for begin with expressions {:?}, with register {target}, with linkage {linkage:?}",
+        seq.iter().map(|e|format!("{e:?}")).join(" ")
+    );
     let size = seq.len();
     seq.into_iter()
         .enumerate()
@@ -697,6 +720,10 @@ fn tack_on_instruction_seq(
 }
 
 fn compile_lambda(lambda: (Arg, Ast4), target: Register, linkage: Linkage) -> InstructionSequnce {
+    info!(
+        "generating ir for lambda with parameter {} and body {:?}, with register {target}, with linkage {linkage:?}",
+        lambda.0, lambda.1
+    );
     let proc_entry = make_label_name("entry".to_string());
     let after_lambda = make_label_name("after-lambda".to_string());
     let lambda_linkage = if linkage == Linkage::Next {
@@ -862,6 +889,11 @@ fn compile_application(
     lambda_linkage: Linkage,
 ) -> InstructionSequnce {
     #[cfg(feature = "lazy")]
+    info!(
+        "generating ir for application with expressions {:?}, with register {target}, with linkage {linkage:?}",
+        exp.iter().map(|e|format!("{e:?}")).join(" ")
+    );
+    info!("generating ir for applications' function");
     let proc_code = force_it(
         exp[0].clone(),
         Register::Proc,
@@ -1169,6 +1201,7 @@ fn compile_procedure_call(
 }
 // this is special function caller for loops where functions for loop are zero arg
 fn compile_procedure_call_loop(target: Register, linkage: Linkage) -> InstructionSequnce {
+    info!("generating ir for loop body function call");
     // TODO: make cfg for lazy so when its not we can just have one set of operand codes
     let primitive_branch = make_label_name("primitive-branch".to_string());
     let compiled_branch = make_label_name("compiled-branch".to_string());
@@ -1381,6 +1414,10 @@ fn force_it(
     linkage: Linkage,
     lambda_linkage: Linkage,
 ) -> InstructionSequnce {
+    info!(
+        "generating ir for forcing expression {:?}, with register {target}, with linkage {linkage:?}",
+        exp
+    );
     // TODO: when a thunk early returns were do we early return from?
     // it should early return from the last known function: (lambda linkage), so we need to
     // remember the what was in the continue register of before unthunking it (which will modify the
@@ -1434,6 +1471,10 @@ fn delay_it(
     linkage: Linkage,
     lambda_linkage: Linkage,
 ) -> InstructionSequnce {
+    info!(
+        "generating ir for delaying expression {:?}, with register {target}, with linkage {linkage:?}",
+        exp
+    );
     // TODO: when a thunk early returns were do we early return from?
     // it should early return from the last known function: (lambda linkage), so we need to
     // remember the what was in the continue register of before unthunking it (which will modify the
