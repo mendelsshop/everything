@@ -7,7 +7,7 @@
 )]
 // #![allow(clippy::similar_names, dead_code, unused)]
 
-use std::{fs, vec};
+use std::{error::Error, fs, vec};
 
 use codegen::{
     register_to_llvm::CodeGen,
@@ -15,13 +15,14 @@ use codegen::{
 };
 use inkwell::{context::Context, passes::PassManager};
 use itertools::Itertools;
+use simple_file_logger::LogLevel;
 
 use crate::{
     ast::{ast2::Ast2, ast3::Ast3, ast4::Ast4, IteratorTransformer},
     codegen::multimap::MultiMap,
     macros::parse_and_expand,
 };
-use clap::{Parser, Subcommand};
+use clap::{arg, Parser, Subcommand};
 
 pub mod ast;
 mod codegen;
@@ -49,6 +50,8 @@ pub mod interior_mut {
 pub struct Args {
     #[clap(subcommand)]
     arg: ArgType,
+    #[arg(long, default_value=None)]
+    log_level: Option<LogLevel>,
 }
 
 #[derive(Subcommand, Clone, Debug)]
@@ -70,14 +73,16 @@ pub enum ArgType {
     },
 }
 
-fn main() {
+fn main() -> Result<(),Box<dyn Error>> {
     let args = Args::parse();
+    simple_file_logger::init_logger!("everything-lang", args.log_level.unwrap_or_default())?;
     match args.arg {
         ArgType::Repl => repl(),
         ArgType::Compile { filename, output } => compile(&filename, &output),
         ArgType::Run { filename } => run(&filename),
         ArgType::Expand { filename } => expand(&filename),
-    }
+    };
+    Ok(())
 }
 
 fn init_function_optimizer<'ctx>(
