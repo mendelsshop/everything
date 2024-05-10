@@ -80,7 +80,7 @@ impl From<Ast3> for Ast4 {
 
         match value {
             Ast3::Bool(t) => Self::Bool(t),
-            Ast3::Module(name,kind) => Self::Module(name,kind),
+            Ast3::Module(name, kind) => Self::Module(name, kind),
             Ast3::Number(t) => Self::Number(t),
             Ast3::String(t) => Self::String(t),
             Ast3::Ident(t) => Self::Ident(t),

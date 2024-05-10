@@ -94,12 +94,15 @@ mod impl_transformer {
 
     use super::immutable_add_to_hashmap;
 
-    const SPECIAL_FORMS: [&str; 12] = [
+    const SPECIAL_FORMS: [&str; 13] = [
         "if", "define", "set!", "quote", "begin", "lambda", "cond", "let", "link", "stop", "loop",
-        "module",
+        "module", "defmacro",
     ];
     type Error = String;
 
+    // TODO: adding macros to this transform will have to modify state to have macro env which
+    // may be combined with normal env change from vec str to hashmap str, (none | macro)
+    // maybe even adapt the macro expander idea of having special form functions
     type State = (Vec<&'static str>, usize, HashMap<ModuleType, Vec<Ast2>>);
     impl AstTransformFrom<Ast1> for Ast2 {
         type Error = Error;
@@ -161,6 +164,7 @@ mod impl_transformer {
         Ok((Ast2::Quote(Box::new(quote(exps[0].clone()))), env))
     }
 
+    // TODO: sets should only work if there is already a variable defined
     fn convert_set(exps: Vec<Ast1>, env: State) -> Result<(Ast2, State), Error> {
         // TODO: set should only be allowed to be able to set non special forms
         if exps.len() != 2 {
@@ -177,6 +181,9 @@ mod impl_transformer {
             )
         })
     }
+    // TODO: we cannot shaddow an already defined variable unless where in a child scope
+    // scope means in lambda or cond, so by extension let
+    // this may mean we need our env simulation to be hierchical
     fn convert_define(exps: Vec<Ast1>, env: State) -> Result<(Ast2, State), Error> {
         if exps.len() < 2 {
             return Err("the define form must follow (define [var] [value]) or (define ([var] [argc] <vararg>) exp+ )".to_string());

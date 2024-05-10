@@ -59,7 +59,7 @@ mod impl_transformer {
             };
             match value {
                 Ast2::Bool(t) => Ok((Self::Bool(t), state)),
-                Ast2::Module(name,kind) => Ok((Self::Module(name,kind), state)),
+                Ast2::Module(name, kind) => Ok((Self::Module(name, kind), state)),
                 Ast2::Number(t) => Ok((Self::Number(t), state)),
                 Ast2::String(t) => Ok((Self::String(t), state)),
                 Ast2::Ident(t) => Ok((Self::Ident(t), state)),

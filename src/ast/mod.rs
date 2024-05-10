@@ -89,10 +89,10 @@ pub(crate) const ONE_ARG: usize = 1;
 pub(crate) const ZERO_VARIADIAC_ARG: usize = 2;
 pub(crate) const ONE_VARIADIAC_ARG: usize = 3;
 
-#[derive(Debug, Clone,Hash, Eq, PartialEq)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub enum ModuleType {
     Inline(usize),
-    Path(RC<str>)
+    Path(RC<str>),
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Boolean {

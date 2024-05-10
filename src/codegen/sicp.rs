@@ -329,7 +329,7 @@ pub fn compile(
             ),
         ),
         Ast4::Loop(loop_function) => compile_loop(loop_function, target, linkage, lambda_linkage),
-        Ast4::Module(name,kind ) => todo!("compile module refrence"),
+        Ast4::Module(name, kind) => todo!("compile module refrence"),
         exp => compile_self_evaluating(exp.into(), target, linkage),
     }
 }
