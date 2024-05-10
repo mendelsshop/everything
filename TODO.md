@@ -9,6 +9,7 @@ But this might not work with thunks which do set their continue register.
 How should this be implmented?
 - [ ] Create a module system.
 How does modules work with gotos, can a module define a label that a user of that module can jump to?
+How to implement at comilation, compile each module seperatly, but when compiling each thing in module with module path
 - [ ] Create and document a standard library (should be its own module).
 - [ ] Remove all explicit panics (unwraps, excepts, ...), and replace them with results.
 - [ ] Use proper error types for reuslts (not String).

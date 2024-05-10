@@ -1,6 +1,6 @@
 use crate::interior_mut::RC;
 
-use super::{Boolean, Varidiac};
+use super::{Boolean, ModuleType, Varidiac};
 
 #[derive(Debug, Clone)]
 pub enum Ast3 {
@@ -23,6 +23,7 @@ pub enum Ast3 {
     Quote(Box<Ast3>),
     Loop(Box<Ast3>),
     Stop(Option<Box<Ast3>>),
+    Module(RC<str>, ModuleType),
 }
 // replaces labels with gotos
 mod impl_transformer {
@@ -57,22 +58,23 @@ mod impl_transformer {
                 (|expr| Self::transform(expr, state))(*expr).map(|(e, s)| (Box::new(e), s))
             };
             match value {
-                Ast2::Bool(t) => Ok((Ast3::Bool(t), state)),
-                Ast2::Number(t) => Ok((Ast3::Number(t), state)),
-                Ast2::String(t) => Ok((Ast3::String(t), state)),
-                Ast2::Ident(t) => Ok((Ast3::Ident(t), state)),
-                Ast2::FnParam(t) => Ok((Ast3::FnParam(t), state)),
-                Ast2::Quote(q) => Ok((Ast3::Quote(map_box(q, quote)), state)),
+                Ast2::Bool(t) => Ok((Self::Bool(t), state)),
+                Ast2::Module(name,kind) => Ok((Self::Module(name,kind), state)),
+                Ast2::Number(t) => Ok((Self::Number(t), state)),
+                Ast2::String(t) => Ok((Self::String(t), state)),
+                Ast2::Ident(t) => Ok((Self::Ident(t), state)),
+                Ast2::FnParam(t) => Ok((Self::FnParam(t), state)),
+                Ast2::Quote(q) => Ok((Self::Quote(map_box(q, quote)), state)),
                 Ast2::Application(exprs) => exprs
                     .into_iter()
-                    .transform::<Ast3>(state)
+                    .transform::<Self>(state)
                     .transform_all()
-                    .map(|(ast, state)| (Ast3::Application(ast), state)),
+                    .map(|(ast, state)| (Self::Application(ast), state)),
                 Ast2::Label(l) => {
                     if let Some(l) = state.get(&l) {
-                        Ok((Ast3::Goto(l.clone()), state))
+                        Ok((Self::Goto(l.clone()), state))
                     } else if state.has_key(&l) {
-                        Ok((Ast3::Label(l), state))
+                        Ok((Self::Label(l), state))
                     } else {
                         Err(format!("Label {l} invalid"))
                     }
@@ -81,24 +83,24 @@ mod impl_transformer {
                     let (cond, state) = pass2_box(cond, state)?;
                     let (then, state) = pass2_box(then, state)?;
                     let (alt, state) = pass2_box(alt, state)?;
-                    Ok((Ast3::If(cond, then, alt), state))
+                    Ok((Self::If(cond, then, alt), state))
                 }
                 Ast2::Define(i, expr) => {
-                    pass2_box(expr, state).map(|(expr, state)| (Ast3::Define(i, expr), state))
+                    pass2_box(expr, state).map(|(expr, state)| (Self::Define(i, expr), state))
                 }
                 Ast2::Loop(expr) => {
-                    pass2_box(expr, state).map(|(expr, state)| (Ast3::Loop(expr), state))
+                    pass2_box(expr, state).map(|(expr, state)| (Self::Loop(expr), state))
                 }
                 Ast2::Lambda(pc, var, expr) => {
-                    pass2_box(expr, state).map(|(expr, state)| (Ast3::Lambda(pc, var, expr), state))
+                    pass2_box(expr, state).map(|(expr, state)| (Self::Lambda(pc, var, expr), state))
                 }
                 Ast2::Begin(exprs) => exprs
                     .into_iter()
-                    .transform::<Ast3>(state)
+                    .transform::<Self>(state)
                     .transform_all()
-                    .map(|(ast, state)| (Ast3::Begin(ast), state)),
+                    .map(|(ast, state)| (Self::Begin(ast), state)),
                 Ast2::Set(i, expr) => {
-                    pass2_box(expr, state).map(|(expr, state)| (Ast3::Set(i, expr), state))
+                    pass2_box(expr, state).map(|(expr, state)| (Self::Set(i, expr), state))
                 }
                 Ast2::Stop(s) => {
                     let (s, state) = match s {

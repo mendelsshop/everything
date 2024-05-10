@@ -3,7 +3,7 @@ use crate::{
     interior_mut::RC,
 };
 
-use super::{Arg, AstTransformFrom, Boolean};
+use super::{Arg, AstTransformFrom, Boolean, ModuleType};
 
 #[derive(Debug, Clone)]
 pub enum Ast4 {
@@ -26,6 +26,7 @@ pub enum Ast4 {
     Quote(Box<Ast4>),
     Loop(Box<Ast4>),
     Stop(Option<Box<Ast4>>),
+    Module(RC<str>, ModuleType),
 }
 
 impl AstTransformFrom<Ast3> for Ast4 {
@@ -79,6 +80,7 @@ impl From<Ast3> for Ast4 {
 
         match value {
             Ast3::Bool(t) => Self::Bool(t),
+            Ast3::Module(name,kind) => Self::Module(name,kind),
             Ast3::Number(t) => Self::Number(t),
             Ast3::String(t) => Self::String(t),
             Ast3::Ident(t) => Self::Ident(t),

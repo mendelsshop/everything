@@ -4,7 +4,7 @@ use itertools::Itertools;
 
 use crate::interior_mut::RC;
 
-use super::{Boolean, Varidiac};
+use super::{Boolean, ModuleType, Varidiac};
 
 #[derive(Debug, Clone)]
 pub enum Ast2 {
@@ -26,6 +26,7 @@ pub enum Ast2 {
     Quote(Box<Ast2>),
     Stop(Option<Box<Ast2>>),
     Loop(Box<Ast2>),
+    Module(RC<str>, ModuleType),
 }
 
 impl fmt::Display for Ast2 {
@@ -61,6 +62,7 @@ impl fmt::Display for Ast2 {
                     .map(|s| format!(" {s}"))
                     .unwrap_or_else(|| String::new())
             ),
+            Self::Module(name,_type) => write!(f,"(module {})", name),
         }
     }
 }
@@ -78,8 +80,9 @@ mod impl_transformer {
         AstTransformFrom, Varidiac,
     };
 
-    const SPECIAL_FORMS: [&str; 11] = [
+    const SPECIAL_FORMS: [&str; 12] = [
         "if", "define", "set!", "quote", "begin", "lambda", "cond", "let", "link", "stop", "loop",
+        "module",
     ];
     type Error = String;
 
@@ -91,13 +94,13 @@ mod impl_transformer {
 
         fn transform(value: Ast1, state: Self::State) -> Result<(Self, Self::State), Self::Error> {
             match value {
-                Ast1::Bool(b) => Ok((Ast2::Bool(b), state)),
-                Ast1::Number(n) => Ok((Ast2::Number(n), state)),
-                Ast1::String(s) => Ok((Ast2::String(s), state)),
-                Ast1::Ident(i) => Ok((Ast2::Ident(i), state)),
+                Ast1::Bool(b) => Ok((Self::Bool(b), state)),
+                Ast1::Number(n) => Ok((Self::Number(n), state)),
+                Ast1::String(s) => Ok((Self::String(s), state)),
+                Ast1::Ident(i) => Ok((Self::Ident(i), state)),
                 Ast1::Application(app) => convert_application(app, state),
-                Ast1::Label(l) => Ok((Ast2::Label(l), state)),
-                Ast1::FnParam(p) => Ok((Ast2::FnParam(p), state)),
+                Ast1::Label(l) => Ok((Self::Label(l), state)),
+                Ast1::FnParam(p) => Ok((Self::FnParam(p), state)),
             }
         }
     }
@@ -253,6 +256,7 @@ mod impl_transformer {
                     "quote" => convert_quoted(exps, env),
                     "stop" => convert_return(exps, env),
                     "loop" => convert_loop(exps, env),
+                    "module" => convert_module(exps, env),
                     _ => unreachable!(),
                 }
             }
@@ -271,6 +275,16 @@ mod impl_transformer {
             }
             None => Err("application must have at least one argument".to_string()),
         }
+    }
+
+    fn convert_module(exps: Vec<Ast1>, env: State) -> Result<(Ast2, State), Error> {
+        // TODO: requires modification of state type to include a hashmap of moduletype, vec ast,
+        // and usize, so no inline modules hash to same thing
+        // then if its an inline module have moduletype be inline wityh usize, increment usize and
+        // parse inline module put in hashmap and put module and name as module to return
+        // if its file read and parse file put in hasmap as module type file with file path
+        // then return module type and name as module in ast
+        todo!()
     }
 
     fn convert_loop(exps: Vec<Ast1>, env: State) -> Result<(Ast2, State), Error> {
