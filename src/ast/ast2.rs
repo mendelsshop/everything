@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{collections::HashMap, fmt, hash::Hash};
 
 use itertools::Itertools;
 
@@ -62,7 +62,7 @@ impl fmt::Display for Ast2 {
                     .map(|s| format!(" {s}"))
                     .unwrap_or_else(|| String::new())
             ),
-            Self::Module(name,_type) => write!(f,"(module {})", name),
+            Self::Module(name, _type) => write!(f, "(module {})", name),
         }
     }
 }
@@ -70,15 +70,29 @@ pub fn immutable_add_to_vec<T>(mut v: Vec<T>, x: T) -> Vec<T> {
     v.push(x);
     v
 }
-
+pub fn immutable_add_to_hashmap<K: Hash + Eq, V>(
+    mut h: HashMap<K, V>,
+    k: K,
+    v: V,
+) -> HashMap<K, V> {
+    h.insert(k, v);
+    h
+}
 mod impl_transformer {
-    use std::fmt;
+    use std::{collections::HashMap, fmt, fs::File, io::Read};
 
-    use crate::ast::{
-        ast1::Ast1,
-        ast2::{immutable_add_to_vec, Ast2},
-        AstTransformFrom, Varidiac,
+    use itertools::{chain, Itertools};
+
+    use crate::{
+        ast::{
+            ast1::Ast1,
+            ast2::{immutable_add_to_vec, Ast2},
+            AstTransformFrom, IteratorTransformer, ModuleType, Varidiac,
+        },
+        macros::parse_and_expand,
     };
+
+    use super::immutable_add_to_hashmap;
 
     const SPECIAL_FORMS: [&str; 12] = [
         "if", "define", "set!", "quote", "begin", "lambda", "cond", "let", "link", "stop", "loop",
@@ -86,7 +100,7 @@ mod impl_transformer {
     ];
     type Error = String;
 
-    type State = Vec<&'static str>;
+    type State = (Vec<&'static str>, usize, HashMap<ModuleType, Vec<Ast2>>);
     impl AstTransformFrom<Ast1> for Ast2 {
         type Error = Error;
 
@@ -109,7 +123,12 @@ mod impl_transformer {
     /// 2: lambdas are sngle parmaterfied curring
     fn extend_if_found(name: impl fmt::Display, env: State) -> State {
         if let Some(i) = SPECIAL_FORMS.iter().position(|&x| x == name.to_string()) {
-            immutable_add_to_vec(env, SPECIAL_FORMS[i])
+            {
+                let mut v = env;
+                let x = SPECIAL_FORMS[i];
+                v.0.push(x);
+                v
+            }
         } else {
             env
         }
@@ -242,7 +261,7 @@ mod impl_transformer {
     fn convert_application(app: Vec<Ast1>, env: State) -> Result<(Ast2, State), Error> {
         match app.first() {
             Some(Ast1::Ident(i))
-                if !env.contains(&i.to_string().as_str())
+                if !env.0.contains(&i.to_string().as_str())
                     && SPECIAL_FORMS.contains(&i.to_string().as_str()) =>
             {
                 // TODO: have constraints on where some special forms can be used/rededinfed to help with the approximation of where some special forms are redefined when using lazyness
@@ -284,7 +303,54 @@ mod impl_transformer {
         // parse inline module put in hashmap and put module and name as module to return
         // if its file read and parse file put in hasmap as module type file with file path
         // then return module type and name as module in ast
-        todo!()
+        let mut iter = exps.into_iter();
+        let name = iter.next().ok_or("module missing name".to_string())?;
+        let Ast1::Ident(name) = name else {
+            return Err(format!("module name is not an ident {name}"));
+        };
+        match (iter.next(), iter.collect_vec()) {
+            (Some(Ast1::String(path)), v) if v.is_empty() => {
+                let mut file = File::open(&*path)
+                    .map_err(|e| format!("cannot open module {name} from path {path}: {e}"))?;
+                let mut buf = String::new();
+                file.read_to_string(&mut buf)
+                    .map_err(|e| format!("cannot read module {name} from path {path}: {e}"))?;
+                // TODO: combine ast1 -> to ast2 and macro expansion + link finding into one phase
+                // so that extenral modules can share links with other code
+                let (exps, map) = parse_and_expand(&buf)
+                    .map_err(|e| format!("cannot parse module {name} from path {path}: {e:?}"))?;
+                let (exps, (_, i, map)) = exps
+                    .into_iter()
+                    .transform::<Ast2>((vec![], env.1, env.2))
+                    .transform_all::<Vec<_>>()
+                    .map_err(|e| {
+                        format!("cannot transform module {name} from path {path}: {e:?}")
+                    })?;
+                let module_type = ModuleType::Path(path);
+                let map = immutable_add_to_hashmap(map, module_type.clone(), exps);
+                let state = (env.0, i + 1, map);
+                Ok((Ast2::Module(name, module_type), state))
+            }
+            (Some(expr), v) => {
+                let exps = chain!([expr], v);
+                let (exps, (_, i, map)) = exps
+                    .into_iter()
+                    .transform::<Ast2>((vec![], env.1, env.2))
+                    .transform_all::<Vec<_>>()
+                    .map_err(|e| format!("cannot transform module {name}: {e:?}"))?;
+                let module_type = ModuleType::Inline(env.1);
+                let map = immutable_add_to_hashmap(map, module_type.clone(), exps);
+                let state = (env.0, i + 1, map);
+                Ok((Ast2::Module(name, module_type), state))
+            }
+            (None, _) => {
+                // TODO: empty inline modules
+                let module_type = ModuleType::Inline(env.1);
+                let map = immutable_add_to_hashmap(env.2, module_type.clone(), vec![]);
+                let state = (env.0, env.1 + 1, map);
+                Ok((Ast2::Module(name, module_type), state))
+            }
+        }
     }
 
     fn convert_loop(exps: Vec<Ast1>, env: State) -> Result<(Ast2, State), Error> {

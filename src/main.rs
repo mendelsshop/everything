@@ -7,7 +7,7 @@
 )]
 // #![allow(clippy::similar_names, dead_code, unused)]
 
-use std::{error::Error, fs, vec};
+use std::{collections::HashMap, error::Error, fs, vec};
 
 use codegen::{
     register_to_llvm::CodeGen,
@@ -73,7 +73,7 @@ pub enum ArgType {
     },
 }
 
-fn main() -> Result<(),Box<dyn Error>> {
+fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
     simple_file_logger::init_logger!("everything-lang", args.log_level.unwrap_or_default())?;
     match args.arg {
@@ -132,7 +132,7 @@ fn compile(file: &str, out: &str) {
     let (ast, _): (Vec<_>, _) = program
         .0
         .into_iter()
-        .transform::<Ast2>(vec![])
+        .transform::<Ast2>((vec![], 0, HashMap::new()))
         .transform_all()
         .unwrap();
     let (ast, _): (Vec<_>, _) = ast

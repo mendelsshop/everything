@@ -9,7 +9,8 @@ But this might not work with thunks which do set their continue register.
 How should this be implmented?
 - [ ] Create a module system.
 How does modules work with gotos, can a module define a label that a user of that module can jump to?
-How to implement at comilation, compile each module seperatly, but when compiling each thing in module with module path
+How to implement at comilation, compile each module seperatly, but when compiling each thing in module with module path.
+What about empty modules?
 - [ ] Create and document a standard library (should be its own module).
 - [ ] Remove all explicit panics (unwraps, excepts, ...), and replace them with results.
 - [ ] Use proper error types for reuslts (not String).
@@ -21,3 +22,5 @@ How to implement at comilation, compile each module seperatly, but when compilin
 - [ ] Test compiler.
 - [/] Adding logging.
 - [/] Different syntax for lisp and not lisp.
+Maybe in parser we should in application check for "reserved" idents and parse them as idents rather then expressions
+- [ ] Combine ast1 to ast2 transformation, and macro expander and link finder as they all do somewhat similiar things, and all need to know what variables are already defined
