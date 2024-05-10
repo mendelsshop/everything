@@ -8,7 +8,13 @@ use crate::{
     interior_mut::{MUTEX, RC},
 };
 
-use super::Boolean;
+use super::{Boolean, Varidiac};
+
+#[derive(Clone, PartialEq, Debug)]
+pub enum ModuleType {
+    Inline(Vec<Ast1>),
+    Path(RC<str>),
+}
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum Ast1 {
@@ -20,6 +26,16 @@ pub enum Ast1 {
     Label(RC<str>),
     // should simlify to ident or the like ...
     FnParam(usize),
+
+    If(Box<Ast1>, Box<Ast1>, Box<Ast1>),
+    Define(RC<str>, Box<Ast1>),
+    Lambda(usize, Option<Varidiac>, Vec<Ast1>),
+    Begin(Vec<Ast1>),
+    Set(RC<str>, Box<Ast1>),
+    Quote(Box<Ast1>),
+    Stop(Option<Box<Ast1>>),
+    Loop(Box<Ast1>),
+    Module(RC<str>, ModuleType),
 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct Tree {
@@ -41,6 +57,7 @@ impl<'a, 'ctx> FlattenAst<'a, 'ctx> for Ast1 {
             Self::Application(a) => a.flatten(compiler),
             Self::Label(_) => todo!(),
             Self::FnParam(p) => compiler.const_symbol(&format!("'{p}'").into()),
+            _ => todo!(),
         }
     }
 }
@@ -84,6 +101,28 @@ impl fmt::Display for Ast1 {
             }
             Self::Label(f0) => write!(f, "@{f0}"),
             Self::FnParam(f0) => write!(f, "'{f0}'"),
+            Self::If(cond, cons, alt) => write!(f, "(if {cond} {cons} {alt})"),
+            Self::Define(v, val) => write!(f, "(define {v} {val})"),
+            Self::Lambda(argc, vairdiac, body) => write!(
+                f,
+                "(lambda ({argc}{}) {})",
+                vairdiac
+                    .as_ref()
+                    .map_or_else(String::new, |s| format!(" {s}")),
+                body.iter().map(ToString::to_string).join(" ")
+            ),
+            Self::Begin(b) => write!(f, "(begin {})", b.iter().map(ToString::to_string).join(" ")),
+            Self::Set(v, val) => write!(f, "(set! {v} {val})"),
+            Self::Quote(q) => write!(f, ";{q}"),
+            Self::Loop(l) => write!(f, "(loop {l}"),
+            Self::Stop(s) => write!(
+                f,
+                "(stop{})",
+                s.as_ref()
+                    .map(|s| format!(" {s}"))
+                    .unwrap_or_else(|| String::new())
+            ),
+            Self::Module(name, _type) => write!(f, "(module {})", name),
         }
     }
 }

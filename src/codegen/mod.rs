@@ -339,6 +339,15 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             Ast1::Application(application) => self.compile_application(application),
             Ast1::Label(s) => self.compile_label(s),
             Ast1::FnParam(s) => self.get_var(&s.to_string().into()).map(Some),
+            Ast1::If(_, _, _) => todo!(),
+            Ast1::Define(_, _) => todo!(),
+            Ast1::Lambda(_, _, _) => todo!(),
+            Ast1::Begin(_) => todo!(),
+            Ast1::Set(_, _) => todo!(),
+            Ast1::Quote(_) => todo!(),
+            Ast1::Stop(_) => todo!(),
+            Ast1::Loop(_) => todo!(),
+            Ast1::Module(_, _) => todo!(),
             // EverythingExpr::Hempty => Ok(Some(self.hempty().into())),
         }
     }

@@ -85,7 +85,7 @@ mod impl_transformer {
 
     use crate::{
         ast::{
-            ast1::Ast1,
+            ast1::{self, Ast1},
             ast2::{immutable_add_to_vec, Ast2},
             AstTransformFrom, IteratorTransformer, ModuleType, Varidiac,
         },
@@ -115,6 +115,15 @@ mod impl_transformer {
                 Ast1::Application(app) => convert_application(app, state),
                 Ast1::Label(l) => Ok((Self::Label(l), state)),
                 Ast1::FnParam(p) => Ok((Self::FnParam(p), state)),
+                Ast1::If(_, _, _) => todo!(),
+                Ast1::Define(_, _) => todo!(),
+                Ast1::Lambda(_, _, _) => todo!(),
+                Ast1::Begin(_) => todo!(),
+                Ast1::Set(_, _) => todo!(),
+                Ast1::Quote(_) => todo!(),
+                Ast1::Stop(_) => todo!(),
+                Ast1::Loop(_) => todo!(),
+                Ast1::Module(_, _) => todo!(),
             }
         }
     }
@@ -143,7 +152,7 @@ mod impl_transformer {
             .map(|(app, env)| (Ast2::Begin(app), env))
     }
 
-    fn convert_quoted(exps: Vec<Ast1>, env: State) -> Result<(Ast2, State), Error> {
+    fn convert_quoted(exps: Vec<Ast1>, mut env: State) -> Result<(Ast2, State), Error> {
         if exps.len() != 1 {
             return Err("quoted expression can only contain single expression".to_string());
         }
@@ -153,9 +162,47 @@ mod impl_transformer {
                 Ast1::Number(t) => Ast2::Number(t),
                 Ast1::String(t) => Ast2::String(t),
                 Ast1::Ident(t) => Ast2::Ident(t),
-                Ast1::Application(t) => Ast2::Application(t.into_iter().map(quote).collect()),
+                Ast1::Application(t) => {
+                    Ast2::Application(t.into_iter().map(|exp| quote(exp)).collect())
+                }
                 Ast1::Label(t) => Ast2::Label(t),
                 Ast1::FnParam(t) => Ast2::FnParam(t),
+                Ast1::If(cond, cons, alt) => Ast2::Application(vec![
+                    Ast2::Ident("if".into()),
+                    quote(*cond),
+                    quote(*cons),
+                    quote(*alt),
+                ]),
+                Ast1::Define(name, expr) => Ast2::Application(vec![
+                    Ast2::Ident("define".into()),
+                    Ast2::Ident(name),
+                    quote(*expr),
+                ]),
+                Ast1::Set(name, expr) => Ast2::Application(vec![
+                    Ast2::Ident("set!".into()),
+                    Ast2::Ident(name),
+                    quote(*expr),
+                ]),
+                // Ast1::Lambda(argc, varidiacity, body) => Ast2::Application(chain!([Ast2::Ident("lambda".into()), Ast2::
+                Ast1::Begin(body) => Ast2::Application(
+                    chain!(
+                        [Ast2::Ident("begin".into())],
+                        body.into_iter().map(|exp| quote(exp))
+                    )
+                    .collect_vec(),
+                ),
+                Ast1::Quote(quoted) => Ast2::Application(vec![Ast2::Ident("quote".into()), quote(*quoted)]),
+                Ast1::Stop(stop) => 
+                Ast1::Loop(body) => todo!(),
+                Ast1::Module(name, kind) => {
+                    let body = match kind {
+                        // we need some sort of rc for file modules if they all get quoted
+                        ast1::ModuleType::Path(p) => vec![Ast2::String(p)],
+                        ast1::ModuleType::Inline(i) => i.into_iter().map(quote).collect(),
+                    };
+                    Ast2::Application(chain!([Ast2::Ident("module".into())], body).collect_vec())
+                }
+                Ast1::Lambda(_, _, _) => todo!(),
             }
         }
         Ok((Ast2::Quote(Box::new(quote(exps[0].clone()))), env))

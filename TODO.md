@@ -24,3 +24,4 @@ What about empty modules?
 - [/] Different syntax for lisp and not lisp.
 Maybe in parser we should in application check for "reserved" idents and parse them as idents rather then expressions
 - [ ] Combine ast1 to ast2 transformation, and macro expander and link finder as they all do somewhat similiar things, and all need to know what variables are already defined
+- [ ] Make c style stuff go directly to ast nodes as to going through ast to ast2 transformation so ast will have syntax nodes.
