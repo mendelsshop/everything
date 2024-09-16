@@ -59,6 +59,67 @@ impl Expander {
                             .ok_or("internal error".to_string())
                             .map(|datum| list!("quote".into(), datum))
                     }
+                    "set!" => {
+                        let m = match_syntax(
+                            s.clone(),
+                            list!("set!".into(), "id".into(), "rhs".into()),
+                        )?;
+                        let id = m("id".into())
+                            .ok_or("internal error".to_string())
+                            .and_then(|id| self.compile(id))?;
+                        let rhs = m("rhs".into())
+                            .ok_or("internal error".to_string())
+                            .and_then(|rhs| self.compile(rhs))?;
+                        Ok(list!("set!".into(), id, rhs))
+                    }
+                    "link" => {
+                        // TODO: verify that dest/src label(s) are actually labels (requires updating ast with
+                        // everything features)
+                        let m = match_syntax(
+                            s.clone(),
+                            list!(
+                                "link".into(),
+                                "dest-label".into(),
+                                "src-labels".into(),
+                                "...".into()
+                            ),
+                        )?;
+                        let dest = m("dest".into()).ok_or("internal error".to_string())?;
+                        let src = m("src".into()).ok_or("internal error".to_string())?;
+                        Ok(Ast::Pair(Box::new(Pair(
+                            "link".into(),
+                            Ast::Pair(Box::new(Pair(dest, src))),
+                        ))))
+                    }
+                    "if" => {
+                        // TODO: optional alt?
+                        let m = match_syntax(
+                            s.clone(),
+                            list!("if".into(), "cond".into(), "cons".into(), "alt".into()),
+                        )?;
+                        let cond = m("cond".into())
+                            .ok_or("internal error".to_string())
+                            .and_then(|cond| self.compile(cond))?;
+                        let cons = m("cons".into())
+                            .ok_or("internal error".to_string())
+                            .and_then(|cons| self.compile(cons))?;
+                        let alt = m("alt".into())
+                            .ok_or("internal error".to_string())
+                            .and_then(|alt| self.compile(alt))?;
+                        Ok(list!("if".into(), cond, cons, alt))
+                    }
+                    "begin" => {
+                        let m = match_syntax(
+                            s.clone(),
+                            list!("begin".into(), "e".into(), "...+".into()),
+                        )?;
+                        let e = m("e".into())
+                            .ok_or("internal error".to_string())
+                            .and_then(|es| es.map(|e| self.compile(e)))?;
+                        Ok(Ast::Pair(Box::new(Pair("begin".into(), e))))
+                    }
+                    //"define" => {}
+                    "stop" | "skip" | "loop" => todo!(),
                     _ => Err(format!("unrecognized core form {core_sym}")),
                 }
             }

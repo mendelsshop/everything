@@ -3,7 +3,12 @@ use crate::{
     list,
 };
 
-use super::{binding::CompileTimeEnvoirnment, expand::rebuild, r#match::match_syntax, Expander};
+use super::{
+    binding::{Binding, CompileTimeEnvoirnment},
+    expand::rebuild,
+    r#match::match_syntax,
+    Expander,
+};
 
 impl Expander {
     pub fn add_core_forms(&mut self) {
@@ -12,6 +17,15 @@ impl Expander {
         self.add_core_form("%app".into(), Self::core_form_app);
         self.add_core_form("quote".into(), Self::core_form_quote);
         self.add_core_form("quote-syntax".into(), Self::core_form_quote_syntax);
+        self.add_core_form("link".into(), Self::core_form_link);
+        self.add_core_form("if".into(), Self::core_form_if);
+        //self.add_core_form("define".into(), Self::core_form_define);
+        self.add_core_form("loop".into(), |_, _, _| todo!());
+        self.add_core_form("set!".into(), Self::core_form_set);
+        self.add_core_form("stop".into(), |_, _, _| todo!());
+        self.add_core_form("skip".into(), |_, _, _| todo!());
+        self.add_core_form("begin".into(), Self::core_form_begin);
+        // TODO: will we need begin
     }
 
     //#[trace]
@@ -150,5 +164,78 @@ impl Expander {
         _env: CompileTimeEnvoirnment,
     ) -> Result<Ast, String> {
         match_syntax(s.clone(), list!("quote-syntax".into(), "datum".into())).map(|_| s)
+    }
+
+    fn core_form_link(&mut self, s: Ast, env: CompileTimeEnvoirnment) -> Result<Ast, String> {
+        // TODO: verify that dest/src label(s) are actually labels (requires updating ast with
+        // everything features)
+        // TODO: expand recursivly?
+        let m = match_syntax(
+            s.clone(),
+            list!(
+                "link".into(),
+                "dest-label".into(),
+                "src-labels".into(),
+                "...".into()
+            ),
+        )?;
+        let link = m("link".into()).ok_or("internal error")?;
+        let dest = m("dest".into()).ok_or("internal error".to_string())?;
+        let src = m("src".into()).ok_or("internal error".to_string())?;
+        Ok(Ast::Pair(Box::new(Pair(
+            link,
+            Ast::Pair(Box::new(Pair(dest, src))),
+        ))))
+    }
+    fn core_form_if(&mut self, s: Ast, env: CompileTimeEnvoirnment) -> Result<Ast, String> {
+        // TODO: optional alt?
+        let m = match_syntax(
+            s.clone(),
+            list!("if".into(), "cond".into(), "cons".into(), "alt".into()),
+        )?;
+        let r#if = m("if".into()).ok_or("internal error")?;
+        let cond = m("cond".into())
+            .ok_or("internal error".to_string())
+            .and_then(|cond| self.expand(cond, env.clone()))?;
+        let cons = m("cons".into())
+            .ok_or("internal error".to_string())
+            .and_then(|cons| self.expand(cons, env.clone()))?;
+        let alt = m("alt".into())
+            .ok_or("internal error".to_string())
+            .and_then(|alt| self.expand(alt, env))?;
+        Ok(list!(r#if, cond, cons, alt))
+    }
+
+    //fn core_form_define(&mut self, s: Ast, env: CompileTimeEnvoirnment) -> Result<Ast, String> {}
+    fn core_form_set(&mut self, s: Ast, env: CompileTimeEnvoirnment) -> Result<Ast, String> {
+        let m = match_syntax(s.clone(), list!("set!".into(), "id".into(), "rhs".into()))?;
+        let set = m("set!".into()).ok_or("internal error")?;
+        let id = m("id".into()).ok_or("internal error".to_string());
+        id.clone()
+            .and_then(|id| id.try_into())
+            .and_then(|id| {
+                self.resolve(&id)
+                    .map_err(|_| format!("no binding for assignment {s}"))
+            })
+            .and_then(|id| {
+                if let Binding::Variable(_) = id {
+                    Ok(())
+                } else {
+                    Err(format!("no binding for assignment {s}"))
+                }
+            })?;
+
+        let rhs = m("rhs".into())
+            .ok_or("internal error".to_string())
+            .and_then(|rhs| self.expand(rhs, env.clone()))?;
+        Ok(list!(set, id?, rhs))
+    }
+    fn core_form_begin(&mut self, s: Ast, env: CompileTimeEnvoirnment) -> Result<Ast, String> {
+        let m = match_syntax(s.clone(), list!("begin".into(), "e".into(), "...+".into()))?;
+        let begin = m("begin".into()).ok_or("internal error")?;
+        let e = m("e".into())
+            .ok_or("internal error".to_string())
+            .and_then(|es| es.map(|e| self.expand(e, env.clone())))?;
+        Ok(Ast::Pair(Box::new(Pair(begin, e))))
     }
 }
