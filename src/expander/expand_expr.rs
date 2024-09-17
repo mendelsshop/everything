@@ -187,8 +187,12 @@ impl Expander {
             }
         };
         let link = m("link".into()).ok_or("internal error")?;
-        let dest = m("dest".into()).ok_or("internal error".to_string()).and_then(filter_label)?;
-        let src = m("src".into()).ok_or("internal error".to_string()).and_then(|links|links.map(filter_label))?;
+        let dest = m("dest".into())
+            .ok_or("internal error".to_string())
+            .and_then(filter_label)?;
+        let src = m("src".into())
+            .ok_or("internal error".to_string())
+            .and_then(|links| links.map(filter_label))?;
         Ok(Ast::Pair(Box::new(Pair(
             link,
             Ast::Pair(Box::new(Pair(dest, src))),

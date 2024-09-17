@@ -9,7 +9,10 @@ pub mod ast3;
 pub mod ast4;
 
 use std::{
-    collections::BTreeSet, fmt::{self, Debug}, iter, rc::Rc
+    collections::BTreeSet,
+    fmt::{self, Debug},
+    iter,
+    rc::Rc,
 };
 
 use crate::evaluator::{Env, EnvRef, Evaluator};
@@ -123,7 +126,7 @@ pub enum Ast {
     Boolean(Boolean),
     Symbol(Symbol),
     Function(Function),
-    Label(RC<str>)
+    Label(RC<str>),
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]

@@ -28,11 +28,11 @@ use clap::{arg, Parser, Subcommand};
 pub mod ast;
 mod codegen;
 
+mod evaluator;
+mod expander;
 pub mod lexer;
 mod macros;
 pub mod pc;
-mod evaluator;
-mod expander;
 mod primitives;
 mod reader;
 

@@ -1,7 +1,8 @@
 use std::{collections::BTreeSet, fmt::Debug};
 
 use super::{
-    scope::{Scope, ScopeSet}, Ast, Boolean, Pair, Symbol
+    scope::{Scope, ScopeSet},
+    Ast, Boolean, Pair, Symbol,
 };
 
 #[derive(Clone, PartialEq, Debug, Eq, Hash)]
