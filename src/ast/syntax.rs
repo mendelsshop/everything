@@ -1,8 +1,7 @@
 use std::{collections::BTreeSet, fmt::Debug};
 
 use super::{
-    scope::{Scope, ScopeSet},
-    Ast, Pair, Symbol,
+    scope::{Scope, ScopeSet}, Ast, Boolean, Pair, Symbol
 };
 
 #[derive(Clone, PartialEq, Debug, Eq, Hash)]
@@ -22,7 +21,7 @@ impl TryFrom<Ast> for Syntax<Symbol> {
 }
 
 const EMPTY_SCOPE: BTreeSet<Scope> = ScopeSet::new();
-const EMPTY_SYNTAX: Syntax<Ast> = Syntax(Ast::Boolean(false), EMPTY_SCOPE);
+const EMPTY_SYNTAX: Syntax<Ast> = Syntax(Ast::Boolean(Boolean::False), EMPTY_SCOPE);
 
 impl TryFrom<Syntax<Ast>> for Syntax<Symbol> {
     type Error = String;

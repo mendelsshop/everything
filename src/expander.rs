@@ -5,7 +5,7 @@ use std::{
 
 use binding::{Binding, CoreForm};
 
-use crate::ast::scope::AdjustScope;
+use crate::ast::{scope::AdjustScope, Boolean};
 use crate::{
     ast::scope::Scope,
     ast::{syntax::Syntax, Ast, Symbol},
@@ -46,7 +46,7 @@ impl Expander {
         let core_scope = scope_creator.new_scope();
         let variable = scope_creator.gen_sym("variable");
         let mut this = Self {
-            core_syntax: Syntax(Ast::Boolean(false), BTreeSet::from([core_scope])),
+            core_syntax: Syntax(Ast::Boolean(Boolean::False), BTreeSet::from([core_scope])),
             scope_creator,
             core_scope,
             core_primitives: HashMap::new(),

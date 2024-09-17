@@ -120,9 +120,10 @@ pub enum Ast {
     TheEmptyList,
     Syntax(Box<Syntax<Ast>>),
     Number(f64),
-    Boolean(bool),
+    Boolean(Boolean),
     Symbol(Symbol),
     Function(Function),
+    Label(RC<str>)
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
@@ -175,6 +176,7 @@ impl fmt::Display for Ast {
             Self::Symbol(s) => write!(f, "'{s}"),
             Self::Function(function) => write!(f, "{function}"),
             Self::Boolean(b) => write!(f, "{b}"),
+            Self::Label(f0) => write!(f, "@{f0}"),
             Self::TheEmptyList => write!(f, "()"),
         }
     }

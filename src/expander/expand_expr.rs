@@ -179,9 +179,16 @@ impl Expander {
                 "...".into()
             ),
         )?;
+        let filter_label = |label| {
+            if matches!(label, Ast::Label(_)) {
+                Ok(label)
+            } else {
+                Err("not a label".to_string())
+            }
+        };
         let link = m("link".into()).ok_or("internal error")?;
-        let dest = m("dest".into()).ok_or("internal error".to_string())?;
-        let src = m("src".into()).ok_or("internal error".to_string())?;
+        let dest = m("dest".into()).ok_or("internal error".to_string()).and_then(filter_label)?;
+        let src = m("src".into()).ok_or("internal error".to_string()).and_then(|links|links.map(filter_label))?;
         Ok(Ast::Pair(Box::new(Pair(
             link,
             Ast::Pair(Box::new(Pair(dest, src))),
