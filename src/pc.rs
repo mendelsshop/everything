@@ -153,9 +153,9 @@ pub fn opt<T: 'static, E: 'static>(parser: Box<Parser<T, E>>) -> Box<Parser<Opti
 #[must_use]
 pub fn many<T: 'static, E: 'static>(
     parser: Box<Parser<T, E>>,
-) -> Box<Parser<Option<Box<dyn Iterator<Item = T>>>, E>> {
+) -> Box<Parser<Option<Box<dyn DoubleEndedIterator<Item = T>>>, E>> {
     Box::new(move |mut input| {
-        let mut init: Option<Box<dyn Iterator<Item = T>>> = None;
+        let mut init: Option<Box<dyn DoubleEndedIterator<Item = T>>> = None;
         while let Ok((v, new_input)) = parser(input) {
             input = new_input;
 
@@ -197,7 +197,7 @@ pub fn inbetween<T: 'static, U: 'static, V: 'static, E: 'static>(
 #[must_use]
 pub fn many1<T: 'static, E: 'static>(
     parser: Box<Parser<T, E>>,
-) -> Box<Parser<Box<dyn Iterator<Item = T>>, E>> {
+) -> Box<Parser<Box<dyn DoubleEndedIterator<Item = T>>, E>> {
     let many = many(parser);
     Box::new(move |input| match many(input)? {
         (None, input) => Err(ParseError {
@@ -334,7 +334,7 @@ pub fn sep1<T: 'static, U: 'static, E: 'static>(
 }
 
 #[must_use]
-pub fn white_space<E: 'static>() -> Box<Parser<Option<Box<dyn Iterator<Item = char>>>, E>> {
+pub fn white_space<E: 'static>() -> Box<Parser<Option<Box<dyn DoubleEndedIterator<Item = char>>>, E>> {
     many(any_of([' ', '\n', '\t']))
 }
 

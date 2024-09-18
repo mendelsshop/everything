@@ -10,28 +10,31 @@
 use std::{collections::HashMap, error::Error, fs, vec};
 
 use ast::{scope::Scope, Ast, Symbol};
-use codegen::{
-    register_to_llvm::CodeGen,
-    sicp::{Linkage, Register},
-};
+//use codegen::{
+//    register_to_llvm::CodeGen,
+//    sicp::{Linkage, Register},
+//};
 use inkwell::{context::Context, passes::PassManager};
 use itertools::Itertools;
 use simple_file_logger::LogLevel;
 
 use crate::{
-    ast::{ast2::Ast2, ast3::Ast3, ast4::Ast4, IteratorTransformer},
-    codegen::multimap::MultiMap,
-    macros::parse_and_expand,
+    ast::{
+        //ast2::Ast2, ast3::Ast3, ast4::Ast4,
+        IteratorTransformer,
+    },
+    //codegen::multimap::MultiMap,
+    //macros::parse_and_expand,
 };
 use clap::{arg, Parser, Subcommand};
 
 pub mod ast;
-mod codegen;
+//mod codegen;
 
 mod evaluator;
 mod expander;
 pub mod lexer;
-mod macros;
+//mod macros;
 pub mod pc;
 mod primitives;
 mod reader;
@@ -127,47 +130,50 @@ fn run(file: &str) {}
 
 fn expand(file: &str) {
     let contents = fs::read_to_string(file).unwrap();
-    let program = parse_and_expand(&contents).unwrap();
-    println!("{program:?}");
+    //let program = parse_and_expand(&contents).unwrap();
+    //println!("{program:?}");
 }
 
 fn compile(file: &str, out: &str) {
     let contents = fs::read_to_string(file).unwrap();
-    let program = parse_and_expand(&contents).unwrap();
-    let links = MultiMap::from(program.1.into_iter().map(|(k, ks)| (ks, k.clone(), k)));
-    let (ast, _): (Vec<_>, _) = program
-        .0
-        .into_iter()
-        .transform::<Ast2>((vec![], 0, HashMap::new()))
-        .transform_all()
-        .unwrap();
-    let (ast, _): (Vec<_>, _) = ast
-        .into_iter()
-        .transform::<Ast3>(links)
-        .transform_all()
-        .unwrap();
-    let (ast, _): (Vec<_>, _) = ast
-        .into_iter()
-        .transform::<Ast4>(())
-        .transform_all()
-        .unwrap();
-    eprintln!("{}\n", ast.iter().map(|e| format!("{e:?}")).join("\n"));
-    let ir: Vec<_> = ast
-        .into_iter()
-        .flat_map(|expr| {
-            codegen::sicp::compile(expr, Register::Val, Linkage::Next, Linkage::Next)
-                .instructions()
-                .to_vec()
-        })
-        .collect();
-    eprintln!("{}", ir.iter().map(ToString::to_string).join("\n"));
-    let context = Context::create();
-    let module = context.create_module(file);
-    let builder = context.create_builder();
-    let fpm = init_function_optimizer(&module);
-    let mut codegen = CodeGen::new(&context, &builder, &module, &fpm);
-    codegen.compile(ir);
-    println!("\n{}", codegen.export_ir());
+    for ele in lexer::everything_parse(&contents).unwrap() {
+       println!("{ele}") 
+    };
+    //let program = parse_and_expand(&contents).unwrap();
+    //let links = MultiMap::from(program.1.into_iter().map(|(k, ks)| (ks, k.clone(), k)));
+    //let (ast, _): (Vec<_>, _) = program
+    //    .0
+    //    .into_iter()
+    //    .transform::<Ast2>((vec![], 0, HashMap::new()))
+    //    .transform_all()
+    //    .unwrap();
+    //let (ast, _): (Vec<_>, _) = ast
+    //    .into_iter()
+    //    .transform::<Ast3>(links)
+    //    .transform_all()
+    //    .unwrap();
+    //let (ast, _): (Vec<_>, _) = ast
+    //    .into_iter()
+    //    .transform::<Ast4>(())
+    //    .transform_all()
+    //    .unwrap();
+    //eprintln!("{}\n", ast.iter().map(|e| format!("{e:?}")).join("\n"));
+    //let ir: Vec<_> = ast
+    //    .into_iter()
+    //    .flat_map(|expr| {
+    //        codegen::sicp::compile(expr, Register::Val, Linkage::Next, Linkage::Next)
+    //            .instructions()
+    //            .to_vec()
+    //    })
+    //    .collect();
+    //eprintln!("{}", ir.iter().map(ToString::to_string).join("\n"));
+    //let context = Context::create();
+    //let module = context.create_module(file);
+    //let builder = context.create_builder();
+    //let fpm = init_function_optimizer(&module);
+    //let mut codegen = CodeGen::new(&context, &builder, &module, &fpm);
+    //codegen.compile(ir);
+    //println!("\n{}", codegen.export_ir());
 }
 
 // use ast::{scope::Scope, Ast, Symbol};

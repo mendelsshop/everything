@@ -3,10 +3,10 @@ pub mod syntax;
 use scope::Scope;
 use syntax::Syntax;
 
-pub mod ast1;
-pub mod ast2;
-pub mod ast3;
-pub mod ast4;
+//pub mod ast1;
+//pub mod ast2;
+//pub mod ast3;
+//pub mod ast4;
 
 use std::{
     collections::BTreeSet,
@@ -22,6 +22,9 @@ macro_rules! list {
     () => {$crate::ast::Ast::TheEmptyList};
     ($car:expr $(,)?) => {
         $crate::ast::Ast::Pair(Box::new($crate::ast::Pair($car, $crate::ast::Ast::TheEmptyList)))
+    };
+    ($car:expr ; $cdr:expr) => {
+        $crate::ast::Ast::Pair(Box::new($crate::ast::Pair($car, $cdr)))
     };
     ($car:expr, $($cdr:tt)+) => {
         $crate::ast::Ast::Pair(Box::new($crate::ast::Pair($car, list!($($cdr)+))))
@@ -121,6 +124,7 @@ impl Pair {
 pub enum Ast {
     Pair(Box<Pair>),
     TheEmptyList,
+    String(RC<str>),
     Syntax(Box<Syntax<Ast>>),
     Number(f64),
     Boolean(Boolean),
@@ -133,6 +137,11 @@ pub enum Ast {
 pub struct Symbol(pub Rc<str>, pub usize);
 impl From<&str> for Ast {
     fn from(value: &str) -> Self {
+        Self::Symbol(value.into())
+    }
+}
+impl From<String> for Ast {
+    fn from(value: String) -> Self {
         Self::Symbol(value.into())
     }
 }
@@ -155,6 +164,11 @@ impl From<&str> for Symbol {
     }
 }
 
+impl From<String> for Symbol {
+    fn from(value: String) -> Self {
+        Self(value.into(), 0)
+    }
+}
 pub fn bound_identifier(a: Ast, b: Ast) -> bool {
     matches!((a, b), (Ast::Syntax(a), Ast::Syntax(b)) if a == b)
 }
@@ -174,6 +188,7 @@ impl fmt::Display for Ast {
                 }
                 write!(f, "({string})")
             }
+            Self::String(f0) => write!(f, "{f0}"),
             Self::Syntax(s) => write!(f, "#'{}", s.0),
             Self::Number(n) => write!(f, "{n}"),
             Self::Symbol(s) => write!(f, "'{s}"),
@@ -366,7 +381,7 @@ pub enum Boolean {
     /// &
     True = 1,
     /// ?
-    Maybee,
+    Maybe,
 }
 
 impl Display for Boolean {
@@ -374,7 +389,7 @@ impl Display for Boolean {
         match self {
             Self::False => write!(f, "false"),
             Self::True => write!(f, "true"),
-            Self::Maybee => write!(f, "maybe"),
+            Self::Maybe => write!(f, "maybe"),
         }
     }
 }

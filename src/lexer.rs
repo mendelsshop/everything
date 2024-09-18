@@ -7,8 +7,9 @@ use std::iter;
 // qussiquote -> :
 // unquote -> $
 use crate::{
-    ast::{ast1::Ast1, Boolean},
+    ast::{ Ast, Boolean, Pair},
     interior_mut::RC,
+    list,
     pc::{
         alt, any_of, chain, char, choice, inbetween, keep_left, keep_right, many, many1, map,
         not_any_of, not_char, opt, run, satify, seq, string, try_map, with_error, ParseError,
@@ -22,35 +23,45 @@ pub enum Error {
     MissingThenBlock,
     MissingElseBlock,
 }
-fn ws_or_comment() -> Box<Parser<Option<Box<dyn Iterator<Item = char>>>, Error>> {
+fn ws_or_comment() -> Box<Parser<Option<Box<dyn DoubleEndedIterator<Item = char>>>, Error>> {
     map(
         many(alt(
             keep_right(char('!'), keep_left(many(not_char('\n')), opt(char('\n')))),
             map(any_of([' ', '\n', '\t']), |i| Some(opaquify(iter::once(i)))),
         )),
-        |r| -> Option<Box<dyn Iterator<Item = char>>> {
+        |r| -> Option<Box<dyn DoubleEndedIterator<Item = char>>> {
             r.map(|r| opaquify(r.flatten().flatten()))
         },
     )
 }
 
-fn opaquify(f: impl Iterator<Item = char> + 'static) -> Box<dyn Iterator<Item = char>> {
+fn opaquify(
+    f: impl DoubleEndedIterator<Item = char> + 'static,
+) -> Box<dyn DoubleEndedIterator<Item = char>> {
     Box::new(f)
 }
-fn scope_list(p: Box<Parser<Ast1, Error>>) -> Box<Parser<Vec<Ast1>, Error>> {
+fn scope_list(p: Box<Parser<Ast, Error>>) -> Box<Parser<Vec<Ast>, Error>> {
     inbetween(
         keep_right(ws_or_comment(), char('᚜')),
         map(many(p), |r| r.map_or_else(Vec::new, Iterator::collect)),
         opt(keep_right(ws_or_comment(), char('᚛'))),
     )
 }
-fn scope(p: Box<Parser<Ast1, Error>>) -> Box<Parser<Ast1, Error>> {
-    map(scope_list(p), |mut scope| {
-        scope.insert(0, "begin".into());
-        Ast1::Application(scope)
+fn scope(p: Box<Parser<Ast, Error>>) -> Box<Parser<Ast, Error>> {
+    map(scope_list(p), |scope| {
+        list!(
+            "begin".into(),
+            scope.into_iter().rfold(Ast::TheEmptyList, cons)
+        )
     })
 }
-fn everythingexpr() -> Box<Parser<Ast1, Error>> {
+
+macro_rules! to_list {
+    ($e:expr) => {
+        $e.into_iter().rfold(Ast::TheEmptyList, cons)
+    };
+}
+fn everythingexpr() -> Box<Parser<Ast, Error>> {
     // needs to be its own new closure so that we don't have infinite recursion while creating the parser (so we add a level of indirection)
     map(
         keep_left(
@@ -87,8 +98,7 @@ fn everythingexpr() -> Box<Parser<Ast1, Error>> {
         ),
         |mut r| {
             if let Some(accesors) = r.1 {
-                let new_acces =
-                    |accesor: String, expr| Ast1::Application(vec![accesor.into(), expr]);
+                let new_acces = |accesor: String, expr| list![accesor.into(), expr];
                 for mut accesor in accesors {
                     if accesor == ">>" {
                         accesor.clear();
@@ -111,7 +121,8 @@ fn everythingexpr() -> Box<Parser<Ast1, Error>> {
     )
 }
 
-fn application() -> Box<Parser<Ast1, Error>> {
+fn application() -> Box<Parser<Ast, Error>> {
+    // TODO: dot tail
     map(
         inbetween(
             keep_right(ws_or_comment(), any_of(call_start().iter().copied())),
@@ -121,15 +132,17 @@ fn application() -> Box<Parser<Ast1, Error>> {
                 any_of(call_end().iter().copied()),
             )),
         ),
-        |r| Ast1::Application(r.map_or_else(Vec::new, Iterator::collect)),
+        |r| r.map_or(Ast::TheEmptyList, |app| app.rfold(Ast::TheEmptyList, cons)),
     )
 }
-
-pub fn parse_everything(input: &str) -> Result<Ast1, ParseError<'_, Error>> {
+fn cons(list: Ast, current: Ast) -> Ast {
+    Ast::Pair(Box::new(Pair(current, list)))
+}
+pub fn parse_everything(input: &str) -> Result<Ast, ParseError<'_, Error>> {
     everythingexpr()(input).map(|res| res.0)
 }
 
-pub fn everything_parse(input: &str) -> Result<Vec<Ast1>, ParseError<'_, Error>> {
+pub fn everything_parse(input: &str) -> Result<Vec<Ast>, ParseError<'_, Error>> {
     run(
         map(many(everythingexpr()), |r| {
             r.map_or(vec![], Iterator::collect)
@@ -138,19 +151,19 @@ pub fn everything_parse(input: &str) -> Result<Vec<Ast1>, ParseError<'_, Error>>
     )
 }
 
-fn literal() -> Box<Parser<Ast1, Error>> {
+fn literal() -> Box<Parser<Ast, Error>> {
     choice([boolean(), hexnumber(), stringdot()].to_vec())
 }
 
-fn boolean() -> Box<Parser<Ast1, Error>> {
+fn boolean() -> Box<Parser<Ast, Error>> {
     choice(vec![
-        map(string("&"), |_| Ast1::Bool(Boolean::True)),
-        map(string("|"), |_| Ast1::Bool(Boolean::False)),
-        map(string("?"), |_| Ast1::Bool(Boolean::Maybee)),
+        map(string("&"), |_| Ast::Boolean(Boolean::True)),
+        map(string("|"), |_| Ast::Boolean(Boolean::False)),
+        map(string("?"), |_| Ast::Boolean(Boolean::Maybe)),
     ])
 }
 
-fn hexnumber() -> Box<Parser<Ast1, Error>> {
+fn hexnumber() -> Box<Parser<Ast, Error>> {
     let digit = any_of(['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']);
     let hex_digit = choice([digit.clone(), any_of(['a', 'b', 'c', 'd', 'e', 'f'])].to_vec());
     let parese_num = |digit_type: Box<Parser<char, Error>>| {
@@ -166,7 +179,7 @@ fn hexnumber() -> Box<Parser<Ast1, Error>> {
                     (Some(s), None) => (s.collect(), String::new()),
                     (Some(s), Some(r)) => (s.collect(), r.collect()),
                 };
-                Ok(Ast1::Number(
+                Ok(Ast::Number(
                     format!("0x{}.{}", number.0, number.1)
                         .parse::<hexponent::FloatLiteral>()
                         .unwrap()
@@ -181,11 +194,11 @@ fn hexnumber() -> Box<Parser<Ast1, Error>> {
     )
 }
 
-fn stringdot() -> Box<Parser<Ast1, Error>> {
+fn stringdot() -> Box<Parser<Ast, Error>> {
     inbetween(
         char('.'),
         map(many(alt(escape_string(), not_char('.'))), |r| {
-            Ast1::String(r.map_or_else(String::new, Iterator::collect).into())
+            Ast::String(r.map_or_else(String::new, Iterator::collect).into())
         }),
         opt(char('.')),
     )
@@ -217,7 +230,7 @@ fn escape_string() -> Box<Parser<char, Error>> {
     )
 }
 
-fn stmt() -> Box<Parser<Ast1, Error>> {
+fn stmt() -> Box<Parser<Ast, Error>> {
     choice(
         [
             mod_stmt(),
@@ -234,7 +247,7 @@ fn stmt() -> Box<Parser<Ast1, Error>> {
     )
 }
 
-fn mod_stmt() -> Box<Parser<Ast1, Error>> {
+fn mod_stmt() -> Box<Parser<Ast, Error>> {
     keep_right(
         string("mod"),
         keep_right(
@@ -250,16 +263,18 @@ fn mod_stmt() -> Box<Parser<Ast1, Error>> {
                     ),
                 ),
                 |(name, code)| {
-                    let mut module = vec!["module".into(), name.to_string().into()];
-                    module.extend(code);
-                    Ast1::Application(module)
+                    list!(
+                        "module".into(),
+                        name.to_string().as_str().into(),
+                        code.into_iter().rfold(Ast::TheEmptyList, cons)
+                    )
                 },
             ),
         ),
     )
 }
 
-fn let_stmt() -> Box<Parser<Ast1, Error>> {
+fn let_stmt() -> Box<Parser<Ast, Error>> {
     map(
         keep_right(
             string("let"),
@@ -268,11 +283,11 @@ fn let_stmt() -> Box<Parser<Ast1, Error>> {
                 keep_right(keep_right(ws_or_comment(), char('=')), everythingexpr()),
             ),
         ),
-        |r| Ast1::Application(vec!["define".into(), r.0, r.1]),
+        |r| list!("define".into(), r.0, r.1),
     )
 }
 
-fn method_stmt() -> Box<Parser<Ast1, Error>> {
+fn method_stmt() -> Box<Parser<Ast, Error>> {
     map(
         chain(
             keep_right(
@@ -314,18 +329,15 @@ fn method_stmt() -> Box<Parser<Ast1, Error>> {
             let number = r.0 .1 .0;
             let varidiac = r.0 .1 .1;
             let fn_info = varidiac.map_or(number.clone(), |varidiac| {
-                Ast1::Application(vec![number, varidiac.to_string().into()])
+                list![number, varidiac.to_string().into()]
             });
             let scope = r.1;
-            Ast1::Application(vec![
-                name,
-                Ast1::Application(vec_splat!(vec!["lambda".into(), fn_info], scope).collect()),
-            ])
+            list![name, list!["lambda".into(), fn_info;to_list!( scope)],]
         },
     )
 }
 
-fn class_stmt() -> Box<Parser<Ast1, Error>> {
+fn class_stmt() -> Box<Parser<Ast, Error>> {
     // lisp version of class will be
     // (class name (method1 (lambda ...)) (filed1 value) (filed2) ...)
     map(
@@ -338,10 +350,7 @@ fn class_stmt() -> Box<Parser<Ast1, Error>> {
                 keep_right(ws_or_comment(), char('᚜')),
                 many(keep_right(
                     ws_or_comment(),
-                    alt(
-                        method_stmt(),
-                        map(ident_everything(), |r| Ast1::Application(vec![r])),
-                    ),
+                    alt(method_stmt(), map(ident_everything(), |r| list![r])),
                 )),
                 opt(keep_right(ws_or_comment(), char('᚛'))),
             ),
@@ -349,12 +358,12 @@ fn class_stmt() -> Box<Parser<Ast1, Error>> {
         |r| {
             let name = r.0;
             let fields = r.1.map_or_else(Vec::new, Iterator::collect);
-            Ast1::Application(vec_splat!(vec!["class".into(), name.into()], fields).collect())
+            list!["class".into(), name.into(); to_list!(fields)]
         },
     )
 }
 
-fn if_stmt() -> Box<Parser<Ast1, Error>> {
+fn if_stmt() -> Box<Parser<Ast, Error>> {
     // TODO: allow if else if
     map(
         seq(vec![
@@ -373,12 +382,12 @@ fn if_stmt() -> Box<Parser<Ast1, Error>> {
             let cond = r.next().unwrap();
             let cons = r.next().unwrap();
             let alt = r.next().unwrap();
-            Ast1::Application(vec![if_ident, cond, cons, alt])
+            list![if_ident, cond, cons, alt]
         },
     )
 }
 
-fn until_stmt() -> Box<Parser<Ast1, Error>> {
+fn until_stmt() -> Box<Parser<Ast, Error>> {
     map(
         chain(
             keep_right(string("while"), everythingexpr()),
@@ -388,13 +397,14 @@ fn until_stmt() -> Box<Parser<Ast1, Error>> {
             ),
         ),
         |(cond, scope)| {
+            // TODO: should it be (while cond expr ...) or (while cond (begin ...))
             let while_ident = "while".into();
-            Ast1::Application(vec_splat(vec![while_ident, cond], scope).collect())
+            list!(while_ident, cond;to_list!( scope))
         },
     )
 }
 
-fn go_through_stmt() -> Box<Parser<Ast1, Error>> {
+fn go_through_stmt() -> Box<Parser<Ast, Error>> {
     map(
         chain(
             keep_right(
@@ -407,20 +417,21 @@ fn go_through_stmt() -> Box<Parser<Ast1, Error>> {
             ),
         ),
         |(name, (iter, scope))| {
+            // TODO: should it be (for name iter expr ...) or (for name iter (begin ...))
             let for_ident = "for".into();
-            Ast1::Application(vec_splat(vec![for_ident, name, iter], scope).collect())
+            list![for_ident, name, iter;to_list! (scope)]
         },
     )
 }
 
-fn continue_doing_stmt() -> Box<Parser<Ast1, Error>> {
+fn continue_doing_stmt() -> Box<Parser<Ast, Error>> {
     map(
         chain(string("loop"), scope_list(everythingexpr())),
-        |(ident, scope)| Ast1::Application(vec_splat(vec![ident.into()], scope).collect()),
+        |(ident, scope)| list![ident.into(); to_list! (scope)],
     )
 }
 
-fn link_stmt() -> Box<Parser<Ast1, Error>> {
+fn link_stmt() -> Box<Parser<Ast, Error>> {
     map(
         chain(
             keep_right(
@@ -433,14 +444,12 @@ fn link_stmt() -> Box<Parser<Ast1, Error>> {
         |res| {
             let link_ident = "link".into();
             let goto = res.0;
-            let mut link = vec![link_ident, goto];
-            link.extend(res.1);
-            Ast1::Application(link)
+            list!(link_ident, goto; to_list!(res.1))
         },
     )
 }
 
-fn fn_stmt() -> Box<Parser<Ast1, Error>> {
+fn fn_stmt() -> Box<Parser<Ast, Error>> {
     // fanction - through away, name - keep char | everythingexpr
     // optinal param count (base10) - keep -> optinal everythingexpr | usize
     // optinal varidac keep scope > optional char | varidac
@@ -465,36 +474,24 @@ fn fn_stmt() -> Box<Parser<Ast1, Error>> {
             ),
         ),
         |r| {
-            let map_to_everything = |c: Option<char>, mapper: fn(RC<str>) -> Ast1| {
-                c.as_ref()
-                    .map(ToString::to_string)
-                    .map(Into::into)
-                    .map(mapper)
+            let map_to_everything = |c: Option<char>, mapper: fn(String) -> Ast| {
+                c.as_ref().map(ToString::to_string).map(mapper)
             };
-            let name = map_to_everything(r.0, Ast1::Ident);
+            let name = map_to_everything(r.0, Ast::from);
             // TODO: maybe if no count given then randomly choose a count
             let param_count = r.1 .0.unwrap();
-            let variadic = map_to_everything(r.1 .1 .0, Ast1::Ident);
+            let variadic = map_to_everything(r.1 .1 .0, Ast::from);
             let scope = r.1 .1 .1;
             let fn_ident = "lambda".into();
             // function can either be (lambda (n *) exprs) or (lambda (n +) exprs) or (lambda n exprs) n = arg count
             let lambda = if let Some(variadic) = variadic {
-                Ast1::Application(
-                    vec_splat!(
-                        vec![fn_ident, Ast1::Application(vec![param_count, variadic])],
-                        scope
-                    )
-                    .collect(),
-                )
+                list!(fn_ident, param_count; to_list!( scope))
             } else {
-                Ast1::Application(
-                    vec_splat(vec![fn_ident, Ast1::Application(vec![param_count])], scope)
-                        .collect(),
-                )
+                list!(fn_ident, list![param_count]; to_list!( scope))
             };
             if let Some(name) = name {
-                let fn_ident = "define".into();
-                Ast1::Application(vec![fn_ident, name, lambda])
+                let define_ident = "define".into();
+                list![define_ident, name, lambda]
             } else {
                 lambda
             }
@@ -502,7 +499,7 @@ fn fn_stmt() -> Box<Parser<Ast1, Error>> {
     )
 }
 
-fn ident_everything() -> Box<Parser<Ast1, Error>> {
+fn ident_everything() -> Box<Parser<Ast, Error>> {
     map(ident(), Into::into)
 }
 
@@ -543,14 +540,14 @@ const fn call_end() -> &'static [char] {
     ]
 }
 
-fn terminal_everything() -> Box<Parser<Ast1, Error>> {
+fn terminal_everything() -> Box<Parser<Ast, Error>> {
     alt(
-        map(string("skip"), |s| Ast1::Application(vec![s.into()])),
+        map(string("skip"), |s| list![s.into()]),
         list_expr(string("stop")),
     )
 }
 
-fn special_start() -> Box<Parser<Ast1, Error>> {
+fn special_start() -> Box<Parser<Ast, Error>> {
     choice(vec![
         quoted_everything(),
         label_everything(),
@@ -560,37 +557,40 @@ fn special_start() -> Box<Parser<Ast1, Error>> {
     ])
 }
 
-fn list_expr(first: Box<Parser<impl Into<Ast1> + 'static, Error>>) -> Box<Parser<Ast1, Error>> {
+fn list_expr(first: Box<Parser<impl Into<Ast> + 'static, Error>>) -> Box<Parser<Ast, Error>> {
     map(
         chain(map(first, Into::into), everythingexpr()),
-        |(first, expr)| Ast1::Application(vec![first, expr]),
+        |(first, expr)| list![first, expr],
     )
 }
 
-fn quoted_everything() -> Box<Parser<Ast1, Error>> {
+fn quoted_everything() -> Box<Parser<Ast, Error>> {
     list_expr(map(string(";"), |_| "quote"))
 }
 
-fn quassi_quoted_everything() -> Box<Parser<Ast1, Error>> {
+fn quassi_quoted_everything() -> Box<Parser<Ast, Error>> {
     list_expr(map(string(":"), |_| "quasiquote"))
 }
 
-fn unquoted_everything() -> Box<Parser<Ast1, Error>> {
+fn unquoted_everything() -> Box<Parser<Ast, Error>> {
     list_expr(map(string("$"), |_| "unquote"))
 }
 
-fn label_everything() -> Box<Parser<Ast1, Error>> {
-    map(keep_right(char('@'), ident()), |res| {
-        Ast1::Label(res.into())
-    })
+fn label_everything() -> Box<Parser<Ast, Error>> {
+    map(keep_right(char('@'), ident()), |res| Ast::Label(res.into()))
 }
 
-fn param_everything() -> Box<Parser<Ast1, Error>> {
+fn param_everything() -> Box<Parser<Ast, Error>> {
     inbetween(
         any_of(['\'', '"']),
         map(
             many1(any_of(['0', '1', '2', '3', '4', '5', '6', '7'])),
-            |res| Ast1::FnParam(parse(&format!("0o{}", res.collect::<String>())).unwrap()),
+            |res| {
+                list!(
+                    "param".into(),
+                    Ast::Number(parse(&format!("0o{}", res.collect::<String>())).unwrap())
+                )
+            },
         ),
         opt(any_of(['\'', '"'])),
     )
@@ -599,7 +599,11 @@ fn param_everything() -> Box<Parser<Ast1, Error>> {
 #[cfg(test)]
 mod tests {
     // TODO: remake some of thests now that >> > < are valid in any expression
-    use crate::lexer::{parse_everything, Ast1, Boolean};
+    use crate::{
+        ast::Ast,
+        lexer::{parse_everything, Boolean},
+        list,
+    };
 
     #[test]
     pub fn everything() {
@@ -711,14 +715,14 @@ mod tests {
     fn everything_number() {
         let test_result = parse_everything("0xf%9");
         assert!(test_result.is_ok());
-        assert_eq!(test_result.unwrap(), Ast1::Number(15.5625));
+        assert_eq!(test_result.unwrap(), Ast::Number(15.5625));
     }
 
     #[test]
     fn everything_bool() {
         let test_result = parse_everything("?");
         assert!(test_result.is_ok());
-        assert_eq!(test_result.unwrap(), Ast1::Bool(Boolean::Maybee));
+        assert_eq!(test_result.unwrap(), Ast::Boolean(Boolean::Maybe));
     }
 
     // #[test]
@@ -737,9 +741,13 @@ mod tests {
 
     #[test]
     fn everything_acces_param() {
+        // TODO: param form
         let test_result = parse_everything("'10'");
         assert!(test_result.is_ok());
-        assert_eq!(test_result.unwrap(), Ast1::FnParam(8));
+        assert_eq!(
+            test_result.unwrap(),
+            list!("param".into(), Ast::Number(8.0))
+        );
     }
 
     #[test]

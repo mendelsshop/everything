@@ -63,7 +63,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         match value {
             Boolean::False => self.boolean(self.types.boolean.const_int(0, false)),
             Boolean::True => self.boolean(self.types.boolean.const_int(1, false)),
-            Boolean::Maybee => {
+            Boolean::Maybe => {
                 // gen psudo rand number
                 let random = self
                     .builder

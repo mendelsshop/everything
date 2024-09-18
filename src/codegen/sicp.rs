@@ -1580,7 +1580,7 @@ impl From<Ast4> for Expr {
             Ast4::Bool(b) => match b {
                 crate::ast::Boolean::False => Self::Const(Const::Boolean(false)),
                 crate::ast::Boolean::True => Self::Const(Const::Boolean(true)),
-                crate::ast::Boolean::Maybee => Self::Op(Perform {
+                crate::ast::Boolean::Maybe => Self::Op(Perform {
                     op: Operation::RandomBool,
                     args: vec![],
                 }),
