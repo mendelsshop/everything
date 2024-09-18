@@ -10,6 +10,7 @@
 use std::{collections::HashMap, error::Error, fs, vec};
 
 use ast::{scope::Scope, Ast, Symbol};
+use expander::{binding::CompileTimeEnvoirnment, Expander};
 //use codegen::{
 //    register_to_llvm::CodeGen,
 //    sicp::{Linkage, Register},
@@ -135,8 +136,13 @@ fn expand(file: &str) {
 }
 
 fn compile(file: &str, out: &str) {
+let mut expander = Expander::new();
+let mut env= CompileTimeEnvoirnment::new();
     let contents = fs::read_to_string(file).unwrap();
     for ele in lexer::everything_parse(&contents).unwrap() {
+        let ele = expander.namespace_syntax_introduce(ele.datum_to_syntax(None));
+        let ele = expander.expand(ele, env.clone()).unwrap();
+        let ele = expander.compile(ele).unwrap();
        println!("{ele}") 
     };
     //let program = parse_and_expand(&contents).unwrap();

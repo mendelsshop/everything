@@ -24,3 +24,4 @@ special-start = quoted | label
 quoted = ;expr
 label = @ident
 comment = !.*\n
+lambda = lambda (decimal-number \*?|\+?) ...

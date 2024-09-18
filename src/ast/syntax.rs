@@ -6,7 +6,12 @@ use super::{
 };
 
 #[derive(Clone, PartialEq, Debug, Eq, Hash)]
-pub struct Syntax<T: Clone + PartialEq + Debug>(pub T, pub ScopeSet);
+pub struct Syntax<T>(pub T, pub ScopeSet);
+impl<T> Syntax<T> {
+    pub fn map<U>(self, f: impl FnOnce(T) -> U) -> Syntax<U> {
+        Syntax(f(self.0), self.1)
+    }
+}
 impl TryFrom<Ast> for Syntax<Symbol> {
     type Error = String;
 

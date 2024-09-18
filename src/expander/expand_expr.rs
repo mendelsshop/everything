@@ -1,3 +1,5 @@
+use std::usize;
+
 use crate::{
     ast::{scope::AdjustScope, syntax::Syntax, Ast, Pair, Symbol},
     list,
@@ -27,51 +29,112 @@ impl Expander {
         self.add_core_form("begin".into(), Self::core_form_begin);
         // TODO: will we need begin
     }
+    fn get_syntax(s: Ast) -> Option<Syntax<Ast>> {
+        if let Ast::Syntax(s) = s {
+            Some(*s)
+        } else {
+            None
+        }
+    }
+    fn lambda_formals(formals: Ast) -> Result<Syntax<usize>, String> {
+        let to_number = |argc: Option<Ast>| {
+            argc.ok_or("internal error".to_string()).and_then(|argc| {
+                Self::get_syntax(argc)
+                    .ok_or("formals must be number".to_string())
+                    .and_then(|argc_syntax| {
+                        if let Ast::Number(argc) = argc_syntax.0 {
+                            Ok(argc_syntax.map(|_| argc.trunc() as usize))
+                        } else {
+                            Err("formals must be number".to_string())
+                        }
+                    })
+            })
+        };
+
+        let check_variadic = |argc: Option<Ast>| {
+            argc.ok_or("internal error".to_string()).and_then(|argc| {
+                //Self::get_syntax(argc)
+                //    .ok_or("formals must be number".to_string())
+
+                Self::get_syntax(argc)
+                    .ok_or("formals must be number".to_string())
+                    .and_then(|argc| {
+                        if let Ast::Symbol(variadic) = argc.0 {
+                            if &*variadic.0 == "+" || &*variadic.0 == "*" {
+                                Ok(())
+                            } else {
+                                Err("variadics must be * or +".to_string())
+                            }
+                        } else {
+                            Err("variadics must be * or +".to_string())
+                        }
+                    })
+            })
+        };
+
+        match_syntax(formals.clone(), list!("argc".into(), "variadic".into()))
+            .map(|m| {
+                to_number(m("argc".into()))
+                    .and_then(|n| check_variadic(m("variadic".into())).map(|_| n.map(|n| n + 1)))
+            })
+            .or_else(|_| {
+                match_syntax(formals, list!("argc".into())).map(|m| to_number(m("argc".into())))
+            })?
+    }
 
     //#[trace]
     fn core_form_lambda(&mut self, s: Ast, env: CompileTimeEnvoirnment) -> Result<Ast, String> {
         let m = match_syntax(
             s.clone(),
-            list!(
-                "lambda".into(),
-                list!("id".into(), "...".into(),),
-                "body".into()
-            ),
+            list!("lambda".into(), "formals".into(), "body".into()),
         )?;
         let sc = self.scope_creator.new_scope();
-        let ids = m("id".into()).ok_or("internal error".to_string())?;
-        let ids = ids.map_pair(|term, base| match term {
-            Ast::Syntax(id) => {
-                let id = id.add_scope(sc);
-                Ok(Ast::Syntax(Box::new(id)))
-            }
-            Ast::TheEmptyList if base => Ok(Ast::TheEmptyList),
-            _ => Err(format!(
-                "{term} is not a symbol so it cannot be a parameter"
-            )),
-        })?;
-        let body_env = ids.clone().foldl_pair(
-            |term, base, env: Result<CompileTimeEnvoirnment, String>| match term {
-                Ast::Syntax(ref id_syntax) => {
-                    if let Ast::Symbol(id) = &id_syntax.0 {
-                        let binding =
-                            self.add_local_binding(Syntax(id.clone(), id_syntax.1.clone()));
-                        env.map(|env| {
-                            env.extend(binding.clone(), Ast::Symbol(self.variable.clone()))
-                        })
-                    } else {
-                        Err(format!(
-                            "{term} is not a symbol so it cannot be a parameter"
-                        ))
-                    }
-                }
-                Ast::TheEmptyList if base => env,
-                _ => Err(format!(
-                    "{term} is not a symbol so it cannot be a parameter"
-                )),
-            },
-            Ok(env),
-        )?;
+        let id = m("formals".into()).ok_or("internal error".to_string())?;
+        let formals = Self::lambda_formals(id)?;
+
+        //let ids = m("id".into()).ok_or("internal error".to_string())?;
+        //let ids = ids.map_pair(|term, base| match term {
+        //    Ast::Syntax(id) => {
+        //        let id = id.add_scope(sc);
+        //        Ok(Ast::Syntax(Box::new(id)))
+        //    }
+        //    Ast::TheEmptyList if base => Ok(Ast::TheEmptyList),
+        //    _ => Err(format!(
+        //        "{term} is not a symbol so it cannot be a parameter"
+        //    )),
+        //})?;
+        //let body_env = ids.clone().foldl_pair(
+        //    |term, base, env: Result<CompileTimeEnvoirnment, String>| match term {
+        //        Ast::Syntax(ref id_syntax) => {
+        //            if let Ast::Symbol(id) = &id_syntax.0 {
+        //                let binding =
+        //                    self.add_local_binding(Syntax(id.clone(), id_syntax.1.clone()));
+        //                env.map(|env| {
+        //                    env.extend(binding.clone(), Ast::Symbol(self.variable.clone()))
+        //                })
+        //            } else {
+        //                Err(format!(
+        //                    "{term} is not a symbol so it cannot be a parameter"
+        //                ))
+        //            }
+        //        }
+        //        Ast::TheEmptyList if base => env,
+        //        _ => Err(format!(
+        //            "{term} is not a symbol so it cannot be a parameter"
+        //        )),
+        //    },
+        //    Ok(env),
+        //)?;
+        let body_env = (0..formals.0)
+            .map(|i| {
+                (
+                    self.add_local_binding(formals.clone().map(|_| format!("{i:o}").into())),
+                    self.variable.clone(),
+                )
+            })
+            .fold(CompileTimeEnvoirnment::new(), |env, i| {
+                env.extend(i.0, Ast::Symbol(i.1))
+            });
         let exp_body = self.expand(
             m("body".into())
                 .ok_or("internal error".to_string())?
@@ -82,7 +145,7 @@ impl Expander {
             s,
             list!(
                 m("lambda".into()).ok_or("internal error".to_string())?,
-                ids,
+                m("formals".into()).ok_or("internal error".to_string())?,
                 exp_body
             ),
         ))
