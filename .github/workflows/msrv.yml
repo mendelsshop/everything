@@ -20,8 +20,6 @@ jobs:
       - uses: actions/checkout@v3
       - name: Get MSRV and create badge
         run: |
-          rm Cargo.toml
-          ls -l
           cargo msrv --output-format minimal > msrv.txt
           tr -d '\n' < msrv.txt > msrv2.txt
           cat msrv2.txt

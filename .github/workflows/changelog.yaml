@@ -27,4 +27,3 @@ jobs:
         with:
           message: "update changelog"
           add: ${{ steps.git-cliff.outputs.changelog }}
-        
