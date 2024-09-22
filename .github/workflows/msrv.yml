@@ -1,0 +1,44 @@
+name: msrv-badge
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+jobs:
+  create-msrv-badge:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    container: mendelrubin/cargo-msrv:latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: remove Cargo.toml so cargo-msrv doesn't find it
+        run: |
+          rm Cargo.toml
+          ls -l
+      - uses: actions/checkout@v3
+      - name: Get MSRV and create badge
+        run: |
+          rm Cargo.toml
+          ls -l
+          cargo msrv --output-format minimal > msrv.txt
+          tr -d '\n' < msrv.txt > msrv2.txt
+          cat msrv2.txt
+          echo "msrv=$(cat msrv2.txt)" >> $GITHUB_OUTPUT
+          cargo msrv set $(cat msrv2.txt)
+      - name: Create Badge
+        run: |
+          curl https://img.shields.io/badge/minimum%20rust%20version-${{ steps.get-msrv.outputs.msrv }}-blue.svg > resources/msrv.svg
+      - name: Commit Badge
+        # If there are no changes to the badge this would error out. But it
+        # isn't a problem if there were no changes, so errors are allowed.
+        continue-on-error: true
+        run: |
+          git pull
+          git add resources/msrv.svg
+          git add Cargo.toml
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -m "Update MSRV badge [Skip CI]"
+          git push
