@@ -128,7 +128,8 @@ pub fn try_match_syntax(
     match_syntax(original, pattern)
 }
 impl Ast {
-    #[must_use] pub fn to_synax_list(self) -> Self {
+    #[must_use]
+    pub fn to_synax_list(self) -> Self {
         match self {
             Self::Pair(l) => Self::Pair(Box::new(Pair(l.0, l.1.to_synax_list()))),
             Self::Syntax(s) => s.0.to_synax_list(),

@@ -55,10 +55,7 @@ impl Expander {
                             .map(|datum| list!("quote".into(), datum))
                     }
                     "set!" => {
-                        let m = match_syntax(
-                            s,
-                            list!("set!".into(), "id".into(), "rhs".into()),
-                        )?;
+                        let m = match_syntax(s, list!("set!".into(), "id".into(), "rhs".into()))?;
                         let id = m("id".into())
                             .ok_or("internal error".to_string())
                             .and_then(|id| self.compile(id))?;
@@ -104,10 +101,7 @@ impl Expander {
                         Ok(list!("if".into(), cond, cons, alt))
                     }
                     "begin" => {
-                        let m = match_syntax(
-                            s,
-                            list!("begin".into(), "e".into(), "...+".into()),
-                        )?;
+                        let m = match_syntax(s, list!("begin".into(), "e".into(), "...+".into()))?;
                         let e = m("e".into())
                             .ok_or("internal error".to_string())
                             .and_then(|es| es.map(|e| self.compile(e)))?;
