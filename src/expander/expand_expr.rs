@@ -15,6 +15,7 @@ use super::{
 impl Expander {
     pub fn add_core_forms(&mut self) {
         self.add_core_form("lambda".into(), Self::core_form_lambda);
+        self.add_core_form("param".into(), Self::core_form_param);
         self.add_core_form("let-syntax".into(), Self::core_form_let_syntax);
         self.add_core_form("%app".into(), Self::core_form_app);
         self.add_core_form("quote".into(), Self::core_form_quote);
@@ -36,21 +37,20 @@ impl Expander {
             None
         }
     }
+    fn to_number(argc: Option<Ast>) -> Result<Syntax<usize>, String> {
+        argc.ok_or("internal error".to_string()).and_then(|argc| {
+            Self::get_syntax(argc)
+                .ok_or("formals must be number".to_string())
+                .and_then(|argc_syntax| {
+                    if let Ast::Number(argc) = argc_syntax.0 {
+                        Ok(argc_syntax.map(|_| argc.trunc() as usize))
+                    } else {
+                        Err("formals must be number".to_string())
+                    }
+                })
+        })
+    }
     fn lambda_formals(formals: Ast) -> Result<(Syntax<usize>, Option<Varidiac>), String> {
-        let to_number = |argc: Option<Ast>| {
-            argc.ok_or("internal error".to_string()).and_then(|argc| {
-                Self::get_syntax(argc)
-                    .ok_or("formals must be number".to_string())
-                    .and_then(|argc_syntax| {
-                        if let Ast::Number(argc) = argc_syntax.0 {
-                            Ok(argc_syntax.map(|_| argc.trunc() as usize))
-                        } else {
-                            Err("formals must be number".to_string())
-                        }
-                    })
-            })
-        };
-
         let check_variadic = |argc: Option<Ast>| {
             argc.ok_or("internal error".to_string()).and_then(|argc| {
                 //Self::get_syntax(argc)
@@ -78,12 +78,12 @@ impl Expander {
 
         match_syntax(formals.clone(), list!("argc".into(), "variadic".into()))
             .map(|m| {
-                to_number(m("argc".into()))
+                Self::to_number(m("argc".into()))
                     .and_then(|n| check_variadic(m("variadic".into())).map(|x| (n, Some(x))))
             })
             .or_else(|_| {
                 match_syntax(formals, list!("argc".into()))
-                    .map(|m| to_number(m("argc".into())).map(|n| (n, None)))
+                    .map(|m| Self::to_number(m("argc".into())).map(|n| (n, None)))
             })?
     }
 
@@ -165,7 +165,7 @@ impl Expander {
                                 Ast::Symbol(
                                     variadiac
                                         .and_then(|varidiac| {
-                                            if &*i.0 == format!("{:o}", arg_count -0) {
+                                            if &*i.0 == format!("{:o}", arg_count - 0) {
                                                 Some(Symbol(
                                                     format!("{}{varidiac}", i.0).into(),
                                                     i.1,
@@ -238,6 +238,13 @@ impl Expander {
             m("body".into()).ok_or("internal error")?.add_scope(sc),
             body_env,
         )
+    }
+    fn core_form_param(&mut self, s: Ast, env: CompileTimeEnvoirnment) -> Result<Ast, String> {
+        let _ = env;
+        match_syntax(s, list!("param".into(), "index".into())).and_then(|m| {
+            Self::to_number(m("index".into()))
+                .map(|n| Ast::Syntax(Box::new(n.map(|n| Ast::Symbol(format!("{n:o}").into())))))
+        })
     }
     fn core_form_app(&mut self, s: Ast, env: CompileTimeEnvoirnment) -> Result<Ast, String> {
         let m = match_syntax(
