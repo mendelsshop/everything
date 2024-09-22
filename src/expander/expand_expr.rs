@@ -1,7 +1,7 @@
 use std::usize;
 
 use crate::{
-    ast::{scope::AdjustScope, syntax::Syntax, Ast, Pair, Symbol},
+    ast::{scope::AdjustScope, syntax::Syntax, Ast, Pair, Symbol, Varidiac},
     list,
 };
 
@@ -36,7 +36,7 @@ impl Expander {
             None
         }
     }
-    fn lambda_formals(formals: Ast) -> Result<Syntax<usize>, String> {
+    fn lambda_formals(formals: Ast) -> Result<(Syntax<usize>, Option<Varidiac>), String> {
         let to_number = |argc: Option<Ast>| {
             argc.ok_or("internal error".to_string()).and_then(|argc| {
                 Self::get_syntax(argc)
@@ -61,7 +61,11 @@ impl Expander {
                     .and_then(|argc| {
                         if let Ast::Symbol(variadic) = argc.0 {
                             if &*variadic.0 == "+" || &*variadic.0 == "*" {
-                                Ok(())
+                                Ok(if &*variadic.0 == "+" {
+                                    Varidiac::AtLeast1
+                                } else {
+                                    Varidiac::AtLeast0
+                                })
                             } else {
                                 Err("variadics must be * or +".to_string())
                             }
@@ -75,10 +79,11 @@ impl Expander {
         match_syntax(formals.clone(), list!("argc".into(), "variadic".into()))
             .map(|m| {
                 to_number(m("argc".into()))
-                    .and_then(|n| check_variadic(m("variadic".into())).map(|_| n.map(|n| n + 1)))
+                    .and_then(|n| check_variadic(m("variadic".into())).map(|x| (n, Some(x))))
             })
             .or_else(|_| {
-                match_syntax(formals, list!("argc".into())).map(|m| to_number(m("argc".into())))
+                match_syntax(formals, list!("argc".into()))
+                    .map(|m| to_number(m("argc".into())).map(|n| (n, None)))
             })?
     }
 
@@ -90,7 +95,7 @@ impl Expander {
         )?;
         let sc = self.scope_creator.new_scope();
         let id = m("formals".into()).ok_or("internal error".to_string())?;
-        let formals = Self::lambda_formals(id)?;
+        let (formals, variadiac) = Self::lambda_formals(id)?;
 
         //let ids = m("id".into()).ok_or("internal error".to_string())?;
         //let ids = ids.map_pair(|term, base| match term {
@@ -125,13 +130,16 @@ impl Expander {
         //    },
         //    Ok(env),
         //)?;
-        let body_env = (0..formals.0)
-            .map(|i| {
-                (
-                    self.add_local_binding(formals.clone().map(|_| format!("{i:o}").into())),
-                    self.variable.clone(),
-                )
-            })
+        let arg_count = variadiac.map_or(formals.0, |_| formals.0 + 1);
+        let mut args = (0..arg_count).map(|i| {
+            formals
+                .clone()
+                .map(|_| format!("{i:o}").into())
+                .add_scope(sc)
+        });
+        let body_env = args
+            .clone()
+            .map(|i| (self.add_local_binding(i), self.variable.clone()))
             .fold(CompileTimeEnvoirnment::new(), |env, i| {
                 env.extend(i.0, Ast::Symbol(i.1))
             });
@@ -141,14 +149,45 @@ impl Expander {
                 .add_scope(sc),
             body_env,
         )?;
-        Ok(rebuild(
-            s,
+        let new_lambda = if formals.0 == 0 && variadiac.is_none() {
             list!(
                 m("lambda".into()).ok_or("internal error".to_string())?,
-                m("formals".into()).ok_or("internal error".to_string())?,
                 exp_body
-            ),
-        ))
+            )
+        } else {
+            args.try_rfold(exp_body, |body, i| {
+                m("lambda".into())
+                    .ok_or("internal error".to_string())
+                    .map(|lambda| {
+                        list!(
+                            lambda,
+                            Ast::Syntax(Box::new(i.map(|i| {
+                                Ast::Symbol(
+                                    variadiac
+                                        .and_then(|varidiac| {
+                                            if &*i.0 == format!("{:o}", arg_count -0) {
+                                                Some(Symbol(
+                                                    format!("{}{varidiac}", i.0).into(),
+                                                    i.1,
+                                                ))
+                                            } else {
+                                                None
+                                            }
+                                        })
+                                        .unwrap_or(i),
+                                )
+                            }))),
+                            body
+                        )
+                    })
+            })?
+        };
+        // (lambda (0 *) ..) becomes (lambda 0* ...)
+        // (lambda (0 ) ..) becomes (lambda  ...)
+        // o(N) = octal of n
+        // (lambda (N ) ..) becomes (lambda 0 (.. (lambda o(N)  ...)))
+        // (lambda (N +) ..) becomes (lambda 0 (.. (lambda o(N) lambda o(N + 1 )*  ...)))
+        Ok(rebuild(s, new_lambda))
     }
     fn core_form_let_syntax(&mut self, s: Ast, env: CompileTimeEnvoirnment) -> Result<Ast, String> {
         let m = match_syntax(

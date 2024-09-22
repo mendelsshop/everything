@@ -393,7 +393,7 @@ impl Display for Boolean {
         }
     }
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Varidiac {
     /// denotes that besides the usual arg count function will take extra args
     /// in form of tree (requires at least 1 arg)

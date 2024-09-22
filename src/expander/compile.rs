@@ -18,19 +18,20 @@ impl Expander {
                     .map_err(|_| format!("not a core form {s}"))?;
                 match core_sym.to_string().as_str() {
                     "lambda" => {
+                        // TODO: 0 arg lambda is currently (lambda expr) after expander
                         let m = match_syntax(
                             s,
                             list!(
                                 "lambda".into(),
-                                list!("id".into(), "...".into(),),
+                                "id".into(),
                                 "body".into()
                             ),
                         )?;
-                        let formals = m("id".into()).ok_or("internal error")?;
+                        let id = m("id".into()).ok_or("internal error")?;
                         let body = m("body".into()).ok_or("internal error")?;
                         Ok(list!(
                             "lambda".into(),
-                            formals.map(|id| self.local_symbol(id).map(Ast::Symbol))?,
+                             self.local_symbol(id).map(Ast::Symbol)?,
                             self.compile(body)?
                         ))
                     }
