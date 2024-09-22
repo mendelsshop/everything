@@ -64,13 +64,13 @@ impl Ast {
             _ => self,
         }
     }
-    pub fn identifier(&self) -> bool {
+    #[must_use] pub const fn identifier(&self) -> bool {
         matches!( self, Self::Syntax(s) if  matches!(**s,Syntax(Self::Symbol(_), _)))
     }
 }
 impl<T: Clone + Debug + PartialEq> Syntax<T> {
     #[must_use]
-    pub fn new(expr: T) -> Self {
+    pub const fn new(expr: T) -> Self {
         Self(expr, BTreeSet::new())
     }
     fn bound_identifier(&self, other: &Self) -> bool {

@@ -1,14 +1,12 @@
 #![allow(dead_code)]
 
-use itertools::chain as vec_splat;
 use parse_int::parse;
 use std::iter;
 // chars on us keyboard not used: `, , \,/,,,=
 // qussiquote -> :
 // unquote -> $
 use crate::{
-    ast::{ Ast, Boolean, Pair},
-    interior_mut::RC,
+    ast::{Ast, Boolean, Pair},
     list,
     pc::{
         alt, any_of, chain, char, choice, inbetween, keep_left, keep_right, many, many1, map,

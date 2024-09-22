@@ -23,7 +23,7 @@ pub struct ParseError<'a, E> {
     pub error: Option<E>,
 }
 
-pub fn run<'a, T, E>(parser: Box<Parser<T, E>>, input: &'a str) -> Result<T, ParseError<'a, E>> {
+pub fn run<T, E>(parser: Box<Parser<T, E>>, input: &str) -> Result<T, ParseError<'_, E>> {
     let (result, input) = parser(input)?;
     if input.chars().count() == 0 {
         Ok(result)
@@ -334,7 +334,8 @@ pub fn sep1<T: 'static, U: 'static, E: 'static>(
 }
 
 #[must_use]
-pub fn white_space<E: 'static>() -> Box<Parser<Option<Box<dyn DoubleEndedIterator<Item = char>>>, E>> {
+pub fn white_space<E: 'static>() -> Box<Parser<Option<Box<dyn DoubleEndedIterator<Item = char>>>, E>>
+{
     many(any_of([' ', '\n', '\t']))
 }
 

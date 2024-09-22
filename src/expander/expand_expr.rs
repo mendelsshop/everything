@@ -165,7 +165,7 @@ impl Expander {
                                 Ast::Symbol(
                                     variadiac
                                         .and_then(|varidiac| {
-                                            if &*i.0 == format!("{:o}", arg_count - 0) {
+                                            if &*i.0 == format!("{arg_count:o}") {
                                                 Some(Symbol(
                                                     format!("{}{varidiac}", i.0).into(),
                                                     i.1,
@@ -280,7 +280,7 @@ impl Expander {
         // everything features)
         // TODO: expand recursivly?
         let m = match_syntax(
-            s.clone(),
+            s,
             list!(
                 "link".into(),
                 "dest-label".into(),
@@ -310,7 +310,7 @@ impl Expander {
     fn core_form_if(&mut self, s: Ast, env: CompileTimeEnvoirnment) -> Result<Ast, String> {
         // TODO: optional alt?
         let m = match_syntax(
-            s.clone(),
+            s,
             list!("if".into(), "cond".into(), "cons".into(), "alt".into()),
         )?;
         let r#if = m("if".into()).ok_or("internal error")?;
@@ -332,7 +332,7 @@ impl Expander {
         let set = m("set!".into()).ok_or("internal error")?;
         let id = m("id".into()).ok_or("internal error".to_string());
         id.clone()
-            .and_then(|id| id.try_into())
+            .and_then(std::convert::TryInto::try_into)
             .and_then(|id| {
                 self.resolve(&id)
                     .map_err(|_| format!("no binding for assignment {s}"))
@@ -351,7 +351,7 @@ impl Expander {
         Ok(list!(set, id?, rhs))
     }
     fn core_form_begin(&mut self, s: Ast, env: CompileTimeEnvoirnment) -> Result<Ast, String> {
-        let m = match_syntax(s.clone(), list!("begin".into(), "e".into(), "...+".into()))?;
+        let m = match_syntax(s, list!("begin".into(), "e".into(), "...+".into()))?;
         let begin = m("begin".into()).ok_or("internal error")?;
         let e = m("e".into())
             .ok_or("internal error".to_string())

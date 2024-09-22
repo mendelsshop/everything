@@ -19,19 +19,13 @@ impl Expander {
                 match core_sym.to_string().as_str() {
                     "lambda" => {
                         // TODO: 0 arg lambda is currently (lambda expr) after expander
-                        let m = match_syntax(
-                            s,
-                            list!(
-                                "lambda".into(),
-                                "id".into(),
-                                "body".into()
-                            ),
-                        )?;
+                        let m =
+                            match_syntax(s, list!("lambda".into(), "id".into(), "body".into()))?;
                         let id = m("id".into()).ok_or("internal error")?;
                         let body = m("body".into()).ok_or("internal error")?;
                         Ok(list!(
                             "lambda".into(),
-                             self.local_symbol(id).map(Ast::Symbol)?,
+                            self.local_symbol(id).map(Ast::Symbol)?,
                             self.compile(body)?
                         ))
                     }
@@ -62,7 +56,7 @@ impl Expander {
                     }
                     "set!" => {
                         let m = match_syntax(
-                            s.clone(),
+                            s,
                             list!("set!".into(), "id".into(), "rhs".into()),
                         )?;
                         let id = m("id".into())
@@ -77,7 +71,7 @@ impl Expander {
                         // TODO: verify that dest/src label(s) are actually labels (requires updating ast with
                         // everything features)
                         let m = match_syntax(
-                            s.clone(),
+                            s,
                             list!(
                                 "link".into(),
                                 "dest-label".into(),
@@ -95,7 +89,7 @@ impl Expander {
                     "if" => {
                         // TODO: optional alt?
                         let m = match_syntax(
-                            s.clone(),
+                            s,
                             list!("if".into(), "cond".into(), "cons".into(), "alt".into()),
                         )?;
                         let cond = m("cond".into())
@@ -111,7 +105,7 @@ impl Expander {
                     }
                     "begin" => {
                         let m = match_syntax(
-                            s.clone(),
+                            s,
                             list!("begin".into(), "e".into(), "...+".into()),
                         )?;
                         let e = m("e".into())
@@ -161,6 +155,6 @@ impl Expander {
     }
 }
 
-fn key_to_symbol(key: Symbol) -> Symbol {
+const fn key_to_symbol(key: Symbol) -> Symbol {
     key
 }

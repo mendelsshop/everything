@@ -169,7 +169,7 @@ impl From<String> for Symbol {
         Self(value.into(), 0)
     }
 }
-pub fn bound_identifier(a: Ast, b: Ast) -> bool {
+#[must_use] pub fn bound_identifier(a: Ast, b: Ast) -> bool {
     matches!((a, b), (Ast::Syntax(a), Ast::Syntax(b)) if a == b)
 }
 
@@ -263,7 +263,7 @@ impl Ast {
         )
     }
 
-    pub fn is_keyword(&self) -> bool {
+    #[must_use] pub const fn is_keyword(&self) -> bool {
         // https://docs.racket-lang.org/guide/keywords.html
         false
     }
@@ -341,7 +341,7 @@ where
     I: Iterator<Item = T>,
     U: AstTransformFrom<T>,
 {
-    pub fn new(iter: I, state: U::State) -> Self {
+    pub const fn new(iter: I, state: U::State) -> Self {
         Self {
             iter,
             state: Some(Ok(state)),

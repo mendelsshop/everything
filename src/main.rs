@@ -7,7 +7,7 @@
 )]
 // #![allow(clippy::similar_names, dead_code, unused)]
 
-use std::{collections::HashMap, error::Error, fs, vec};
+use std::{error::Error, fs};
 
 use ast::{scope::Scope, Ast, Symbol};
 use expander::{binding::CompileTimeEnvoirnment, Expander};
@@ -15,18 +15,9 @@ use expander::{binding::CompileTimeEnvoirnment, Expander};
 //    register_to_llvm::CodeGen,
 //    sicp::{Linkage, Register},
 //};
-use inkwell::{context::Context, passes::PassManager};
-use itertools::Itertools;
+use inkwell::passes::PassManager;
 use simple_file_logger::LogLevel;
 
-use crate::{
-    ast::{
-        //ast2::Ast2, ast3::Ast3, ast4::Ast4,
-        IteratorTransformer,
-    },
-    //codegen::multimap::MultiMap,
-    //macros::parse_and_expand,
-};
 use clap::{arg, Parser, Subcommand};
 
 pub mod ast;
@@ -125,9 +116,9 @@ fn init_function_optimizer<'ctx>(
     fpm
 }
 
-fn repl() {}
+const fn repl() {}
 
-fn run(file: &str) {}
+const fn run(file: &str) {}
 
 fn expand(file: &str) {
     let contents = fs::read_to_string(file).unwrap();
@@ -136,15 +127,15 @@ fn expand(file: &str) {
 }
 
 fn compile(file: &str, out: &str) {
-let mut expander = Expander::new();
-let mut env= CompileTimeEnvoirnment::new();
+    let mut expander = Expander::new();
+    let env = CompileTimeEnvoirnment::new();
     let contents = fs::read_to_string(file).unwrap();
     for ele in lexer::everything_parse(&contents).unwrap() {
         let ele = expander.namespace_syntax_introduce(ele.datum_to_syntax(None));
         let ele = expander.expand(ele, env.clone()).unwrap();
         let ele = expander.compile(ele).unwrap();
-       println!("{ele}") 
-    };
+        println!("{ele}");
+    }
     //let program = parse_and_expand(&contents).unwrap();
     //let links = MultiMap::from(program.1.into_iter().map(|(k, ks)| (ks, k.clone(), k)));
     //let (ast, _): (Vec<_>, _) = program
@@ -194,7 +185,7 @@ trace::init_depth_var!();
 struct UniqueNumberManager(usize);
 
 impl UniqueNumberManager {
-    fn new() -> Self {
+    const fn new() -> Self {
         Self(1)
     }
 

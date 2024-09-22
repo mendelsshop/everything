@@ -101,7 +101,7 @@ impl Ast {
         Ok(snd)
     }
 
-    pub fn primitive_list(self) -> Result<Self, String> {
+    pub const fn primitive_list(self) -> Result<Self, String> {
         Ok(self)
     }
     pub fn primitive_map(self) -> Result<Self, String> {
