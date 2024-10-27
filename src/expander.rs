@@ -4,6 +4,7 @@ use std::{
 };
 
 use binding::{Binding, CoreForm};
+use namespace::NameSpace;
 
 use crate::ast::{
     scope::AdjustScope,
@@ -27,15 +28,14 @@ mod expand_expr;
 mod expand_top_level;
 mod r#match;
 mod namespace;
-#[derive(Debug)]
 pub struct Expander {
     core_forms: HashMap<Rc<str>, CoreForm>,
     core_primitives: HashMap<Rc<str>, Ast>,
     core_scope: Scope,
     scope_creator: UniqueNumberManager,
     pub(crate) all_bindings: HashMap<Syntax<Symbol>, Binding>,
-    run_time_env: EnvRef,
-    expand_env: EnvRef,
+    expand_time_namespace: NameSpace,
+    run_time_namesapce: NameSpace,
     core_syntax: Syntax<Ast>,
     pub(crate) variable: Symbol,
 }

@@ -205,10 +205,10 @@ impl Expander {
     }
 
     pub fn expand_time_eval(&self, compiled: Ast) -> Result<Ast, String> {
-        Evaluator::eval(compiled, self.expand_env.clone())
+        Evaluator::eval(compiled, self.expand_time_namespace.clone())
     }
     pub fn run_time_eval(&self, compiled: Ast) -> Result<Ast, String> {
-        Evaluator::eval(compiled, self.run_time_env.clone())
+        Evaluator::eval(compiled, self.run_time_namesapce.clone())
     }
 }
 
