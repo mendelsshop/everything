@@ -34,8 +34,8 @@ pub struct Expander {
     core_scope: Scope,
     scope_creator: UniqueNumberManager,
     pub(crate) all_bindings: HashMap<Syntax<Symbol>, Binding>,
-    expand_time_namespace: NameSpace,
-    run_time_namesapce: NameSpace,
+    expand_time_env: EnvRef,
+    run_time_env: EnvRef,
     core_syntax: Syntax<Ast>,
     pub(crate) variable: Symbol,
 }
@@ -65,7 +65,7 @@ impl Expander {
             core_forms: HashMap::new(),
             all_bindings: HashMap::new(),
             run_time_env: Env::new_env(),
-            expand_env: Env::new_env(),
+            expand_time_env: Env::new_env(),
             variable,
         };
         this.add_core_forms();

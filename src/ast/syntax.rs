@@ -132,7 +132,7 @@ impl<T> Syntax<T> {
     pub fn new(expr: T) -> Self {
         Self(expr, EMPTY_SCOPE, empty_srcloc(), EMPTY_PROPERTY)
     }
-    fn bound_identifier(&self, other: &Self) -> bool
+    pub fn bound_identifier(&self, other: &Self) -> bool
     where
         T: PartialEq,
     {
