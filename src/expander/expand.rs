@@ -6,7 +6,8 @@ use crate::{
 };
 
 use super::{
-    binding::{CompileTimeBinding, CompileTimeEnvoirnment},
+    binding::{Binding, CompileTimeBinding, CompileTimeEnvoirnment},
+    expand_context::ExpandContext,
     r#match::match_syntax,
     Expander,
 };
@@ -16,40 +17,28 @@ impl Expander {
         s.add_scope(self.core_scope.clone())
     }
     //#[trace]
-    pub fn expand(&mut self, s: Ast, env: CompileTimeEnvoirnment) -> Result<Ast, String> {
+    pub fn expand(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
         match s.clone() {
             Ast::Syntax(syntax) => match syntax.0 {
                 Ast::Symbol(ref symbol) => {
-                    self.expand_identifier(syntax.with_ref(symbol.clone()), env)
+                    self.expand_identifier(syntax.with_ref(symbol.clone()), ctx)
                 }
-                Ast::Pair(p) if p.0.identifier() => self.expand_id_application_form(*p, s, env),
-                Ast::Pair(_) => self.expand_app(s, env),
-                Ast::TheEmptyList => self.expand_app(s, env),
-                _ => Ok(rebuild(
-                    s.clone(),
-                    list!(
-                        Ast::Symbol("quote".into()).datum_to_syntax(
-                            Some(BTreeSet::from([self.core_scope.clone()])),
-                            None,
-                            None
-                        ),
-                        s
-                    ),
-                )),
+                Ast::Pair(p) if p.0.identifier() => self.expand_id_application_form(*p, s, ctx),
+                Ast::Pair(_) | Ast::TheEmptyList => self.expand_implicit("%app".into(), s, ctx),
+                _ => self.expand_implicit("%datum".into(), s, ctx),
             },
-            Ast::Pair(_) => self.expand_app(s, env),
-            Ast::TheEmptyList => self.expand_app(s, env),
-            _ => Ok(rebuild(
-                s.clone(),
-                list!(
-                    Ast::Symbol("quote".into()).datum_to_syntax(
-                        Some(BTreeSet::from([self.core_scope.clone()])),
-                        None,
-                        None
-                    ),
-                    s
-                ),
-            )),
+            _ => self.expand_implicit("%datum".into(), s, ctx),
+            // _ => Ok(rebuild(
+            //     s.clone(),
+            //     list!(
+            //         Ast::Symbol("quote".into()).datum_to_syntax(
+            //             Some(BTreeSet::from([self.core_scope.clone()])),
+            //             None,
+            //             None
+            //         ),
+            //         s
+            //     ),
+            // )),
         }
     }
     // constraints = s.len() > 0
@@ -59,7 +48,7 @@ impl Expander {
         &mut self,
         p: Pair,
         s: Ast,
-        env: CompileTimeEnvoirnment,
+        ctx: ExpandContext,
     ) -> Result<Ast, String> {
         let Ast::Syntax(ref id_syntax) = p.0 else {
             unreachable!()
@@ -67,17 +56,28 @@ impl Expander {
         let Ast::Symbol(ref id) = id_syntax.0 else {
             unreachable!();
         };
-        let binding = self.resolve(&id_syntax.with_ref(id.clone()))?;
-        let t = env.lookup(binding, self.core_forms.clone(), self.variable.clone());
-        match t {
-            Err(_) => self.expand_app(s, env),
-            Ok(CompileTimeBinding::Regular(Ast::Symbol(sym))) if sym == self.variable => {
-                self.expand_app(s, env)
+        let binding = self.resolve(&id_syntax.with_ref(id.clone()), false);
+        let binding = binding.and_then(|binding| self.lookup(&binding, &ctx, id.clone()));
+        match binding {
+            Ok(binding) if !matches!(&binding, CompileTimeBinding::Regular(Ast::Symbol(sym)) if *sym == self.variable) => {
+                self.dispatch(binding, s, ctx)
             }
-            Ok(t) => self.dispatch(t, s, env),
+            _ => self.expand_implicit("%app".into(), s, ctx),
         }
     }
 
+    fn expand_implicit(&self, sym: Symbol, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
+        todo!()
+    }
+
+    fn lookup(
+        &self,
+        binding: &Binding,
+        ctx: &ExpandContext,
+        id: Symbol,
+    ) -> Result<CompileTimeBinding, String> {
+        ctx.env.lookup(binding, &ctx.namespace, id)
+    }
     pub(crate) fn apply_transformer(&mut self, m: Function, s: Ast) -> Result<Ast, String> {
         let intro_scope = self.scope_creator.new_scope();
         let intro_s = s.add_scope(intro_scope.clone());
@@ -92,74 +92,68 @@ impl Expander {
         &mut self,
         t: CompileTimeBinding,
         s: Ast,
-        env: CompileTimeEnvoirnment,
+        ctx: ExpandContext,
     ) -> Result<Ast, String> {
         match t {
             CompileTimeBinding::Regular(t) => match t {
                 Ast::Function(transfromer) => {
                     let apply_transformer = self.apply_transformer(transfromer, s)?;
-                    self.expand(apply_transformer, env)
+                    self.expand(apply_transformer, ctx)
                 }
                 Ast::Symbol(variable) if variable == self.variable => Ok(s),
                 _ => Err(format!("illegal use of syntax: {t}")),
             },
-            CompileTimeBinding::CoreForm(form) => form(self, s, env),
+            CompileTimeBinding::CoreForm(form) => form(self, s, ctx),
         }
     }
-    pub fn eval_for_syntax_binding(
-        &mut self,
-        rhs: Ast,
-        env: CompileTimeEnvoirnment,
-    ) -> Result<Ast, String> {
+    pub fn eval_for_syntax_binding(&mut self, rhs: Ast, ctx: ExpandContext) -> Result<Ast, String> {
         // let var_name = format!("problem `evaluating` macro {rhs}");
-        let expand = self.expand_transformer(rhs, env)?;
+        let expand = self.expand_transformer(rhs, ctx)?;
         let compile = self.compile(expand)?;
         self.expand_time_eval(compile)
     }
 
-    fn expand_transformer(&mut self, rhs: Ast, env: CompileTimeEnvoirnment) -> Result<Ast, String> {
+    fn expand_transformer(&mut self, rhs: Ast, ctx: ExpandContext) -> Result<Ast, String> {
         self.expand(rhs, CompileTimeEnvoirnment::new())
     }
 
-    pub(crate) fn expand_app(
-        &mut self,
-        s: Ast,
-        env: CompileTimeEnvoirnment,
-    ) -> Result<Ast, String> {
-        let m = match_syntax(
-            s.clone(),
-            list!("rator".into(), "rand".into(), "...".into()),
-        )?;
-        let rator = m("rator".into()).ok_or("internal error".to_string())?;
-        let rand = m("rand".into())
-            .ok_or("internal error".to_string())?
-            .map(|rand| self.expand(rand, env.clone()))?;
-        Ok(rebuild(
-            s,
-            Ast::Pair(Box::new(Pair(
-                Into::<Ast>::into("%app").datum_to_syntax(
-                    Some(BTreeSet::from([self.core_scope.clone()])),
-                    None,
-                    None,
-                ),
-                Ast::Pair(Box::new(Pair(self.expand(rator, env)?, rand))),
-            ))),
-        ))
-    }
+    // pub(crate) fn expand_app(
+    //     &mut self,
+    //     s: Ast,
+    //     env: CompileTimeEnvoirnment,
+    // ) -> Result<Ast, String> {
+    //     let m = match_syntax(
+    //         s.clone(),
+    //         list!("rator".into(), "rand".into(), "...".into()),
+    //     )?;
+    //     let rator = m("rator".into()).ok_or("internal error".to_string())?;
+    //     let rand = m("rand".into())
+    //         .ok_or("internal error".to_string())?
+    //         .map(|rand| self.expand(rand, env.clone()))?;
+    //     Ok(rebuild(
+    //         s,
+    //         Ast::Pair(Box::new(Pair(
+    //             Into::<Ast>::into("%app").datum_to_syntax(
+    //                 Some(BTreeSet::from([self.core_scope.clone()])),
+    //                 None,
+    //                 None,
+    //             ),
+    //             Ast::Pair(Box::new(Pair(self.expand(rator, env)?, rand))),
+    //         ))),
+    //     ))
+    // }
     pub(crate) fn expand_identifier(
         &mut self,
         s: Syntax<Symbol>,
-        env: CompileTimeEnvoirnment,
+        ctx: ExpandContext,
     ) -> Result<Ast, String> {
-        let binding = self.resolve(&s)?;
-        let t = env
-            .lookup(binding, self.core_forms.clone(), self.variable.clone())
-            .map_err(|_| format!("illegal use of syntax {s:?}"))?;
-        self.dispatch(
-            t,
-            Ast::Syntax(Box::new(s.with_ref(Ast::Symbol(s.0.clone())))),
-            env,
-        )
+        let binding = self.resolve(&s, false);
+        let id = s.0.clone();
+        let s = Ast::Syntax(Box::new(s.with(Ast::Symbol(id.clone()))));
+        match binding {
+            Ok(binding) => self.dispatch(self.lookup(&binding, &ctx, id)?, s, ctx),
+            _ => self.expand_implicit("%top".into(), s, ctx),
+        }
     }
 }
 

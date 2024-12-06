@@ -21,7 +21,7 @@ impl Expander {
                 SourceLocation::default(),
                 Properties::new(),
             ),
-            Binding::CoreBinding(sym.0),
+            Binding::TopLevel(sym.0),
         );
     }
     pub fn add_core_form(&mut self, sym: Rc<str>, proc: CoreForm) {
@@ -66,8 +66,8 @@ impl Expander {
             };
             let b = self.resolve(&s.with_ref(sym.clone()), false)?;
             match b {
-                Binding::Variable(_) => Err(format!("{sym} is not a core form")),
-                Binding::CoreBinding(s) => Ok(s.clone()),
+                Binding::Local(_) => Err(format!("{sym} is not a core form")),
+                Binding::TopLevel(s) => Ok(s.clone()),
             }
         })
     }

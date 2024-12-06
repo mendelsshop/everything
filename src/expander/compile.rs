@@ -138,8 +138,8 @@ impl Expander {
                 let with = syntax.with_ref(s1.clone());
                 let b = self.resolve(&with, false)?;
                 match b {
-                    Binding::Variable(b) => Ok(Ast::Symbol(key_to_symbol(b.clone()))),
-                    Binding::CoreBinding(s) => ns
+                    Binding::Local(b) => Ok(Ast::Symbol(key_to_symbol(b.clone()))),
+                    Binding::TopLevel(s) => ns
                         .variables
                         .get(&s.clone().into())
                         .ok_or(format!("missing core bindig for primitive {s}"))
@@ -198,7 +198,7 @@ impl Expander {
             return Err(format!("expected symbol found {id}"));
         };
         let b = self.resolve(&s.with_ref(id.clone()), false)?;
-        let Binding::Variable(s) = b else {
+        let Binding::Local(s) = b else {
             return Err(format!("bad binding {b}"));
         };
         Ok(key_to_symbol(s.clone()))

@@ -4,6 +4,7 @@ use std::{
 };
 
 use binding::{Binding, CoreForm};
+use expand_context::ExpandContext;
 use namespace::NameSpace;
 
 use crate::ast::{

@@ -3,7 +3,10 @@ use crate::{
     list,
 };
 
-use super::{binding::CompileTimeEnvoirnment, expand::rebuild, r#match::match_syntax, Expander};
+use super::{
+    binding::CompileTimeEnvoirnment, expand::rebuild, expand_context::ExpandContext,
+    r#match::match_syntax, Expander,
+};
 
 impl Expander {
     pub fn add_core_forms(&mut self) {
@@ -15,7 +18,7 @@ impl Expander {
     }
 
     //#[trace]
-    fn core_form_lambda(&mut self, s: Ast, env: CompileTimeEnvoirnment) -> Result<Ast, String> {
+    fn core_form_lambda(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
         let m = match_syntax(
             s.clone(),
             list!(
@@ -55,7 +58,7 @@ impl Expander {
                     "{term} is not a symbol so it cannot be a parameter"
                 )),
             },
-            Ok(env),
+            Ok(ctx),
         )?;
         let exp_body = self.expand(
             m("body".into())
@@ -72,7 +75,7 @@ impl Expander {
             ),
         ))
     }
-    fn core_form_let_syntax(&mut self, s: Ast, env: CompileTimeEnvoirnment) -> Result<Ast, String> {
+    fn core_form_let_syntax(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
         let m = match_syntax(
             s,
             list!(
@@ -107,14 +110,14 @@ impl Expander {
             .foldl(
                 |current_rhs, rhss: Result<Vec<Ast>, String>| {
                     rhss.and_then(|mut rhss| {
-                        let current_rhs = self.eval_for_syntax_binding(current_rhs, env.clone())?;
+                        let current_rhs = self.eval_for_syntax_binding(current_rhs, ctx.clone())?;
                         rhss.push(current_rhs);
                         Ok(rhss)
                     })
                 },
                 Ok(vec![]),
             )??;
-        let mut hash_map = env.0;
+        let mut hash_map = ctx.0;
         hash_map.extend(trans_ids.into_iter().zip(trans_vals));
         let body_env = CompileTimeEnvoirnment(hash_map);
         self.expand(
@@ -122,7 +125,7 @@ impl Expander {
             body_env,
         )
     }
-    fn core_form_app(&mut self, s: Ast, env: CompileTimeEnvoirnment) -> Result<Ast, String> {
+    fn core_form_app(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
         let m = match_syntax(
             s,
             //TODO: should app be a syntax object
@@ -130,24 +133,20 @@ impl Expander {
         )?;
         let rator = self.expand(
             m("rator".into()).ok_or("internal error".to_string())?,
-            env.clone(),
+            ctx.clone(),
         )?;
         let rand = m("rator".into())
             .ok_or("internal error".to_string())?
-            .map(|rand| self.expand(rand, env.clone()))?;
+            .map(|rand| self.expand(rand, ctx.clone()))?;
         Ok(Ast::Pair(Box::new(Pair(
             m("%app".into()).ok_or("internal error")?,
             Ast::Pair(Box::new(Pair(rator, rand))),
         ))))
     }
-    fn core_form_quote(&mut self, s: Ast, _env: CompileTimeEnvoirnment) -> Result<Ast, String> {
+    fn core_form_quote(&mut self, s: Ast, _ctx: ExpandContext) -> Result<Ast, String> {
         match_syntax(s.clone(), list!("quote".into(), "datum".into())).map(|_| s)
     }
-    fn core_form_quote_syntax(
-        &mut self,
-        s: Ast,
-        _env: CompileTimeEnvoirnment,
-    ) -> Result<Ast, String> {
+    fn core_form_quote_syntax(&mut self, s: Ast, _ctx: ExpandContext) -> Result<Ast, String> {
         match_syntax(s.clone(), list!("quote-syntax".into(), "datum".into())).map(|_| s)
     }
 }
