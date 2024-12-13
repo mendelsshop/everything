@@ -1,7 +1,7 @@
 pub mod scope;
 pub mod syntax;
 use scope::Scope;
-use syntax::{Properties, Syntax};
+use syntax::{Properties, SourceLocation, Syntax};
 
 use std::{
     collections::BTreeSet,
@@ -132,6 +132,21 @@ pub enum Ast {
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct Symbol(pub Rc<str>, pub usize);
+impl Symbol {
+    pub(crate) fn datum_to_syntax(
+        self,
+        scopes: Option<BTreeSet<Scope>>,
+        srcloc: Option<SourceLocation>,
+        properties: Option<Properties>,
+    ) -> Syntax<Symbol> {
+        Syntax(
+            self,
+            scopes.unwrap_or_default(),
+            srcloc.unwrap_or_default(),
+            properties.clone().unwrap_or_default(),
+        )
+    }
+}
 impl From<&str> for Ast {
     fn from(value: &str) -> Self {
         Self::Symbol(value.into())

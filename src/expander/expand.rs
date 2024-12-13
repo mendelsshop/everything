@@ -17,7 +17,7 @@ impl Expander {
         s.add_scope(self.core_scope.clone())
     }
     //#[trace]
-    pub fn expand(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
+    pub fn expand(&mut self, s: Ast, ctx: &mut ExpandContext) -> Result<Ast, String> {
         match s.clone() {
             Ast::Syntax(syntax) => match syntax.0 {
                 Ast::Symbol(ref symbol) => {
@@ -48,7 +48,7 @@ impl Expander {
         &mut self,
         p: Pair,
         s: Ast,
-        ctx: ExpandContext,
+        ctx: &mut ExpandContext,
     ) -> Result<Ast, String> {
         let Ast::Syntax(ref id_syntax) = p.0 else {
             unreachable!()
@@ -57,7 +57,7 @@ impl Expander {
             unreachable!();
         };
         let binding = self.resolve(&id_syntax.with_ref(id.clone()), false);
-        let binding = binding.and_then(|binding| self.lookup(&binding, &ctx, id.clone()));
+        let binding = binding.and_then(|binding| self.lookup(&binding, &ctx, id));
         match binding {
             Ok(binding) if !matches!(&binding, CompileTimeBinding::Regular(Ast::Symbol(sym)) if *sym == self.variable) => {
                 self.dispatch(binding, s, ctx)
@@ -66,44 +66,90 @@ impl Expander {
         }
     }
 
-    fn expand_implicit(&self, sym: Symbol, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
-        todo!()
+    fn expand_implicit(
+        &mut self,
+        sym: Symbol,
+        s: Ast,
+        ctx: &mut ExpandContext,
+    ) -> Result<Ast, String> {
+        let scopes = s.scope_set();
+        let id = sym.clone().datum_to_syntax(scopes, None, None);
+        let binding = self.resolve(&id, false);
+        let transformer = binding.and_then(|binding| self.lookup(&binding, &ctx, &sym))?;
+        match transformer {
+            CompileTimeBinding::CoreForm(_) if ctx.only_immediate => Ok(s),
+            CompileTimeBinding::Regular(Ast::Function(_)) | CompileTimeBinding::CoreForm(_) => {
+                self.dispatch(transformer, s, ctx)
+            }
+            _ => Err(format!("no tranformer binding for {sym}")),
+        }
     }
 
     fn lookup(
         &self,
         binding: &Binding,
         ctx: &ExpandContext,
-        id: Symbol,
+        id: &Symbol,
     ) -> Result<CompileTimeBinding, String> {
         ctx.env.lookup(binding, &ctx.namespace, id)
     }
-    pub(crate) fn apply_transformer(&mut self, m: Function, s: Ast) -> Result<Ast, String> {
+    pub(crate) fn apply_transformer(
+        &mut self,
+        m: Function,
+        s: Ast,
+        ctx: &mut ExpandContext,
+    ) -> Result<Ast, String> {
         let intro_scope = self.scope_creator.new_scope();
         let intro_s = s.add_scope(intro_scope.clone());
-        let transformed_s = m.apply(Ast::Pair(Box::new(Pair(intro_s, Ast::TheEmptyList))))?;
+        let uses_s = self.maybe_add_use_site_scope(intro_s, ctx);
+        let transformed_s = m.apply(Ast::Pair(Box::new(Pair(uses_s, Ast::TheEmptyList))))?;
         if !matches!(transformed_s, Ast::Syntax(_)) {
             return Err(format!("transformer produced non syntax: {transformed_s}"));
         }
-        Ok(transformed_s.flip_scope(intro_scope))
+        let result_s = transformed_s.flip_scope(intro_scope);
+        Ok(self.maybe_add_post_site_scope(result_s, ctx))
     }
 
+    fn maybe_add_use_site_scope(&mut self, s: Ast, ctx: &mut ExpandContext) -> Ast {
+        match &mut ctx.use_site_scopes {
+            Some(scopes) => {
+                let sc = self.scope_creator.new_scope();
+                scopes.insert(0, sc.clone());
+                s.add_scope(sc)
+            }
+            None => s,
+        }
+    }
+    fn maybe_add_post_site_scope(&self, s: Ast, ctx: &ExpandContext) -> Ast {
+        {
+            match &ctx.post_expansion_scope {
+                Some(sc) => s.add_scope(sc.clone()),
+                None => s,
+            }
+        }
+    }
     fn dispatch(
         &mut self,
         t: CompileTimeBinding,
         s: Ast,
-        ctx: ExpandContext,
+        ctx: &mut ExpandContext,
     ) -> Result<Ast, String> {
         match t {
             CompileTimeBinding::Regular(t) => match t {
                 Ast::Function(transfromer) => {
-                    let apply_transformer = self.apply_transformer(transfromer, s)?;
+                    let apply_transformer = self.apply_transformer(transfromer, s, ctx)?;
                     self.expand(apply_transformer, ctx)
                 }
                 Ast::Symbol(variable) if variable == self.variable => Ok(s),
                 _ => Err(format!("illegal use of syntax: {t}")),
             },
-            CompileTimeBinding::CoreForm(form) => form(self, s, ctx),
+            CompileTimeBinding::CoreForm(form) => {
+                if ctx.only_immediate {
+                    Ok(s)
+                } else {
+                    form(self, s, ctx)
+                }
+            }
         }
     }
     pub fn eval_for_syntax_binding(&mut self, rhs: Ast, ctx: ExpandContext) -> Result<Ast, String> {
@@ -114,7 +160,7 @@ impl Expander {
     }
 
     fn expand_transformer(&mut self, rhs: Ast, ctx: ExpandContext) -> Result<Ast, String> {
-        self.expand(rhs, CompileTimeEnvoirnment::new())
+        self.expand(rhs, ExpandContext::new())
     }
 
     // pub(crate) fn expand_app(
@@ -145,13 +191,13 @@ impl Expander {
     pub(crate) fn expand_identifier(
         &mut self,
         s: Syntax<Symbol>,
-        ctx: ExpandContext,
+        ctx: &mut ExpandContext,
     ) -> Result<Ast, String> {
         let binding = self.resolve(&s, false);
         let id = s.0.clone();
         let s = Ast::Syntax(Box::new(s.with(Ast::Symbol(id.clone()))));
         match binding {
-            Ok(binding) => self.dispatch(self.lookup(&binding, &ctx, id)?, s, ctx),
+            Ok(binding) => self.dispatch(self.lookup(&binding, &ctx, &id)?, s, ctx),
             _ => self.expand_implicit("%top".into(), s, ctx),
         }
     }

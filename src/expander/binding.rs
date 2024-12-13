@@ -37,7 +37,7 @@ pub enum CompileTimeBinding {
     // as we need to capture expander state
     CoreForm(CoreForm),
 }
-pub type CoreForm = fn(&mut Expander, Ast, ExpandContext) -> Result<Ast, String>;
+pub type CoreForm = fn(&mut Expander, Ast, &mut ExpandContext) -> Result<Ast, String>;
 #[derive(Clone, Debug)]
 pub struct CompileTimeEnvoirnment(pub(crate) HashMap<Symbol, Ast>);
 
@@ -63,7 +63,7 @@ impl CompileTimeEnvoirnment {
         key: &Binding,
         ns: &NameSpace,
         // TODO: maybe core form can get their own type
-        id: Symbol,
+        id: &Symbol,
     ) -> Result<CompileTimeBinding, String> {
         match key {
             Binding::Local(key) => self

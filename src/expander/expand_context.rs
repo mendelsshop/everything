@@ -4,11 +4,11 @@ use super::{binding::CompileTimeEnvoirnment, namespace::NameSpace};
 
 pub struct ExpandContext {
     // TODO: maybe use set/btreeset
-    use_site_scopes: Option<Vec<Scope>>,
+    pub(crate) use_site_scopes: Option<Vec<Scope>>,
     pub(crate) namespace: NameSpace,
     pub(crate) env: CompileTimeEnvoirnment,
-    only_immediate: bool,
-    post_expansion_scope: Option<Scope>,
+    pub(crate) only_immediate: bool,
+    pub(crate) post_expansion_scope: Option<Scope>,
 }
 
 impl ExpandContext {
