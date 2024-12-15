@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::ast::{syntax::Syntax, Ast, Symbol};
 
-type DuplicateMap = HashMap<Symbol, Vec<Syntax<Symbol>>>;
+pub type DuplicateMap = HashMap<Symbol, Vec<Syntax<Symbol>>>;
 
 pub const make_check_no_duplicate_table: fn() -> DuplicateMap = DuplicateMap::new;
 fn check_no_duplicate_ids(

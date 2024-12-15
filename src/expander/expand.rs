@@ -1,12 +1,17 @@
 use std::collections::BTreeSet;
 
 use crate::{
-    ast::{scope::AdjustScope, syntax::Syntax, Ast, Function, Pair, Symbol},
+    ast::{
+        scope::{AdjustScope, Scope},
+        syntax::Syntax,
+        Ast, Function, Pair, Symbol,
+    },
     list,
 };
 
 use super::{
     binding::{Binding, CompileTimeBinding, CompileTimeEnvoirnment},
+    duplicate_check::{self, DuplicateMap},
     expand_context::ExpandContext,
     r#match::match_syntax,
     Expander,
@@ -151,6 +156,53 @@ impl Expander {
                 }
             }
         }
+    }
+
+    fn expand_body_loop(
+        &mut self,
+        body_ctx: &mut ExpandContext,
+        bodys: Ast,
+        done_bodys: Ast,
+        val_binds: Ast,
+        duplicate: DuplicateMap,
+    ) -> Result<Ast, String> {
+        match bodys {
+            Ast::TheEmptyList => self.finish_expanding_body(body_ctx, done_bodys, val_binds, todo!("s")),
+            Ast::Pair(cons) => {
+                let exp_body = self.expand(cons.0, body_ctx)?;
+                todo!()
+            }
+            _ => todo!("error")
+        }
+    }
+    fn finish_expanding_body(&self, body_ctx: &mut ExpandContext, done_bodys: Ast, val_binds: Ast, s: Ast) -> Result<Ast, String> {
+        todo!()
+    }
+    fn expand_body(
+        &mut self,
+        bodys: Ast,
+        scope: Scope,
+        original_syntax: Ast,
+        // we need to use parts of the context to create a new context, so &mut context, might not
+        // be the greatest idea here (maybe rc refcelL?)
+        context: &mut ExpandContext,
+    ) -> Result<Ast, String> {
+        let outside_scope = self.scope_creator.new_scope();
+        let inside_scope = self.scope_creator.new_scope();
+        let init_bodys = bodys.map(|body| {
+            Ok(body
+                .add_scope(scope.clone())
+                .add_scope(outside_scope.clone())
+                .add_scope(inside_scope.clone()))
+        })?;
+        let body_context = &mut ExpandContext {
+            only_immediate: true,
+            post_expansion_scope: Some(inside_scope),
+            use_site_scopes: Some(vec![]),
+            env: context.env,
+            namespace: context.namespace,
+        };
+        todo!()
     }
     pub fn eval_for_syntax_binding(&mut self, rhs: Ast, ctx: ExpandContext) -> Result<Ast, String> {
         // let var_name = format!("problem `evaluating` macro {rhs}");
