@@ -7,6 +7,7 @@ use crate::{ast::Pair, Ast, Symbol};
 // sum of the folds might be/probably are supposed to be smoosh hash hash1 by putting all the
 //  concantinating the values of all a in hash and hash1 into new hashmap
 // just used internally to "parse" stuff
+// TODO: maybe have a recursive data structure that represents a match instead of using lists
 pub fn match_syntax(original: Ast, pattern: Ast) -> Result<impl Fn(Symbol) -> Option<Ast>, String> {
     fn r#match(s: Ast, pattern: Ast, original_s: &Ast) -> Result<HashMap<Symbol, Ast>, String> {
         // TODO: make sure pattern mathches ^id

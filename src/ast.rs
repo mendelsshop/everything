@@ -27,6 +27,10 @@ macro_rules! list {
     ($car:expr, $($cdr:tt)+) => {
         $crate::ast::Ast::Pair(Box::new($crate::ast::Pair($car, list!($($cdr)+))))
     };
+
+    (quote $($datum:tt)*) =>  {
+        $crate::ast::Ast::Pair(Box::new($crate::ast::Pair("quote".into(), list!($($datum)+))))
+    };
 }
 
 pub type AnalyzedResult = Result<Box<dyn AnalyzeFn>, String>;
@@ -313,5 +317,19 @@ impl Ast {
             Self::Syntax(s) => Some(s.2.clone()),
             _ => None,
         }
+    }
+
+    pub(crate) fn append(self, list: Ast) -> Ast {
+        fn inner(list1: Ast, list2: Ast, f: impl FnOnce(Ast) -> Ast) -> Ast {
+            match list1 {
+                Ast::Pair(pair) => {
+                    let Pair(x, xs) = *pair;
+                    inner(xs, list2, |acc| f(list!(x;acc)))
+                }
+                Ast::TheEmptyList => f(list2),
+                _ => list1,
+            }
+        }
+        inner(self, list, |x| x)
     }
 }

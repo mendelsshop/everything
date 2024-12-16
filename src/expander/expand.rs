@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 
 use crate::{
     ast::{
@@ -13,6 +13,7 @@ use super::{
     binding::{Binding, CompileTimeBinding, CompileTimeEnvoirnment},
     duplicate_check::{self, DuplicateMap},
     expand_context::ExpandContext,
+    namespace::NameSpace,
     r#match::match_syntax,
     Expander,
 };
@@ -167,15 +168,74 @@ impl Expander {
         duplicate: DuplicateMap,
     ) -> Result<Ast, String> {
         match bodys {
-            Ast::TheEmptyList => self.finish_expanding_body(body_ctx, done_bodys, val_binds, todo!("s")),
+            Ast::TheEmptyList => {
+                self.finish_expanding_body(body_ctx, done_bodys, val_binds, todo!("s"))
+            }
             Ast::Pair(cons) => {
                 let exp_body = self.expand(cons.0, body_ctx)?;
-                todo!()
+                match self
+                    .core_form_symbol(exp_body.clone())?
+                    .to_string()
+                    .as_str()
+                {
+                    "begin" => {
+                        let m = match_syntax(
+                            exp_body.clone(),
+                            list!("begin".into(), "e".into(), "...".into()),
+                        )?;
+                        let e = m("e".into()).ok_or("internal error")?;
+                        self.expand_body_loop(
+                            body_ctx,
+                            e.append(cons.1),
+                            done_bodys,
+                            val_binds,
+                            duplicate,
+                        )
+                    }
+                    "define-values" => todo!(),
+                    "define-syntaxes" => {
+                        let m = match_syntax(
+                            exp_body.clone(),
+                            list!(
+                                "define-syntaxes".into(),
+                                list!("id".into(), "...".into()),
+                                "rhs".into()
+                            ),
+                        )?;
+                        let ids = self.remove_use_site_scopes(
+                            m("id".into()).ok_or("internal error")?,
+                            body_ctx,
+                        );
+                        let new_duplicates =
+                            duplicate_check::check_no_duplicate_ids(ids, exp_body, duplicate);
+                        let keys = ids.map(|id| self.add_local_binding);
+                    }
+                    _ => self.expand_body_loop(
+                        body_ctx,
+                        cons.1,
+                        list!(exp_body; done_bodys),
+                        val_binds,
+                        duplicate,
+                    ),
+                }
             }
-            _ => todo!("error")
+            _ => todo!("error"),
         }
     }
-    fn finish_expanding_body(&self, body_ctx: &mut ExpandContext, done_bodys: Ast, val_binds: Ast, s: Ast) -> Result<Ast, String> {
+    fn remove_use_site_scopes(&self, syntax: Ast, ctx: &mut ExpandContext) -> Ast {
+        if let Some(scopes) = &ctx.use_site_scopes {
+            syntax.remove_scopes(scopes.clone())
+        } else {
+            syntax
+        }
+    }
+    fn finish_expanding_body(
+        &self,
+        body_ctx: &mut ExpandContext,
+        done_bodys: Ast,
+        val_binds: Ast,
+        s: Ast,
+    ) -> Result<Ast, String> {
         todo!()
     }
     fn expand_body(
@@ -198,21 +258,49 @@ impl Expander {
         let body_context = &mut ExpandContext {
             only_immediate: true,
             post_expansion_scope: Some(inside_scope),
-            use_site_scopes: Some(vec![]),
+            use_site_scopes: Some(BTreeSet::new()),
             env: context.env,
             namespace: context.namespace,
         };
         todo!()
     }
-    pub fn eval_for_syntax_binding(&mut self, rhs: Ast, ctx: ExpandContext) -> Result<Ast, String> {
-        // let var_name = format!("problem `evaluating` macro {rhs}");
-        let expand = self.expand_transformer(rhs, ctx)?;
-        let compile = self.compile(expand)?;
-        self.expand_time_eval(compile)
+    fn exxpand_and_eval_for_syntaxes_binding(
+        &mut self,
+        rhs: Ast,
+        ctx: ExpandContext,
+    ) -> Result<(Ast, Ast), String> {
+        let exp_rhs = self.expand_transformer(rhs, ctx)?;
+        Ok((exp_rhs, self.eval_for_bindings(exp_rhs, ctx.namespace)?))
+    }
+    pub fn eval_for_syntaxes_binding(
+        &mut self,
+        rhs: Ast,
+        ctx: ExpandContext,
+    ) -> Result<Ast, String> {
+        self.exxpand_and_eval_for_syntaxes_binding(rhs, ctx)
+            .map(|x| x.0)
+        // // let var_name = format!("problem `evaluating` macro {rhs}");
+        // let expand = self.expand_transformer(rhs, ctx)?;
+        // let compile = self.compile(expand)?;
+        // self.expand_time_eval(compile)
     }
 
+    fn eval_for_bindings(&self, exp_rhs: Ast, namespace: NameSpace) -> Result<Ast, String> {
+        let compiled = self.compile(exp_rhs, &namespace)?;
+        // TODO: some notion of values https://docs.racket-lang.org/reference/values.html
+        let vals = self.expand_time_eval(list!("#%expression".into(), compiled))?;
+        Ok(vals)
+    }
     fn expand_transformer(&mut self, rhs: Ast, ctx: ExpandContext) -> Result<Ast, String> {
-        self.expand(rhs, ExpandContext::new())
+        self.expand(
+            rhs,
+            &mut ExpandContext {
+                env: CompileTimeEnvoirnment::new(),
+                only_immediate: false,
+                post_expansion_scope: None,
+                ..ctx
+            },
+        )
     }
 
     // pub(crate) fn expand_app(

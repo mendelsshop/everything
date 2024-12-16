@@ -1,10 +1,12 @@
+use std::collections::BTreeSet;
+
 use crate::ast::scope::Scope;
 
 use super::{binding::CompileTimeEnvoirnment, namespace::NameSpace};
 
 pub struct ExpandContext {
     // TODO: maybe use set/btreeset
-    pub(crate) use_site_scopes: Option<Vec<Scope>>,
+    pub(crate) use_site_scopes: Option<BTreeSet<Scope>>,
     pub(crate) namespace: NameSpace,
     pub(crate) env: CompileTimeEnvoirnment,
     pub(crate) only_immediate: bool,
