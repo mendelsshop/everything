@@ -1,12 +1,12 @@
-use std::collections::BTreeSet;
+use std::{cell::RefCell, collections::BTreeSet, rc::Rc};
 
 use crate::ast::scope::Scope;
 
 use super::{binding::CompileTimeEnvoirnment, namespace::NameSpace};
 
+#[derive(Clone)]
 pub struct ExpandContext {
-    // TODO: maybe use set/btreeset
-    pub(crate) use_site_scopes: Option<BTreeSet<Scope>>,
+    pub(crate) use_site_scopes: Option<Rc<RefCell<BTreeSet<Scope>>>>,
     pub(crate) namespace: NameSpace,
     pub(crate) env: CompileTimeEnvoirnment,
     pub(crate) only_immediate: bool,

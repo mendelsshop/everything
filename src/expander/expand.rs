@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
 
 use crate::{
     ast::{
@@ -23,7 +23,7 @@ impl Expander {
         s.add_scope(self.core_scope.clone())
     }
     //#[trace]
-    pub fn expand(&mut self, s: Ast, ctx: &mut ExpandContext) -> Result<Ast, String> {
+    pub fn expand(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
         match s.clone() {
             Ast::Syntax(syntax) => match syntax.0 {
                 Ast::Symbol(ref symbol) => {
@@ -54,7 +54,7 @@ impl Expander {
         &mut self,
         p: Pair,
         s: Ast,
-        ctx: &mut ExpandContext,
+        ctx: ExpandContext,
     ) -> Result<Ast, String> {
         let Ast::Syntax(ref id_syntax) = p.0 else {
             unreachable!()
@@ -72,12 +72,7 @@ impl Expander {
         }
     }
 
-    fn expand_implicit(
-        &mut self,
-        sym: Symbol,
-        s: Ast,
-        ctx: &mut ExpandContext,
-    ) -> Result<Ast, String> {
+    fn expand_implicit(&mut self, sym: Symbol, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
         let scopes = s.scope_set();
         let id = sym.clone().datum_to_syntax(scopes, None, None);
         let binding = self.resolve(&id, false);
@@ -103,7 +98,7 @@ impl Expander {
         &mut self,
         m: Function,
         s: Ast,
-        ctx: &mut ExpandContext,
+        ctx: &ExpandContext,
     ) -> Result<Ast, String> {
         let intro_scope = self.scope_creator.new_scope();
         let intro_s = s.add_scope(intro_scope.clone());
@@ -116,11 +111,12 @@ impl Expander {
         Ok(self.maybe_add_post_site_scope(result_s, ctx))
     }
 
-    fn maybe_add_use_site_scope(&mut self, s: Ast, ctx: &mut ExpandContext) -> Ast {
-        match &mut ctx.use_site_scopes {
+    fn maybe_add_use_site_scope(&mut self, s: Ast, ctx: &ExpandContext) -> Ast {
+        match &ctx.use_site_scopes {
             Some(scopes) => {
                 let sc = self.scope_creator.new_scope();
-                scopes.insert(0, sc.clone());
+
+                scopes.borrow_mut().insert(sc.clone());
                 s.add_scope(sc)
             }
             None => s,
@@ -138,12 +134,12 @@ impl Expander {
         &mut self,
         t: CompileTimeBinding,
         s: Ast,
-        ctx: &mut ExpandContext,
+        ctx: ExpandContext,
     ) -> Result<Ast, String> {
         match t {
             CompileTimeBinding::Regular(t) => match t {
                 Ast::Function(transfromer) => {
-                    let apply_transformer = self.apply_transformer(transfromer, s, ctx)?;
+                    let apply_transformer = self.apply_transformer(transfromer, s, &ctx)?;
                     self.expand(apply_transformer, ctx)
                 }
                 Ast::Symbol(variable) if variable == self.variable => Ok(s),
@@ -161,7 +157,7 @@ impl Expander {
 
     fn expand_body_loop(
         &mut self,
-        body_ctx: &mut ExpandContext,
+        body_ctx: ExpandContext,
         bodys: Ast,
         done_bodys: Ast,
         val_binds: Ast,
@@ -204,7 +200,7 @@ impl Expander {
                         )?;
                         let ids = self.remove_use_site_scopes(
                             m("id".into()).ok_or("internal error")?,
-                            body_ctx,
+                            &body_ctx,
                         );
                         let new_duplicates =
                             duplicate_check::check_no_duplicate_ids(ids, exp_body, duplicate);
@@ -222,16 +218,16 @@ impl Expander {
             _ => todo!("error"),
         }
     }
-    fn remove_use_site_scopes(&self, syntax: Ast, ctx: &mut ExpandContext) -> Ast {
+    fn remove_use_site_scopes(&self, syntax: Ast, ctx: &ExpandContext) -> Ast {
         if let Some(scopes) = &ctx.use_site_scopes {
-            syntax.remove_scopes(scopes.clone())
+            syntax.remove_scopes(scopes.borrow().clone())
         } else {
             syntax
         }
     }
     fn finish_expanding_body(
         &self,
-        body_ctx: &mut ExpandContext,
+        body_ctx: ExpandContext,
         done_bodys: Ast,
         val_binds: Ast,
         s: Ast,
@@ -245,7 +241,7 @@ impl Expander {
         original_syntax: Ast,
         // we need to use parts of the context to create a new context, so &mut context, might not
         // be the greatest idea here (maybe rc refcelL?)
-        context: &mut ExpandContext,
+        context: ExpandContext,
     ) -> Result<Ast, String> {
         let outside_scope = self.scope_creator.new_scope();
         let inside_scope = self.scope_creator.new_scope();
@@ -255,7 +251,7 @@ impl Expander {
                 .add_scope(outside_scope.clone())
                 .add_scope(inside_scope.clone()))
         })?;
-        let body_context = &mut ExpandContext {
+        let body_context = &ExpandContext {
             only_immediate: true,
             post_expansion_scope: Some(inside_scope),
             use_site_scopes: Some(BTreeSet::new()),
@@ -269,8 +265,11 @@ impl Expander {
         rhs: Ast,
         ctx: ExpandContext,
     ) -> Result<(Ast, Ast), String> {
-        let exp_rhs = self.expand_transformer(rhs, ctx)?;
-        Ok((exp_rhs, self.eval_for_bindings(exp_rhs, ctx.namespace)?))
+        let exp_rhs = self.expand_transformer(rhs, ctx.clone())?;
+        Ok((
+            exp_rhs.clone(),
+            self.eval_for_bindings(exp_rhs, ctx.namespace)?,
+        ))
     }
     pub fn eval_for_syntaxes_binding(
         &mut self,
@@ -294,7 +293,7 @@ impl Expander {
     fn expand_transformer(&mut self, rhs: Ast, ctx: ExpandContext) -> Result<Ast, String> {
         self.expand(
             rhs,
-            &mut ExpandContext {
+            ExpandContext {
                 env: CompileTimeEnvoirnment::new(),
                 only_immediate: false,
                 post_expansion_scope: None,
@@ -331,7 +330,7 @@ impl Expander {
     pub(crate) fn expand_identifier(
         &mut self,
         s: Syntax<Symbol>,
-        ctx: &mut ExpandContext,
+        ctx: ExpandContext,
     ) -> Result<Ast, String> {
         let binding = self.resolve(&s, false);
         let id = s.0.clone();

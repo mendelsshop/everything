@@ -37,7 +37,7 @@ pub enum CompileTimeBinding {
     // as we need to capture expander state
     CoreForm(CoreForm),
 }
-pub type CoreForm = fn(&mut Expander, Ast, &mut ExpandContext) -> Result<Ast, String>;
+pub type CoreForm = fn(&mut Expander, Ast, ExpandContext) -> Result<Ast, String>;
 #[derive(Clone, Debug)]
 pub struct CompileTimeEnvoirnment(pub(crate) HashMap<Symbol, Ast>);
 
