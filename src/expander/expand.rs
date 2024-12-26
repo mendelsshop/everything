@@ -1,4 +1,6 @@
-use std::collections::BTreeSet;
+use std::{cell::RefCell, collections::BTreeSet, rc::Rc};
+
+use itertools::Itertools;
 
 use crate::{
     ast::{
@@ -11,7 +13,7 @@ use crate::{
 
 use super::{
     binding::{Binding, CompileTimeBinding, CompileTimeEnvoirnment},
-    duplicate_check::{self, DuplicateMap},
+    duplicate_check::{self, make_check_no_duplicate_table, DuplicateMap},
     expand_context::ExpandContext,
     namespace::NameSpace,
     r#match::match_syntax,
@@ -157,18 +159,20 @@ impl Expander {
 
     fn expand_body_loop(
         &mut self,
-        body_ctx: ExpandContext,
+        mut body_ctx: ExpandContext,
+        ctx: ExpandContext,
         bodys: Ast,
         done_bodys: Ast,
         val_binds: Ast,
         duplicate: DuplicateMap,
+        original_syntax: Ast,
     ) -> Result<Ast, String> {
         match bodys {
             Ast::TheEmptyList => {
-                self.finish_expanding_body(body_ctx, done_bodys, val_binds, todo!("s"))
+                self.finish_expanding_body(body_ctx, done_bodys, val_binds, original_syntax)
             }
             Ast::Pair(cons) => {
-                let exp_body = self.expand(cons.0, body_ctx)?;
+                let exp_body = self.expand(cons.0, body_ctx.clone())?;
                 match self
                     .core_form_symbol(exp_body.clone())?
                     .to_string()
@@ -182,10 +186,12 @@ impl Expander {
                         let e = m("e".into()).ok_or("internal error")?;
                         self.expand_body_loop(
                             body_ctx,
+                            ctx,
                             e.append(cons.1),
                             done_bodys,
                             val_binds,
                             duplicate,
+                            original_syntax,
                         )
                     }
                     "define-values" => todo!(),
@@ -202,16 +208,50 @@ impl Expander {
                             m("id".into()).ok_or("internal error")?,
                             &body_ctx,
                         );
-                        let new_duplicates =
-                            duplicate_check::check_no_duplicate_ids(ids, exp_body, duplicate);
-                        let keys = ids.map(|id| self.add_local_binding);
+                        let ids = ids.to_list_checked()?;
+
+                        let id_count = ids.len();
+                        let ids = ids
+                            .into_iter()
+                            .map(|id| id.try_into())
+                            .collect::<Result<Vec<_>, _>>()?;
+                        let new_duplicates = duplicate_check::check_no_duplicate_ids(
+                            ids.clone(),
+                            exp_body,
+                            duplicate,
+                        )?;
+                        let keys = ids
+                            .into_iter()
+                            .map(|id| self.add_local_binding(id))
+                            .collect_vec();
+
+                        let vals = self.eval_for_syntaxes_binding(
+                            m("rhs".into()).ok_or("internal error")?,
+                            id_count,
+                            ctx.clone(),
+                        )?;
+                        body_ctx
+                            .env
+                            .0
+                            .extend(keys.into_iter().zip(vals.into_iter()));
+                        self.expand_body_loop(
+                            body_ctx,
+                            ctx,
+                            cons.1,
+                            done_bodys,
+                            val_binds,
+                            new_duplicates,
+                            original_syntax,
+                        )
                     }
                     _ => self.expand_body_loop(
                         body_ctx,
+                        ctx,
                         cons.1,
                         list!(exp_body; done_bodys),
                         val_binds,
                         duplicate,
+                        original_syntax,
                     ),
                 }
             }
@@ -251,32 +291,41 @@ impl Expander {
                 .add_scope(outside_scope.clone())
                 .add_scope(inside_scope.clone()))
         })?;
-        let body_context = &ExpandContext {
+        let body_context = ExpandContext {
+            use_site_scopes: Some(Rc::new(RefCell::new(BTreeSet::new()))),
             only_immediate: true,
             post_expansion_scope: Some(inside_scope),
-            use_site_scopes: Some(BTreeSet::new()),
-            env: context.env,
-            namespace: context.namespace,
+            ..context.clone()
         };
-        todo!()
+        self.expand_body_loop(
+            body_context,
+            context,
+            init_bodys,
+            Ast::TheEmptyList,
+            Ast::TheEmptyList,
+            make_check_no_duplicate_table(),
+            original_syntax,
+        )
     }
     fn exxpand_and_eval_for_syntaxes_binding(
         &mut self,
         rhs: Ast,
+        id_count: usize,
         ctx: ExpandContext,
-    ) -> Result<(Ast, Ast), String> {
+    ) -> Result<(Vec<Ast>, Ast), String> {
         let exp_rhs = self.expand_transformer(rhs, ctx.clone())?;
         Ok((
-            exp_rhs.clone(),
-            self.eval_for_bindings(exp_rhs, ctx.namespace)?,
+            self.eval_for_bindings(exp_rhs.clone(), id_count, ctx.namespace)?,
+            exp_rhs,
         ))
     }
     pub fn eval_for_syntaxes_binding(
         &mut self,
         rhs: Ast,
+        id_count: usize,
         ctx: ExpandContext,
-    ) -> Result<Ast, String> {
-        self.exxpand_and_eval_for_syntaxes_binding(rhs, ctx)
+    ) -> Result<Vec<Ast>, String> {
+        self.exxpand_and_eval_for_syntaxes_binding(rhs, id_count, ctx)
             .map(|x| x.0)
         // // let var_name = format!("problem `evaluating` macro {rhs}");
         // let expand = self.expand_transformer(rhs, ctx)?;
@@ -284,11 +333,30 @@ impl Expander {
         // self.expand_time_eval(compile)
     }
 
-    fn eval_for_bindings(&self, exp_rhs: Ast, namespace: NameSpace) -> Result<Ast, String> {
-        let compiled = self.compile(exp_rhs, &namespace)?;
+    fn eval_for_bindings(
+        &self,
+        exp_rhs: Ast,
+        id_count: usize,
+        namespace: NameSpace,
+    ) -> Result<Vec<Ast>, String> {
+        let compiled = self.compile(exp_rhs.clone(), &namespace)?;
         // TODO: some notion of values https://docs.racket-lang.org/reference/values.html
-        let vals = self.expand_time_eval(list!("#%expression".into(), compiled))?;
-        Ok(vals)
+        // currently just converting to vec
+        compiled
+            .to_list_checked()?
+            .into_iter()
+            .map(|compiled| self.expand_time_eval(list!("#%expression".into(), compiled)))
+            .try_collect()
+            .and_then(|list: Vec<_>| {
+                if id_count != list.len() {
+                    Err(format!(
+                        "wrong number of results ({} vs {id_count}) from {exp_rhs}",
+                        list.len()
+                    ))
+                } else {
+                    Ok(list)
+                }
+            })
     }
     fn expand_transformer(&mut self, rhs: Ast, ctx: ExpandContext) -> Result<Ast, String> {
         self.expand(

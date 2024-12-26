@@ -281,6 +281,29 @@ impl Ast {
             Ok(init),
         )
     }
+    // TODO: have Vec<Ast> -> Ast
+    pub fn to_list(self) -> Vec<Ast> {
+        self.foldl_pair(
+            |term, base, mut init| {
+                if base && term == Ast::TheEmptyList {
+                    init
+                } else {
+                    init.push(term);
+                    init
+                }
+            },
+            Vec::new(),
+        )
+    }
+    pub fn to_list_checked(self) -> Result<Vec<Ast>, String> {
+        self.foldl(
+            |term, mut init| {
+                init.push(term);
+                init
+            },
+            Vec::new(),
+        )
+    }
 
     pub fn is_keyword(&self) -> bool {
         // https://docs.racket-lang.org/guide/keywords.html

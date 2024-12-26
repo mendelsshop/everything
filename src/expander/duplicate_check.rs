@@ -10,9 +10,8 @@ pub fn check_no_duplicate_ids(
     s: Ast,
     ht: DuplicateMap,
 ) -> Result<DuplicateMap, String> {
-    ids.into_iter().try_fold(ht, |mut ht, id| {
-        let this = ht.get_mut(&id.0);
-        match this {
+    ids.into_iter()
+        .try_fold(ht, |mut ht, id| match ht.get_mut(&id.0) {
             Some(ids) => {
                 if ids.iter().any(|id| id.bound_identifier(id)) {
                     Err(format!("duplicate binding: {id:?}"))
@@ -25,6 +24,5 @@ pub fn check_no_duplicate_ids(
                 ht.insert(id.0.clone(), vec![id]);
                 Ok(ht)
             }
-        }
-    })
+        })
 }
