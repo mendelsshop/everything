@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use crate::{
     ast::{Ast, Pair, Symbol},
-    evaluator::Evaluator,
+    evaluator::{Evaluator, Values},
     list,
 };
 
@@ -204,11 +204,17 @@ impl Expander {
         Ok(key_to_symbol(s.clone()))
     }
 
-    pub fn expand_time_eval(&self, compiled: Ast) -> Result<Ast, String> {
+    pub fn expand_time_eval(&self, compiled: Ast) -> Result<Values, String> {
         Evaluator::eval(compiled, self.expand_time_env.clone())
     }
-    pub fn run_time_eval(&self, compiled: Ast) -> Result<Ast, String> {
+    pub fn run_time_eval(&self, compiled: Ast) -> Result<Values, String> {
         Evaluator::eval(compiled, self.run_time_env.clone())
+    }
+    pub fn expand_time_eval_single(&self, compiled: Ast) -> Result<Ast, String> {
+        Evaluator::eval_single_value(compiled, self.expand_time_env.clone())
+    }
+    pub fn run_time_eval_single(&self, compiled: Ast) -> Result<Ast, String> {
+        Evaluator::eval_single_value(compiled, self.run_time_env.clone())
     }
 }
 

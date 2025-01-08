@@ -9,7 +9,7 @@ use std::{
     rc::Rc,
 };
 
-use crate::evaluator::{Env, EnvRef, Evaluator};
+use crate::evaluator::{Env, EnvRef, Evaluator, Values};
 
 #[macro_export]
 macro_rules! list {
@@ -75,7 +75,7 @@ impl fmt::Display for Function {
 }
 
 impl Function {
-    pub(crate) fn apply(&self, args: Ast) -> Result<Ast, String> {
+    pub(crate) fn apply(&self, args: Ast) -> Result<Values, String> {
         match self {
             Self::Lambda(Lambda(body, env, params)) => {
                 let env = Env::extend_envoirnment(env.clone(), *params.clone(), args)?;
@@ -83,6 +83,14 @@ impl Function {
             }
             Self::Primitive(p) => p(args),
         }
+    }
+
+    pub fn apply_single(&self, args: Ast) -> Result<Ast, String> {
+        self.apply(args).and_then(|values| {
+            values
+                .into_single()
+                .map_err(|_| "arity error expected one value".to_string())
+        })
     }
 }
 
@@ -102,7 +110,7 @@ impl fmt::Debug for Lambda {
     }
 }
 
-pub type Primitive = fn(Ast) -> Result<Ast, String>;
+pub type Primitive = fn(Ast) -> Result<Values, String>;
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct Pair(pub Ast, pub Ast);

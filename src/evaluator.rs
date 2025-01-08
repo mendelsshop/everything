@@ -4,9 +4,15 @@ use crate::{
     DEPTH,
 };
 
+use itertools::Itertools;
 use trace::trace;
 
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    fmt,
+    rc::Rc,
+};
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct Env {
@@ -94,9 +100,46 @@ pub type EnvRef = Rc<RefCell<Env>>;
 
 pub struct Evaluator {}
 
+#[derive(Debug)]
+pub enum Values {
+    Many(Vec<Ast>),
+    Single(Ast),
+}
+impl Values {
+    pub fn into_single(self) -> Result<Ast, Vec<Ast>> {
+        match self {
+            Values::Many(mut vec) if vec.len() == 1 => {
+                let ast = vec.remove(0);
+                Ok(ast)
+            }
+            Values::Many(vec) => Err(vec),
+            Values::Single(ast) => Ok(ast),
+        }
+    }
+}
+
+impl fmt::Display for Values {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Values::Many(vec) => write!(
+                f,
+                "{}",
+                vec.iter().map(ToString::to_string).collect_vec().join("\n")
+            ),
+            Values::Single(ast) => write!(f, "{ast}"),
+        }
+    }
+}
 impl Evaluator {
+    pub(crate) fn eval_single_value(expr: Ast, env: EnvRef) -> Result<Ast, String> {
+        Evaluator::eval(expr, env).and_then(|values| {
+            values
+                .into_single()
+                .map_err(|_| "arity error expected one value".to_string())
+        })
+    }
     #[trace]
-    pub(crate) fn eval(expr: Ast, env: EnvRef) -> Result<Ast, String> {
+    pub(crate) fn eval(expr: Ast, env: EnvRef) -> Result<Values, String> {
         match expr {
             Ast::Pair(list) => match list.0 {
                 Ast::Symbol(Symbol(ref lambda, 0)) if **lambda == *"lambda" => {
@@ -113,11 +156,11 @@ impl Evaluator {
                         Ast::TheEmptyList if base => Ok(Ast::TheEmptyList),
                         _ => Err(format!("bad syntax {arg} is not a valid paramter")),
                     })?;
-                    Ok(Ast::Function(Function::Lambda(Lambda(
+                    Ok(Values::Single(Ast::Function(Function::Lambda(Lambda(
                         Box::new(Ast::Pair(body.clone())),
                         env,
                         Box::new(args),
-                    ))))
+                    )))))
                 }
                 Ast::Symbol(Symbol(quote, 0)) if *quote == *"quote" => {
                     let Pair(_, Ast::Pair(datum)) = *list else {
@@ -126,20 +169,26 @@ impl Evaluator {
                     let Pair(datum, Ast::TheEmptyList) = *datum else {
                         Err("bad syntax, quote requires one expression")?
                     };
-                    Ok(datum)
+                    Ok(Values::Single(datum))
                 }
                 f => {
-                    let f = Self::eval(f, env.clone())?;
-                    let rest = list.1.map(|arg| Self::eval(arg, env.clone()))?;
+                    let f: Ast = Self::eval_single_value(f, env.clone())?;
+                    let rest = list
+                        .1
+                        .map(|arg| Self::eval_single_value(arg, env.clone()))?;
                     Self::execute_application(f, rest)
                 } //Ast::TheEmptyList => Err(format!("bad syntax {list:?}, empty application")),
             },
-            Ast::Symbol(s) => env.borrow().lookup(&s).ok_or(format!("free variable {s}")),
-            _ => Ok(expr.clone()),
+            Ast::Symbol(s) => env
+                .borrow()
+                .lookup(&s)
+                .map(Values::Single)
+                .ok_or(format!("free variable {s}")),
+            _ => Ok(Values::Single(expr.clone())),
         }
     }
 
-    pub(crate) fn execute_application(f: Ast, args: Ast) -> Result<Ast, String> {
+    pub(crate) fn execute_application(f: Ast, args: Ast) -> Result<Values, String> {
         if let Ast::Function(f) = f {
             f.apply(args)
         } else {
@@ -149,7 +198,7 @@ impl Evaluator {
         }
     }
 
-    pub(crate) fn eval_sequence(body: Ast, env: Rc<RefCell<Env>>) -> Result<Ast, String> {
+    pub(crate) fn eval_sequence(body: Ast, env: Rc<RefCell<Env>>) -> Result<Values, String> {
         let Ast::Pair(pair) = body else {
             return Err(format!("not a sequence {body}"));
         };

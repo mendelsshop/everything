@@ -118,7 +118,7 @@ impl Expander {
         let intro_scope = self.scope_creator.new_scope();
         let intro_s = s.add_scope(intro_scope.clone());
         let uses_s = self.maybe_add_use_site_scope(intro_s, ctx);
-        let transformed_s = m.apply(Ast::Pair(Box::new(Pair(uses_s, Ast::TheEmptyList))))?;
+        let transformed_s = m.apply_single(Ast::Pair(Box::new(Pair(uses_s, Ast::TheEmptyList))))?;
         if !matches!(transformed_s, Ast::Syntax(_)) {
             return Err(format!("transformer produced non syntax: {transformed_s}"));
         }
@@ -212,29 +212,41 @@ impl Expander {
                             exp_body.clone(),
                             list!("define".into(), "id".into(), "rhs".into()),
                         )?;
-                        let ids = self.remove_use_site_scopes(
+                        let id = self.remove_use_site_scopes(
                             m("id".into()).ok_or("internal error")?,
                             &body_ctx,
                         );
-                        let id: Syntax<Symbol> = ids.try_into()?;
+                        let id: Syntax<Symbol> = id.try_into()?;
                         let new_duplicates = duplicate_check::check_no_duplicate_ids(
                             vec![id.clone()],
                             exp_body,
                             duplicate,
                         )?;
                         let key = self.add_local_binding(id);
-                        todo!()
+                        body_ctx
+                            .env
+                            .0
+                            .insert(key, Ast::Symbol(self.variable.clone()));
+                        self.expand_body_loop(
+                            body_ctx,
+                            ctx,
+                            cons.1,
+                            done_bodys,
+                            val_binds,
+                            new_duplicates,
+                            original_syntax,
+                        )
                     }
                     "define-syntax" => {
                         let m = match_syntax(
                             exp_body.clone(),
                             list!("define-syntax".into(), "id".into(), "rhs".into()),
                         )?;
-                        let ids = self.remove_use_site_scopes(
+                        let id = self.remove_use_site_scopes(
                             m("id".into()).ok_or("internal error")?,
                             &body_ctx,
                         );
-                        let id: Syntax<Symbol> = ids.try_into()?;
+                        let id: Syntax<Symbol> = id.try_into()?;
                         let new_duplicates = duplicate_check::check_no_duplicate_ids(
                             vec![id.clone()],
                             exp_body,

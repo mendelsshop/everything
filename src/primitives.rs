@@ -1,9 +1,12 @@
 use std::rc::Rc;
 
-use crate::ast::{Ast, Function, Pair};
+use crate::{
+    ast::{Ast, Function, Pair},
+    evaluator::Values,
+};
 
 impl Ast {
-    pub fn primitive_datum_to_syntax(self) -> Result<Self, String> {
+    pub fn primitive_datum_to_syntax(self) -> Result<Values, String> {
         let arity = self.size();
         let Self::Pair(e) = self else {
             Err(format!("arity error: expected 2 argument, got {arity}",))?
@@ -15,9 +18,13 @@ impl Ast {
             Err(format!("arity error: expected 1 argument, got {arity}"))?
         };
         // TODO: properties and location
-        Ok(syntax_object.datum_to_syntax(scopes.scope_set(), None, None))
+        Ok(Values::Single(syntax_object.datum_to_syntax(
+            scopes.scope_set(),
+            None,
+            None,
+        )))
     }
-    pub fn primitive_syntax_to_datum(self) -> Result<Self, String> {
+    pub fn primitive_syntax_to_datum(self) -> Result<Values, String> {
         let Self::Pair(e) = self else {
             Err(format!(
                 "arity error: expected 1 argument, got {}",
@@ -30,9 +37,9 @@ impl Ast {
                 e.size()
             ))?
         };
-        Ok(e.syntax_to_datum())
+        Ok(Values::Single(e.syntax_to_datum()))
     }
-    pub fn primitive_syntax_e(self) -> Result<Self, String> {
+    pub fn primitive_syntax_e(self) -> Result<Values, String> {
         let Self::Pair(e) = self else {
             Err(format!(
                 "arity error: expected 1 argument, got {}, syntax e",
@@ -45,9 +52,9 @@ impl Ast {
                 e.size()
             ))?
         };
-        Ok(e.0)
+        Ok(Values::Single(e.0))
     }
-    pub fn primitive_cons(self) -> Result<Self, String> {
+    pub fn primitive_cons(self) -> Result<Values, String> {
         let Self::Pair(e) = self else {
             Err(format!(
                 "arity error: expected 2 argument, got {}",
@@ -66,9 +73,12 @@ impl Ast {
                 e.size()
             ))?
         };
-        Ok(Self::Pair(Box::new(Pair(fst.clone(), snd.clone()))))
+        Ok(Values::Single(Self::Pair(Box::new(Pair(
+            fst.clone(),
+            snd.clone(),
+        )))))
     }
-    pub fn primitive_car(self) -> Result<Self, String> {
+    pub fn primitive_car(self) -> Result<Values, String> {
         let Self::Pair(e) = self else {
             Err(format!(
                 "arity error: expected 1 argument, got {}, car",
@@ -83,9 +93,9 @@ impl Ast {
             ))?
         };
         let Pair(fst, _) = *e;
-        Ok(fst)
+        Ok(Values::Single(fst))
     }
-    pub fn primitive_cdr(self) -> Result<Self, String> {
+    pub fn primitive_cdr(self) -> Result<Values, String> {
         let Self::Pair(e) = self else {
             Err(format!(
                 "arity error: expected 1 argument, got {}, cdr",
@@ -99,13 +109,13 @@ impl Ast {
             ))?
         };
         let Pair(_, snd) = *e;
-        Ok(snd)
+        Ok(Values::Single(snd))
     }
 
-    pub fn primitive_list(self) -> Result<Self, String> {
-        Ok(self)
+    pub fn primitive_list(self) -> Result<Values, String> {
+        Ok(Values::Single(self))
     }
-    pub fn primitive_map(self) -> Result<Self, String> {
+    pub fn primitive_map(self) -> Result<Values, String> {
         let Self::Pair(e) = self else {
             Err(format!(
                 "arity error: expected 2 argument, got {}, map",
@@ -126,7 +136,8 @@ impl Ast {
                 e.size()
             ))?
         };
-        l.map(|a| f.apply(Self::Pair(Box::new(Pair(a, Self::TheEmptyList)))))
+        l.map(|a| f.apply_single(Self::Pair(Box::new(Pair(a, Self::TheEmptyList)))))
+            .map(Values::Single)
     }
 }
 
