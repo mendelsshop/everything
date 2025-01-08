@@ -49,19 +49,6 @@ impl Expander {
             // )),
         }
     }
-    pub(crate) fn expand_identifier(
-        &mut self,
-        s: Syntax<Symbol>,
-        ctx: ExpandContext,
-    ) -> Result<Ast, String> {
-        let binding = self.resolve(&s, false);
-        let id = s.0.clone();
-        let s = Ast::Syntax(Box::new(s.with(Ast::Symbol(id.clone()))));
-        match binding {
-            Ok(binding) => self.dispatch(self.lookup(&binding, &ctx, &id)?, s, ctx),
-            _ => self.expand_implicit("%top".into(), s, ctx),
-        }
-    }
     // constraints = s.len() > 0
     // constraints = s[0] == Ast::Syntax(Symbol)
     //#[trace]
@@ -207,57 +194,44 @@ impl Expander {
                             original_syntax,
                         )
                     }
-                    "define" => {
+                    "define-syntaxes" => {
                         let m = match_syntax(
                             exp_body.clone(),
-                            list!("define".into(), "id".into(), "rhs".into()),
+                            list!(
+                                "define-syntaxes".into(),
+                                list!("id".into(), "...".into()),
+                                "rhs".into()
+                            ),
                         )?;
-                        let id = self.remove_use_site_scopes(
+                        let ids = self.remove_use_site_scopes(
                             m("id".into()).ok_or("internal error")?,
                             &body_ctx,
                         );
-                        let id: Syntax<Symbol> = id.try_into()?;
+                        let ids = ids.to_list_checked()?;
+
+                        let id_count = ids.len();
+                        let ids = ids
+                            .into_iter()
+                            .map(|id| id.try_into())
+                            .collect::<Result<Vec<_>, _>>()?;
                         let new_duplicates = duplicate_check::check_no_duplicate_ids(
-                            vec![id.clone()],
+                            ids.clone(),
                             exp_body,
                             duplicate,
                         )?;
-                        let key = self.add_local_binding(id);
+                        let keys = ids
+                            .into_iter()
+                            .map(|id| self.add_local_binding(id))
+                            .collect_vec();
+                        let vals = self.eval_for_syntaxes_binding(
+                            m("rhs".into()).ok_or("internal error")?,
+                            id_count,
+                            ctx.clone(),
+                        )?;
                         body_ctx
                             .env
                             .0
-                            .insert(key, Ast::Symbol(self.variable.clone()));
-                        self.expand_body_loop(
-                            body_ctx,
-                            ctx,
-                            cons.1,
-                            done_bodys,
-                            val_binds,
-                            new_duplicates,
-                            original_syntax,
-                        )
-                    }
-                    "define-syntax" => {
-                        let m = match_syntax(
-                            exp_body.clone(),
-                            list!("define-syntax".into(), "id".into(), "rhs".into()),
-                        )?;
-                        let id = self.remove_use_site_scopes(
-                            m("id".into()).ok_or("internal error")?,
-                            &body_ctx,
-                        );
-                        let id: Syntax<Symbol> = id.try_into()?;
-                        let new_duplicates = duplicate_check::check_no_duplicate_ids(
-                            vec![id.clone()],
-                            exp_body,
-                            duplicate,
-                        )?;
-                        let key = self.add_local_binding(id);
-                        let value = self.eval_for_syntaxes_binding(
-                            m("rhs".into()).ok_or("internal error")?,
-                            ctx.clone(),
-                        )?;
-                        body_ctx.env.0.insert(key, value);
+                            .extend(keys.into_iter().zip(vals.into_iter()));
                         self.expand_body_loop(
                             body_ctx,
                             ctx,
@@ -288,17 +262,6 @@ impl Expander {
         } else {
             syntax
         }
-    }
-    fn expand_transformer(&mut self, rhs: Ast, ctx: ExpandContext) -> Result<Ast, String> {
-        self.expand(
-            rhs,
-            ExpandContext {
-                env: CompileTimeEnvoirnment::new(),
-                only_immediate: false,
-                post_expansion_scope: None,
-                ..ctx
-            },
-        )
     }
     fn finish_expanding_body(
         &self,
@@ -342,23 +305,25 @@ impl Expander {
             original_syntax,
         )
     }
-    fn expand_and_eval_for_syntaxes_binding(
+    fn exxpand_and_eval_for_syntaxes_binding(
         &mut self,
         rhs: Ast,
+        id_count: usize,
         ctx: ExpandContext,
-    ) -> Result<(Ast, Ast), String> {
+    ) -> Result<(Vec<Ast>, Ast), String> {
         let exp_rhs = self.expand_transformer(rhs, ctx.clone())?;
         Ok((
-            self.eval_for_bindings(exp_rhs.clone(), ctx.namespace)?,
+            self.eval_for_bindings(exp_rhs.clone(), id_count, ctx.namespace)?,
             exp_rhs,
         ))
     }
     pub fn eval_for_syntaxes_binding(
         &mut self,
         rhs: Ast,
+        id_count: usize,
         ctx: ExpandContext,
-    ) -> Result<Ast, String> {
-        self.expand_and_eval_for_syntaxes_binding(rhs, ctx)
+    ) -> Result<Vec<Ast>, String> {
+        self.exxpand_and_eval_for_syntaxes_binding(rhs, id_count, ctx)
             .map(|x| x.0)
         // // let var_name = format!("problem `evaluating` macro {rhs}");
         // let expand = self.expand_transformer(rhs, ctx)?;
@@ -366,11 +331,37 @@ impl Expander {
         // self.expand_time_eval(compile)
     }
 
-    fn eval_for_bindings(&self, exp_rhs: Ast, namespace: NameSpace) -> Result<Ast, String> {
+    fn eval_for_bindings(
+        &self,
+        exp_rhs: Ast,
+        id_count: usize,
+        namespace: NameSpace,
+    ) -> Result<Vec<Ast>, String> {
         let compiled = self.compile(exp_rhs.clone(), &namespace)?;
         // TODO: some notion of values https://docs.racket-lang.org/reference/values.html
         // currently just converting to vec
         self.expand_time_eval(list!("#%expression".into(), compiled))
+            .and_then(|list: Vec<_>| {
+                if id_count != list.len() {
+                    Err(format!(
+                        "wrong number of results ({} vs {id_count}) from {exp_rhs}",
+                        list.len()
+                    ))
+                } else {
+                    Ok(list)
+                }
+            })
+    }
+    fn expand_transformer(&mut self, rhs: Ast, ctx: ExpandContext) -> Result<Ast, String> {
+        self.expand(
+            rhs,
+            ExpandContext {
+                env: CompileTimeEnvoirnment::new(),
+                only_immediate: false,
+                post_expansion_scope: None,
+                ..ctx
+            },
+        )
     }
 
     // pub(crate) fn expand_app(
@@ -398,6 +389,19 @@ impl Expander {
     //         ))),
     //     ))
     // }
+    pub(crate) fn expand_identifier(
+        &mut self,
+        s: Syntax<Symbol>,
+        ctx: ExpandContext,
+    ) -> Result<Ast, String> {
+        let binding = self.resolve(&s, false);
+        let id = s.0.clone();
+        let s = Ast::Syntax(Box::new(s.with(Ast::Symbol(id.clone()))));
+        match binding {
+            Ok(binding) => self.dispatch(self.lookup(&binding, &ctx, &id)?, s, ctx),
+            _ => self.expand_implicit("%top".into(), s, ctx),
+        }
+    }
 }
 
 pub fn rebuild(s: Ast, rator: Ast) -> Ast {
