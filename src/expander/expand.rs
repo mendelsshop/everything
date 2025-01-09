@@ -158,6 +158,8 @@ impl Expander {
         }
     }
 
+    // unlike the racket version done_bodys and val_binds are in the correct order, as it is
+    // probably more effecient from a rust perspective anyway
     fn expand_body_loop(
         &mut self,
         mut body_ctx: ExpandContext,
@@ -217,6 +219,7 @@ impl Expander {
                             duplicate,
                         )?;
                         let keys = ids
+                            .clone()
                             .into_iter()
                             .map(|id| self.add_local_binding(id))
                             .collect_vec();
@@ -226,15 +229,14 @@ impl Expander {
                                 .map(|key| (key, Ast::Symbol(self.variable.clone()))),
                         );
 
-                        let mut old_val_binds = self.no_binds(done_bodys);
-                        old_val_binds.append(&mut val_binds);
-
+                        val_binds.append(&mut self.no_binds(done_bodys));
+                        val_binds.push((ids, m("rhs".into()).ok_or("internal error")?));
                         self.expand_body_loop(
                             body_ctx,
                             ctx,
                             bodys,
                             vec![],
-                            old_val_binds,
+                            val_binds,
                             new_duplicates,
                             original_syntax,
                         )
@@ -288,7 +290,7 @@ impl Expander {
                         )
                     }
                     _ => {
-                        done_bodys.insert(0, exp_body);
+                        done_bodys.push(exp_body);
                         self.expand_body_loop(
                             body_ctx,
                             ctx,
@@ -324,6 +326,17 @@ impl Expander {
         val_binds: Vec<(Vec<Syntax<Symbol>>, Ast)>,
         s: Ast,
     ) -> Result<Ast, String> {
+        if done_bodys.is_empty() {
+            return Err(format!(
+                "begin (possibly implicit): the last form is not an expression {s}"
+            ));
+        }
+        let finish_ctx = ExpandContext {
+            use_site_scopes: None,
+            only_immediate: false,
+            post_expansion_scope: None,
+            ..body_ctx
+        };
         todo!()
     }
     fn no_binds(&self, done_bodys: Vec<Ast>) -> Vec<(Vec<Syntax<Symbol>>, Ast)> {
