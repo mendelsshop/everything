@@ -7,12 +7,7 @@ use crate::{
 use itertools::Itertools;
 use trace::trace;
 
-use std::{
-    cell::RefCell,
-    collections::HashMap,
-    fmt,
-    rc::Rc,
-};
+use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct Env {
