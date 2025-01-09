@@ -17,7 +17,7 @@ use super::{
     duplicate_check::{self, make_check_no_duplicate_table, DuplicateMap},
     expand_context::ExpandContext,
     namespace::NameSpace,
-    r#match::{self, match_syntax},
+    r#match::match_syntax,
     Expander,
 };
 
@@ -320,9 +320,9 @@ impl Expander {
         }
     }
     fn finish_expanding_body(
-        &self,
+        &mut self,
         body_ctx: ExpandContext,
-        done_bodys: Vec<Ast>,
+        mut done_bodys: Vec<Ast>,
         val_binds: Vec<(Vec<Syntax<Symbol>>, Ast)>,
         s: Ast,
     ) -> Result<Ast, String> {
@@ -337,7 +337,40 @@ impl Expander {
             post_expansion_scope: None,
             ..body_ctx
         };
-        todo!()
+        let finish_bodys = if done_bodys.len() == 1 {
+            self.expand(done_bodys.remove(0), finish_ctx.clone())?
+        } else {
+            list!(
+                self.core_datum_to_syntax("begin".into());
+                done_bodys
+                    .into_iter()
+                    .try_rfold(Ast::TheEmptyList, |exprs, expr| {
+                        self.expand(expr, finish_ctx.clone())
+                            .map(|expr| list!(expr; exprs))
+                })?)
+            .datum_to_syntax(None, None, None)
+        };
+        if val_binds.is_empty() {
+            Ok(finish_bodys)
+        } else {
+            Ok(list!(
+                self.core_datum_to_syntax("letrec-values".into()),
+                val_binds
+                    .into_iter()
+                    .try_rfold(Ast::TheEmptyList, |exprs, (ids, values)| {
+                        self.expand(values, finish_ctx.clone())
+                            .map(|expr| list!(list!(
+                                ids.into_iter().rfold(Ast::TheEmptyList, |ids, id|
+                                    list!(
+                                        Ast::Syntax(Box::new(id.clone().with(Ast::Symbol(id.0))));
+                                        ids)
+                                ).datum_to_syntax(None, None, None),
+                                expr); exprs))
+                    })?;
+                finish_bodys
+            )
+            .datum_to_syntax(None, None, None))
+        }
     }
     fn no_binds(&self, done_bodys: Vec<Ast>) -> Vec<(Vec<Syntax<Symbol>>, Ast)> {
         done_bodys
