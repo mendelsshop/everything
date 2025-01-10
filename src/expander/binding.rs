@@ -58,12 +58,12 @@ impl CompileTimeEnvoirnment {
         Self(map)
     }
 
-    pub fn lookup(
+    pub fn lookup<T: fmt::Display>(
         &self,
         key: &Binding,
         ns: &NameSpace,
         // TODO: maybe core form can get their own type
-        id: &Symbol,
+        id: &T,
     ) -> Result<CompileTimeBinding, String> {
         match key {
             Binding::Local(key) => self
@@ -71,7 +71,7 @@ impl CompileTimeEnvoirnment {
                 .get(key)
                 .cloned()
                 .map(CompileTimeBinding::Regular)
-                .ok_or(format!("identifier used out of context: {key}")),
+                .ok_or(format!("identifier used out of context: {id}")),
             Binding::TopLevel(core) => ns
                 .transformers
                 .get(&core.clone().into())

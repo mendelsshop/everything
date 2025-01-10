@@ -33,21 +33,10 @@ impl Expander {
                     self.expand_identifier(syntax.with_ref(symbol.clone()), ctx)
                 }
                 Ast::Pair(p) if p.0.identifier() => self.expand_id_application_form(*p, s, ctx),
-                Ast::Pair(_) | Ast::TheEmptyList => self.expand_implicit("%app".into(), s, ctx),
-                _ => self.expand_implicit("%datum".into(), s, ctx),
+                Ast::Pair(_) | Ast::TheEmptyList => self.expand_implicit("#%app".into(), s, ctx),
+                _ => self.expand_implicit("#%datum".into(), s, ctx),
             },
-            _ => self.expand_implicit("%datum".into(), s, ctx),
-            // _ => Ok(rebuild(
-            //     s.clone(),
-            //     list!(
-            //         Ast::Symbol("quote".into()).datum_to_syntax(
-            //             Some(BTreeSet::from([self.core_scope.clone()])),
-            //             None,
-            //             None
-            //         ),
-            //         s
-            //     ),
-            // )),
+            _ => self.expand_implicit("#%datum".into(), s, ctx),
         }
     }
     // constraints = s.len() > 0
@@ -71,7 +60,7 @@ impl Expander {
             Ok(binding) if !matches!(&binding, CompileTimeBinding::Regular(Ast::Symbol(sym)) if *sym == self.variable) => {
                 self.dispatch(binding, s, ctx)
             }
-            _ => self.expand_implicit("%app".into(), s, ctx),
+            _ => self.expand_implicit("#%app".into(), s, ctx),
         }
     }
 
@@ -395,8 +384,6 @@ impl Expander {
         bodys: Ast,
         scope: Scope,
         original_syntax: Ast,
-        // we need to use parts of the context to create a new context, so &mut context, might not
-        // be the greatest idea here (maybe rc refcelL?)
         context: ExpandContext,
     ) -> Result<Ast, String> {
         let outside_scope = self.scope_creator.new_scope();
@@ -446,10 +433,6 @@ impl Expander {
     ) -> Result<Vec<Ast>, String> {
         self.exxpand_and_eval_for_syntaxes_binding(rhs, id_count, ctx)
             .map(|x| x.0)
-        // // let var_name = format!("problem `evaluating` macro {rhs}");
-        // let expand = self.expand_transformer(rhs, ctx)?;
-        // let compile = self.compile(expand)?;
-        // self.expand_time_eval(compile)
     }
 
     fn eval_for_bindings(
@@ -459,8 +442,6 @@ impl Expander {
         namespace: NameSpace,
     ) -> Result<Vec<Ast>, String> {
         let compiled = self.compile(exp_rhs.clone(), &namespace)?;
-        // TODO: some notion of values https://docs.racket-lang.org/reference/values.html
-        // currently just converting to vec
         self.expand_time_eval(list!("#%expression".into(), compiled))
             .and_then(|values| {
                 let list = match values {
@@ -489,31 +470,6 @@ impl Expander {
         )
     }
 
-    // pub(crate) fn expand_app(
-    //     &mut self,
-    //     s: Ast,
-    //     env: CompileTimeEnvoirnment,
-    // ) -> Result<Ast, String> {
-    //     let m = match_syntax(
-    //         s.clone(),
-    //         list!("rator".into(), "rand".into(), "...".into()),
-    //     )?;
-    //     let rator = m("rator".into()).ok_or("internal error".to_string())?;
-    //     let rand = m("rand".into())
-    //         .ok_or("internal error".to_string())?
-    //         .map(|rand| self.expand(rand, env.clone()))?;
-    //     Ok(rebuild(
-    //         s,
-    //         Ast::Pair(Box::new(Pair(
-    //             Into::<Ast>::into("%app").datum_to_syntax(
-    //                 Some(BTreeSet::from([self.core_scope.clone()])),
-    //                 None,
-    //                 None,
-    //             ),
-    //             Ast::Pair(Box::new(Pair(self.expand(rator, env)?, rand))),
-    //         ))),
-    //     ))
-    // }
     pub(crate) fn expand_identifier(
         &mut self,
         s: Syntax<Symbol>,

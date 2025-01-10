@@ -831,7 +831,7 @@ impl Expander {
 //            ),
 //            Ok(list!(
 //                Ast::Syntax(Box::new(Syntax(
-//                    "%app".into(),
+//                    "#%app".into(),
 //                    BTreeSet::from([expander.core_scope])
 //                ))),
 //                Ast::Syntax(Box::new(Syntax("a".into(), BTreeSet::from([sc1])))),
@@ -855,7 +855,7 @@ impl Expander {
 //            ),
 //            Ok(list!(
 //                Ast::Syntax(Box::new(Syntax(
-//                    "%app".into(),
+//                    "#%app".into(),
 //                    BTreeSet::from([expander.core_scope])
 //                ))),
 //                list!(

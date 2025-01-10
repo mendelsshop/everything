@@ -1,20 +1,39 @@
 use crate::{
     ast::{scope::AdjustScope, syntax::Syntax, Ast, Pair, Symbol},
+    expander::expand,
     list,
 };
 
 use super::{
-    binding::CompileTimeEnvoirnment, expand::rebuild, expand_context::ExpandContext,
-    r#match::match_syntax, Expander,
+    binding::{self, CompileTimeBinding, CompileTimeEnvoirnment},
+    expand::rebuild,
+    expand_context::ExpandContext,
+    r#match::match_syntax,
+    Expander,
 };
 
 impl Expander {
     pub fn add_core_forms(&mut self) {
         self.add_core_form("lambda".into(), Self::core_form_lambda);
-        self.add_core_form("let-syntax".into(), Self::core_form_let_syntax);
-        self.add_core_form("%app".into(), Self::core_form_app);
+        self.add_core_form("case-lambda".into(), Self::core_form_case_lambda);
+        self.add_core_form("let-values".into(), Self::core_form_let_values);
+        self.add_core_form("letrec-values".into(), Self::core_form_letrec_values);
+        self.add_core_form(
+            "letrec-syntaxes+values".into(),
+            Self::core_form_letrec_syntaxes_and_values,
+        );
+        self.add_core_form("#%datum".into(), Self::core_form_datum);
+        self.add_core_form("#%app".into(), Self::core_form_app);
         self.add_core_form("quote".into(), Self::core_form_quote);
         self.add_core_form("quote-syntax".into(), Self::core_form_quote_syntax);
+        self.add_core_form("if".into(), Self::core_form_if);
+        self.add_core_form(
+            "with-continuation-mark".into(),
+            Self::core_form_with_continuation_mark,
+        );
+        self.add_core_form("begin".into(), Self::core_form_begin);
+        self.add_core_form("begin0".into(), Self::core_form_begin0);
+        self.add_core_form("set!".into(), Self::core_form_set);
     }
 
     //#[trace]
@@ -75,7 +94,20 @@ impl Expander {
             ),
         ))
     }
-    fn core_form_let_syntax(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
+    fn core_form_case_lambda(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
+        todo!()
+    }
+    fn core_form_let_values(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
+        todo!()
+    }
+    fn core_form_letrec_values(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
+        todo!()
+    }
+    fn core_form_letrec_syntaxes_and_values(
+        &mut self,
+        s: Ast,
+        ctx: ExpandContext,
+    ) -> Result<Ast, String> {
         let m = match_syntax(
             s,
             list!(
@@ -125,11 +157,14 @@ impl Expander {
             body_env,
         )
     }
+    fn core_form_datum(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
+        todo!()
+    }
     fn core_form_app(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
         let m = match_syntax(
             s,
             //TODO: should app be a syntax object
-            list!("%app".into(), "rator".into(), "rand".into(), "...".into()),
+            list!("#%app".into(), "rator".into(), "rand".into(), "...".into()),
         )?;
         let rator = self.expand(
             m("rator".into()).ok_or("internal error".to_string())?,
@@ -139,7 +174,7 @@ impl Expander {
             .ok_or("internal error".to_string())?
             .map(|rand| self.expand(rand, ctx.clone()))?;
         Ok(Ast::Pair(Box::new(Pair(
-            m("%app".into()).ok_or("internal error")?,
+            m("#%app".into()).ok_or("internal error")?,
             Ast::Pair(Box::new(Pair(rator, rand))),
         ))))
     }
@@ -148,5 +183,35 @@ impl Expander {
     }
     fn core_form_quote_syntax(&mut self, s: Ast, _ctx: ExpandContext) -> Result<Ast, String> {
         match_syntax(s.clone(), list!("quote-syntax".into(), "datum".into())).map(|_| s)
+    }
+    fn core_form_if(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
+        todo!()
+    }
+    fn core_form_with_continuation_mark(
+        &mut self,
+        s: Ast,
+        ctx: ExpandContext,
+    ) -> Result<Ast, String> {
+        todo!()
+    }
+    fn core_form_begin(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
+        todo!()
+    }
+    fn core_form_begin0(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
+        todo!()
+    }
+    fn core_form_set(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
+        let m = match_syntax(s.clone(), list!("set!".into(), "id".into(), "rhs".into()))?;
+        let id = m("id".into()).ok_or("internal error")?;
+        let binding = self
+            .resolve(&id.clone().try_into()?, false)
+            .map_err(|_| format!("no binding for assignment: {s}"))?;
+        let t = ctx.env.lookup(&binding, &ctx.namespace, &s)?;
+        if !matches!(t, CompileTimeBinding::Regular(Ast::Symbol(s)) if s == self.variable) {
+            return Err(format!("cannot assign to syntax: {s}"));
+        }
+        let set = m("set!".into()).ok_or("internal error")?;
+        let rhs = m("rhs".into()).ok_or("internal error")?;
+        Ok(expand::rebuild(s, list!(set, id, rhs)))
     }
 }

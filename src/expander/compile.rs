@@ -49,12 +49,12 @@ impl Expander {
                         });
                         cases.map(|cases| list!("case-lambda".into(); cases))
                     }
-                    "%app" => {
+                    "#%app" => {
                         let m = match_syntax(
                             s,
-                            // TODO: should this (%app) be a syntax object
+                            // TODO: should this (#%app) be a syntax object
                             // TODO FIX: the problem seems to be that rest is not a list
-                            Ast::Pair(Box::new(Pair("%app".into(), "rest".into()))),
+                            Ast::Pair(Box::new(Pair("#%app".into(), "rest".into()))),
                         )?;
                         let l = m("rest".into()).ok_or("internal error")?.list();
                         m("rest".into()).ok_or("internal error")?.map(compile)
