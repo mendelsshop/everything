@@ -379,7 +379,7 @@ impl Expander {
             })
             .collect_vec()
     }
-    fn expand_body(
+    pub fn expand_body(
         &mut self,
         bodys: Ast,
         scope: Scope,

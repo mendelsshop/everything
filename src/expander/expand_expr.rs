@@ -1,11 +1,18 @@
 use crate::{
-    ast::{scope::AdjustScope, syntax::Syntax, Ast, Pair, Symbol},
-    expander::expand,
+    ast::{
+        scope::{AdjustScope, Scope},
+        syntax::Syntax,
+        Ast, Pair, Symbol,
+    },
+    expander::{
+        duplicate_check::{self, check_no_duplicate_ids},
+        expand,
+    },
     list,
 };
 
 use super::{
-    binding::{self, CompileTimeBinding, CompileTimeEnvoirnment},
+    binding::{CompileTimeBinding, CompileTimeEnvoirnment},
     expand::rebuild,
     expand_context::ExpandContext,
     r#match::match_syntax,
@@ -36,66 +43,130 @@ impl Expander {
         self.add_core_form("set!".into(), Self::core_form_set);
     }
 
+    fn make_lambda_expander(
+        &mut self,
+        s: Ast,
+        formals: Ast,
+        bodys: Ast,
+        ctx: ExpandContext,
+    ) -> Result<(Ast, Ast), String> {
+        let sc = self.scope_creator.new_scope();
+        let ids = self.parse_and_flatten_formals(formals.clone(), sc.clone())?;
+        check_no_duplicate_ids(
+            ids.clone(),
+            s.clone(),
+            duplicate_check::make_check_no_duplicate_table(),
+        )?;
+        let variable = Ast::Symbol(self.variable.clone());
+        let keys = ids.into_iter().map(|id| self.add_local_binding(id));
+        let mut body_ctx = ctx;
+        body_ctx
+            .env
+            .0
+            .extend(keys.map(|key| (key, variable.clone())));
+        let exp_body = self.expand_body(bodys, sc.clone(), s, body_ctx)?;
+        Ok((formals.add_scope(sc), exp_body))
+    }
     //#[trace]
     fn core_form_lambda(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
         let m = match_syntax(
             s.clone(),
             list!(
                 "lambda".into(),
-                list!("id".into(), "...".into(),),
-                "body".into()
+                "formals".into(),
+                "body".into(),
+                "...+".into()
             ),
         )?;
-        let sc = self.scope_creator.new_scope();
-        let ids = m("id".into()).ok_or("internal error".to_string())?;
-        let ids = ids.map_pair(|term, base| match term {
-            Ast::Syntax(id) => {
-                let id = id.add_scope(sc.clone());
-                Ok(Ast::Syntax(Box::new(id)))
-            }
-            Ast::TheEmptyList if base => Ok(Ast::TheEmptyList),
-            _ => Err(format!(
-                "{term} is not a symbol so it cannot be a parameter"
-            )),
-        })?;
-        let body_env = ids.clone().foldl_pair(
-            |term, base, env: Result<CompileTimeEnvoirnment, String>| match term {
-                Ast::Syntax(ref id_syntax) => {
-                    if let Ast::Symbol(id) = &id_syntax.0 {
-                        let binding = self.add_local_binding(id_syntax.with_ref(id.clone()));
-                        env.map(|env| {
-                            env.extend(binding.clone(), Ast::Symbol(self.variable.clone()))
-                        })
-                    } else {
-                        Err(format!(
-                            "{term} is not a symbol so it cannot be a parameter"
-                        ))
-                    }
-                }
-                Ast::TheEmptyList if base => env,
-                _ => Err(format!(
-                    "{term} is not a symbol so it cannot be a parameter"
-                )),
-            },
-            Ok(ctx),
-        )?;
-        let exp_body = self.expand(
-            m("body".into())
-                .ok_or("internal error".to_string())?
-                .add_scope(sc),
-            body_env,
+        let (formals, body) = self.make_lambda_expander(
+            s.clone(),
+            m("formals".into()).ok_or("internal error")?,
+            m("bodys".into()).ok_or("internal error")?,
+            ctx,
         )?;
         Ok(rebuild(
             s,
             list!(
                 m("lambda".into()).ok_or("internal error".to_string())?,
-                ids,
-                exp_body
+                formals,
+                body
             ),
         ))
     }
     fn core_form_case_lambda(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
-        todo!()
+        let m = match_syntax(
+            s.clone(),
+            list!(
+                "case-lambda".into(),
+                list!("formals".into(), "body".into(), "...+".into()),
+                "...".into()
+            ),
+        )?;
+        let cm = match_syntax(
+            s.clone(),
+            list!("case-lambda".into(), "clause".into(), "...".into()),
+        )?;
+        let iter = m("formals".into())
+            .ok_or("internal error")?
+            .to_list_checked()?
+            .into_iter()
+            .zip(
+                m("body".into())
+                    .ok_or("internal error")?
+                    .to_list_checked()?,
+            )
+            .zip(
+                cm("clause".into())
+                    .ok_or("internal error")?
+                    .to_list_checked()?,
+            )
+            .try_rfold(Ast::TheEmptyList, |rest, ((formals, bodys), clause)| {
+                let (formals, body) =
+                    self.make_lambda_expander(s.clone(), formals, bodys, ctx.clone())?;
+                Ok::<Ast, String>(list!(rebuild(clause, list!(formals, body));rest))
+            })?;
+        Ok(rebuild(
+            s,
+            list!(m("case-lambda".into()).ok_or("internal error")?; iter),
+        ))
+    }
+    fn parse_and_flatten_formals(
+        &self,
+        formals: Ast,
+        sc: Scope,
+    ) -> Result<Vec<Syntax<Symbol>>, String> {
+        fn parse_and_flatten_formals_loop(
+            formals: Ast,
+            all_formals: Ast,
+            sc: Scope,
+            formals_list: &mut Vec<Syntax<Symbol>>,
+        ) -> Result<(), String> {
+            match formals {
+                Ast::Syntax(s) => match s.0 {
+                    Ast::Symbol(ref sym) => Ok(formals_list.push(s.clone().with(sym.clone()))),
+                    Ast::TheEmptyList => Ok(()),
+                    p @ Ast::Pair(_) => {
+                        parse_and_flatten_formals_loop(p, all_formals, sc, formals_list)
+                    }
+                    p => Err(format!("not an identifier: {p}")),
+                },
+                Ast::TheEmptyList => Ok(()),
+                Ast::Pair(p) => {
+                    let Pair(car, cdr) = *p;
+                    let s: Syntax<Symbol> = car
+                        .clone()
+                        .try_into()
+                        .map_err(|_| format!("not and identifier {car}"))?;
+                    let s = s.add_scope(sc.clone());
+                    formals_list.push(s);
+                    parse_and_flatten_formals_loop(cdr, all_formals, sc, formals_list)
+                }
+                _ => Err(format!("bad arguement sequence: {all_formals}")),
+            }
+        }
+        let mut formal_list = vec![];
+        parse_and_flatten_formals_loop(formals.clone(), formals, sc, &mut formal_list)
+            .map(|_| formal_list)
     }
     fn core_form_let_values(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
         todo!()
