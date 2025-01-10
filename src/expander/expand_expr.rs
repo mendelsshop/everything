@@ -10,16 +10,95 @@ use crate::{
     },
     list,
 };
+use itertools::Itertools;
 
 use super::{
-    binding::{CompileTimeBinding, CompileTimeEnvoirnment},
-    expand::rebuild,
-    expand_context::ExpandContext,
-    r#match::match_syntax,
-    Expander,
+    binding::CompileTimeBinding, expand::rebuild, expand_context::ExpandContext,
+    r#match::match_syntax, Expander,
 };
 
+macro_rules! make_let_values_form {
+    ($id:ident, $syntaxes:literal, $rec:literal) => {
+        fn $id(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
+            let m = if $syntaxes {
+                match_syntax(
+                    s,
+                    list!(
+                        "letrec-syntaxes+values".into(),
+                        list!(
+                            list!(list!("trans-id".into(), "...".into()), "trans-rhs".into()),
+                            "...".into()
+                        ),
+                        list!(
+                            list!(list!("val-id".into(), "...".into()), "val-rhs".into()),
+                            "...".into()
+                        ),
+                        "body".into(),
+                        "...+".into()
+                    ),
+                )?
+            } else {
+                match_syntax(
+                    s,
+                    list!(
+                        "let-values".into(),
+                        list!(
+                            list!(list!("val-id".into(), "...".into()), "val-rhs".into()),
+                            "...".into()
+                        ),
+                        "body".into(),
+                        "...+".into()
+                    ),
+                )?
+            };
+            let sc = self.scope_creator.new_scope();
+            let trans_idss = if $syntaxes {
+                itertools::Itertools::try_collect(
+                    m("trans-id".into())
+                        .ok_or("internal error")?
+                        .to_list_checked()?
+                        .into_iter()
+                        .map(|ids| {
+                            expand::to_id_list(ids).map(|ids| {
+                                ids.into_iter()
+                                    .map(|id| id.add_scope(sc.clone()))
+                                    .collect_vec()
+                            })
+                        }),
+                )?
+            } else {
+                vec![]
+            };
+
+            let val_idss: Vec<_> = itertools::Itertools::try_collect(
+                m("val-id".into())
+                    .ok_or("internal error")?
+                    .to_list_checked()?
+                    .into_iter()
+                    .map(|ids| {
+                        expand::to_id_list(ids).map(|ids| {
+                            ids.into_iter()
+                                .map(|id| id.add_scope(sc.clone()))
+                                .collect_vec()
+                        })
+                    }),
+            )?;
+            let trans_keyss = trans_idss
+                .into_iter()
+                .map(|ids| self.add_local_bindings(ids));
+            let val_keyss = val_idss
+                .into_iter()
+                .map(|ids| self.add_local_bindings(ids));
+            todo!()
+        }
+    };
+}
 impl Expander {
+    fn add_local_bindings(&mut self, ids: Vec<Syntax<Symbol>>) -> Vec<Symbol> {
+        ids.into_iter()
+            .map(|id| self.add_local_binding(id))
+            .collect()
+    }
     pub fn add_core_forms(&mut self) {
         self.add_core_form("lambda".into(), Self::core_form_lambda);
         self.add_core_form("case-lambda".into(), Self::core_form_case_lambda);
@@ -168,66 +247,63 @@ impl Expander {
         parse_and_flatten_formals_loop(formals.clone(), formals, sc, &mut formal_list)
             .map(|_| formal_list)
     }
-    fn core_form_let_values(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
-        todo!()
-    }
-    fn core_form_letrec_values(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
-        todo!()
-    }
-    fn core_form_letrec_syntaxes_and_values(
-        &mut self,
-        s: Ast,
-        ctx: ExpandContext,
-    ) -> Result<Ast, String> {
-        let m = match_syntax(
-            s,
-            list!(
-                "let-syntax".into(),
-                list!(list!("trans-id".into(), "trans-rhs".into()), "...".into()),
-                "body".into()
-            ),
-        )?;
-        let sc = self.scope_creator.new_scope();
-        let trans_ids = m("trans-id".into())
-            .ok_or("internal error".to_string())?
-            .foldl(
-                |current_id, ids| {
-                    let mut ids = ids?;
-                    match current_id {
-                        Ast::Syntax(id) if matches!(id.0, Ast::Symbol(_)) => {
-                            let id = id.add_scope(sc.clone());
-                            let id: Syntax<Symbol> = id.try_into()?;
-                            ids.push(self.add_local_binding(id));
-
-                            Ok(ids)
-                        }
-                        _ => Err(format!(
-                            "{current_id} is not a symbol so it cannot be a parameter"
-                        )),
-                    }
-                },
-                Ok(vec![]),
-            )??;
-        let trans_vals = m("trans-rhs".into())
-            .ok_or("internal error".to_string())?
-            .foldl(
-                |current_rhs, rhss: Result<Vec<Ast>, String>| {
-                    rhss.and_then(|mut rhss| {
-                        let current_rhs = self.eval_for_syntax_binding(current_rhs, ctx.clone())?;
-                        rhss.push(current_rhs);
-                        Ok(rhss)
-                    })
-                },
-                Ok(vec![]),
-            )??;
-        let mut hash_map = ctx.0;
-        hash_map.extend(trans_ids.into_iter().zip(trans_vals));
-        let body_env = CompileTimeEnvoirnment(hash_map);
-        self.expand(
-            m("body".into()).ok_or("internal error")?.add_scope(sc),
-            body_env,
-        )
-    }
+    make_let_values_form!(core_form_let_values, false, false);
+    make_let_values_form!(core_form_letrec_values, true, false);
+    make_let_values_form!(core_form_letrec_syntaxes_and_values, true, true);
+    // fn core_form_letrec_syntaxes_and_values(
+    //     &mut self,
+    //     s: Ast,
+    //     ctx: ExpandContext,
+    // ) -> Result<Ast, String> {
+    //     let m = match_syntax(
+    //         s,
+    //         list!(
+    //             "let-syntax".into(),
+    //             list!(list!("trans-id".into(), "trans-rhs".into()), "...".into()),
+    //             "body".into()
+    //         ),
+    //     )?;
+    //     let sc = self.scope_creator.new_scope();
+    //     let trans_ids = m("trans-id".into())
+    //         .ok_or("internal error".to_string())?
+    //         .foldl(
+    //             |current_id, ids| {
+    //                 let mut ids = ids?;
+    //                 match current_id {
+    //                     Ast::Syntax(id) if matches!(id.0, Ast::Symbol(_)) => {
+    //                         let id = id.add_scope(sc.clone());
+    //                         let id: Syntax<Symbol> = id.try_into()?;
+    //                         ids.push(self.add_local_binding(id));
+    //
+    //                         Ok(ids)
+    //                     }
+    //                     _ => Err(format!(
+    //                         "{current_id} is not a symbol so it cannot be a parameter"
+    //                     )),
+    //                 }
+    //             },
+    //             Ok(vec![]),
+    //         )??;
+    //     let trans_vals = m("trans-rhs".into())
+    //         .ok_or("internal error".to_string())?
+    //         .foldl(
+    //             |current_rhs, rhss: Result<Vec<Ast>, String>| {
+    //                 rhss.and_then(|mut rhss| {
+    //                     let current_rhs = self.eval_for_syntax_binding(current_rhs, ctx.clone())?;
+    //                     rhss.push(current_rhs);
+    //                     Ok(rhss)
+    //                 })
+    //             },
+    //             Ok(vec![]),
+    //         )??;
+    //     let mut hash_map = ctx.0;
+    //     hash_map.extend(trans_ids.into_iter().zip(trans_vals));
+    //     let body_env = CompileTimeEnvoirnment(hash_map);
+    //     self.expand(
+    //         m("body".into()).ok_or("internal error")?.add_scope(sc),
+    //         body_env,
+    //     )
+    // }
     fn core_form_datum(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
         todo!()
     }

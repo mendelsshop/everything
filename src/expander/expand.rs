@@ -197,11 +197,7 @@ impl Expander {
                             m("id".into()).ok_or("internal error")?,
                             &body_ctx,
                         );
-                        let ids = ids.to_list_checked()?;
-                        let ids = ids
-                            .into_iter()
-                            .map(|id| id.try_into())
-                            .collect::<Result<Vec<_>, _>>()?;
+                        let ids = to_id_list(ids)?;
                         let new_duplicates = duplicate_check::check_no_duplicate_ids(
                             ids.clone(),
                             exp_body,
@@ -483,6 +479,15 @@ impl Expander {
             _ => self.expand_implicit("%top".into(), s, ctx),
         }
     }
+}
+
+pub fn to_id_list(ids: Ast) -> Result<Vec<Syntax<Symbol>>, String> {
+    let ids = ids.to_list_checked()?;
+    let ids = ids
+        .into_iter()
+        .map(|id| id.try_into())
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(ids)
 }
 
 pub fn rebuild(s: Ast, rator: Ast) -> Ast {
