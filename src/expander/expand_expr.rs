@@ -20,6 +20,7 @@ use super::{
 macro_rules! make_let_values_form {
     ($id:ident, $syntaxes:literal, $rec:literal) => {
         fn $id(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
+            let variable = Ast::Symbol(self.variable.clone());
             let m = if $syntaxes {
                 match_syntax(
                     s,
@@ -83,12 +84,40 @@ macro_rules! make_let_values_form {
                         })
                     }),
             )?;
-            let trans_keyss = trans_idss
-                .into_iter()
-                .map(|ids| self.add_local_bindings(ids));
+            let mut rec_ctx = ctx.clone();
             let val_keyss = val_idss
                 .into_iter()
-                .map(|ids| self.add_local_bindings(ids));
+                .flat_map(|ids| self.add_local_bindings(ids));
+            rec_ctx
+                .env
+                .0
+                .extend(val_keyss.map(|key| (key, variable.clone())));
+            let trans_keyss = trans_idss
+                .clone()
+                .into_iter()
+                .flat_map(|ids| self.add_local_bindings(ids))
+                .collect_vec();
+            let trans_valss = if $syntaxes {
+                m("trans-rhs".into())
+                    .ok_or("internal error")?
+                    .to_list_checked()?
+                    .into_iter()
+                    .zip(trans_idss)
+                    .map(|(vals, ids)| {
+                        self.eval_for_syntaxes_binding(
+                            vals.add_scope(sc.clone()),
+                            ids.len(),
+                            ctx.clone(),
+                        )
+                    })
+                    .try_collect()?
+            } else {
+                vec![]
+            };
+            rec_ctx
+                .env
+                .0
+                .extend(trans_keyss.into_iter().zip(trans_valss.concat()));
             todo!()
         }
     };
