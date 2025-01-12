@@ -23,7 +23,7 @@ macro_rules! make_let_values_form {
             let variable = Ast::Symbol(self.variable.clone());
             let m = if $syntaxes {
                 match_syntax(
-                    s,
+                    s.clone(),
                     list!(
                         "letrec-syntaxes+values".into(),
                         list!(
@@ -40,7 +40,7 @@ macro_rules! make_let_values_form {
                 )?
             } else {
                 match_syntax(
-                    s,
+                    s.clone(),
                     list!(
                         "let-values".into(),
                         list!(
@@ -86,6 +86,7 @@ macro_rules! make_let_values_form {
             )?;
             let mut rec_ctx = ctx.clone();
             let val_keyss = val_idss
+                .clone()
                 .into_iter()
                 .flat_map(|ids| self.add_local_bindings(ids));
             rec_ctx
@@ -118,9 +119,43 @@ macro_rules! make_let_values_form {
                 .env
                 .0
                 .extend(trans_keyss.into_iter().zip(trans_valss.concat()));
-            todo!()
+            let letrec_values_id = if $syntaxes {
+                self.core_datum_to_syntax("letrec-values".into())
+            } else {
+                m("let-values".into()).ok_or("internal eror")?
+            };
+            let val_idss = list_to_cons(val_idss.into_iter(), |ids| {
+                list_to_cons(ids.into_iter(), |x| {
+                    Ast::Syntax(Box::new(x.clone().with(Ast::Symbol(x.0))))
+                })
+            });
+            Ok(expand::rebuild(
+                s.clone(),
+                list!(
+                    letrec_values_id,
+                    Ast::map2(
+                        val_idss,
+                        m("val-rhs".into()).ok_or("internal error")?,
+                        |ids, rhs| {
+                            Ok(list!(
+                                ids,
+                                if $rec {
+                                    self.expand(rhs.add_scope(sc.clone()), rec_ctx.clone())?
+                                } else {
+                                    self.expand(rhs, ctx.clone())?
+                                }
+                            ))
+                        },
+                    )?,
+                    self.expand_body(m("body".into()).ok_or("internal error")?, sc, s, rec_ctx)?
+                ),
+            ))
         }
     };
+}
+fn list_to_cons<T>(list: impl DoubleEndedIterator<Item = T>, mut f: impl FnMut(T) -> Ast) -> Ast {
+    list.into_iter()
+        .rfold(Ast::TheEmptyList, |rest, current| list!(f(current); rest))
 }
 impl Expander {
     fn add_local_bindings(&mut self, ids: Vec<Syntax<Symbol>>) -> Vec<Symbol> {

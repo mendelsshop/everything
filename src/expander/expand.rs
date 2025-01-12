@@ -290,7 +290,7 @@ impl Expander {
             }
         }
     }
-    fn core_datum_to_syntax(&self, expr: Ast) -> Ast {
+    pub fn core_datum_to_syntax(&self, expr: Ast) -> Ast {
         expr.datum_to_syntax(
             Some(self.core_syntax.1.clone()),
             Some(self.core_syntax.2.clone()),
