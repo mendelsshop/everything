@@ -9,7 +9,7 @@ use std::{
 };
 
 use ast::{scope::Scope, Ast, Symbol};
-use expander::{binding::CompileTimeEnvoirnment, Expander};
+use expander::Expander;
 
 trace::init_depth_var!();
 
@@ -19,9 +19,6 @@ mod expander;
 mod primitives;
 mod reader;
 
-// use trace::trace;
-// #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-// struct Scope(usize);
 #[derive(Debug)]
 struct UniqueNumberManager(usize);
 
@@ -45,34 +42,6 @@ impl UniqueNumberManager {
     }
 }
 
-impl Ast {
-    // pub fn list_with_length(self, length: usize) -> Result<Vec<Ast>, Ast> {
-    //     match self {
-    //         Self::List(l) if l.len() == length => Ok(l),
-    //         _ => Err(self),
-    //     }
-    // }
-
-    // pub fn datum_to_syntax(self) -> Self {
-    //     match self {
-    //         Self::List(l) => Self::List(l.into_iter().map(Self::datum_to_syntax).collect()),
-    //         Self::Syntax(_) => self,
-    //         Self::Symbol(s) => Self::Syntax(Syntax::new(s)),
-    //         _ => self,
-    //     }
-    // }
-    // fn syntax_to_datum(self) -> Self {
-    //     match self {
-    //         Self::List(l) => Self::List(l.into_iter().map(Self::syntax_to_datum).collect()),
-    //         Self::Syntax(Syntax(s, _)) => Self::Symbol(s),
-    //         _ => self,
-    //     }
-    // }
-    // fn identifier(&self) -> bool {
-    //         matches!(self, Self::Syntax(_))
-    //     }
-}
-
 fn main() {
     let mut reader = reader::Reader::new();
     let newline = || {
@@ -91,15 +60,9 @@ fn main() {
             .read_with_continue(newline)
             .inspect(|e| println!("after reader: {e}"))
             .and_then(|ast| {
-                expander.expand(
-                    expander.namespace_syntax_introduce(ast.datum_to_syntax(None, None, None)),
-                    CompileTimeEnvoirnment::new(),
-                )
-            })
-            .inspect(|e| println!("after expansion: {e}"))
-            .and_then(|ast| expander.compile(ast))
-            .inspect(|e| println!("after expansion part 2: {e}"))
-            .and_then(|ast| expander.run_time_eval(ast));
+                let ns = expander.namespace();
+                expander.eval(ast, ns)
+            });
         match ast {
             Ok(expr) => println!("{expr}"),
             Err(e) => println!("{e}"),

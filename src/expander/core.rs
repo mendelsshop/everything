@@ -24,6 +24,7 @@ impl Expander {
             Binding::TopLevel(sym.0),
         );
     }
+
     pub fn add_core_form(&mut self, sym: Rc<str>, proc: CoreForm) {
         self.add_core_binding(sym.clone().into());
         self.core_forms.insert(sym, proc);

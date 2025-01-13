@@ -100,6 +100,22 @@ pub enum Values {
     Many(Vec<Ast>),
     Single(Ast),
 }
+
+impl PartialEq for Values {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Many(l0), Self::Many(r0)) => l0 == r0,
+            (Self::Single(l0), Self::Single(r0)) => l0 == r0,
+            (Self::Single(l0), Self::Many(r0)) if r0.len() == 1 => {
+                r0.first().is_some_and(|r0| r0 == l0)
+            }
+            (Self::Many(l0), Self::Single(r0)) if l0.len() == 1 => {
+                l0.first().is_some_and(|l0| l0 == r0)
+            }
+            _ => false,
+        }
+    }
+}
 impl Values {
     pub fn into_single(self) -> Result<Ast, Vec<Ast>> {
         match self {

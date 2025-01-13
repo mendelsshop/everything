@@ -139,6 +139,20 @@ impl Ast {
         l.map(|a| f.apply_single(Self::Pair(Box::new(Pair(a, Self::TheEmptyList)))))
             .map(Values::Single)
     }
+    pub fn primitive_values(self) -> Result<Values, String> {
+        match self {
+            Ast::Pair(p) if p.1 == Ast::TheEmptyList => Ok(Values::Single(p.0)),
+            _ => self.to_list_checked().map(Values::Many),
+        }
+    }
+    pub fn primitive_null(self) -> Result<Values, String> {
+        match self {
+            Ast::Pair(p) if *p == Pair(Ast::TheEmptyList, Ast::TheEmptyList) => {
+                Ok(Values::Single(Ast::Boolean(true)))
+            }
+            _ => Ok(Values::Single(Ast::Boolean(false))),
+        }
+    }
 }
 
 pub fn new_primitive_env(mut adder: impl FnMut(Rc<str>, Ast)) {
@@ -174,5 +188,13 @@ pub fn new_primitive_env(mut adder: impl FnMut(Rc<str>, Ast)) {
     adder(
         "map".into(),
         Ast::Function(Function::Primitive(Ast::primitive_map)),
+    );
+    adder(
+        "null?".into(),
+        Ast::Function(Function::Primitive(Ast::primitive_null)),
+    );
+    adder(
+        "values".into(),
+        Ast::Function(Function::Primitive(Ast::primitive_values)),
     );
 }

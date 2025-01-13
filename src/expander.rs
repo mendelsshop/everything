@@ -7,16 +7,19 @@ use binding::{Binding, CoreForm};
 use expand_context::ExpandContext;
 use namespace::NameSpace;
 
-use crate::ast::{
-    scope::AdjustScope,
-    syntax::{Properties, SourceLocation},
-};
 use crate::{
     ast::scope::Scope,
     ast::{syntax::Syntax, Ast, Symbol},
     evaluator::{Env, EnvRef},
     primitives::new_primitive_env,
     UniqueNumberManager,
+};
+use crate::{
+    ast::{
+        scope::AdjustScope,
+        syntax::{Properties, SourceLocation},
+    },
+    evaluator::Values,
 };
 
 pub mod binding;
@@ -73,217 +76,30 @@ impl Expander {
         new_primitive_env(|name, primitive| {
             this.add_core_primitive(name, primitive);
         });
+
         this
     }
-
+    pub fn namespace(&mut self) -> NameSpace {
+        let mut ns = NameSpace::default();
+        self.declare_core_top_level(&mut ns);
+        ns
+    }
     pub fn introduce<T: AdjustScope>(&self, s: T) -> T {
         s.add_scope(self.core_scope.clone())
     }
 
-    //pub fn expand(&mut self, s: Ast, env: CompileTimeEnvoirnment) -> Result<Ast, String> {
-    //    match s {
-    //        Ast::List(l) if matches!(&l[..], [s, ..] if s.identifier()) => {
-    //            self.expand_id_application_form(l, env)
-    //        }
-    //        Ast::Syntax(s) => self.expand_identifier(s, env),
-    //        Ast::Number(_) | Ast::Function(_) | Ast::Boolean(_) => Ok(s),
-    //        Ast::Symbol(_) => unreachable!(),
-    //        Ast::List(l) => self.expand_app(l, env),
-    //    }
-    //}
-
-    //fn expand_identifier(&self, s: Syntax, env: CompileTimeEnvoirnment) -> Result<Ast, String> {
-    //    let binding = self.resolve(&s)?;
-    //    if self.core_forms.contains(binding) {
-    //        Err(format!("bad syntax dangling core form {}", s.0))
-    //    } else if self.core_primitives.contains(binding) {
-    //        Ok(Ast::Syntax(s))
-    //    } else {
-    //        println!("{:?}", self.core_primitives);
-    //        let Binding::Variable(binding) = binding else {
-    //            panic!()
-    //        };
-    //        let v = env
-    //            .lookup(binding)
-    //            .ok_or(format!("out of context {}", s.0))?;
-    //        if let CompileTimeBinding::Variable(_) = v {
-    //            Ok(Ast::Syntax(s))
-    //        } else {
-    //            Err(format!("bad syntax non function call macro {}", s.0))
-    //        }
-    //    }
-    //}
-
-    // constraints = s.len() > 0
-    // constraints = s[0] == Ast::Syntax(_)
-    //fn expand_id_application_form(
-    //    &mut self,
-    //    s: Vec<Ast>,
-    //    env: CompileTimeEnvoirnment,
-    //) -> Result<Ast, String> {
-    //    let Some(a) = s.first() else { unreachable!() };
-    //    // let try_into = TryFrom::<Syntax<Ast>>::try_from(a)?;
-    //    let binding = self.resolve(&(*a).clone().try_into()?)?;
-    //    match binding {
-    //        Binding::Lambda => self.expand_lambda(s, env),
-    //        Binding::LetSyntax => self.expand_let_syntax(s, env),
-    //        Binding::Quote | Binding::QuoteSyntax => match &s[..] {
-    //            [_, _] => Ok(Ast::List(s)),
-    //            _ => Err(format!("bad syntax to many expression in quote {s:?}")),
-    //        },
-    //        Binding::Variable(binding) => match env.lookup(binding) {
-    //            Some(CompileTimeBinding::Procedure(m)) => {
-    //                let apply_transformer = self.apply_transformer(m, Ast::List(s));
-    //                self.expand(apply_transformer?, env)
-    //            }
-    //            _ => self.expand_app(s, env),
-    //        },
-    //    }
-    //}
-
-    //fn expand_app(&mut self, s: Vec<Ast>, env: CompileTimeEnvoirnment) -> Result<Ast, String> {
-    //    s.into_iter()
-    //        .map(|sub_s| self.expand(sub_s, env.clone()))
-    //        .collect::<Result<Vec<_>, _>>()
-    //        .map(Ast::List)
-    //}
-
-    //fn expand_lambda(&mut self, s: Vec<Ast>, env: CompileTimeEnvoirnment) -> Result<Ast, String> {
-    //    let [lambda_id, Ast::List(arg), body] = &s[..] else {
-    //        Err(format!("invalid syntax {s:?} bad lambda"))?
-    //    };
-    //    let [Ast::Syntax(arg_id)] = &arg[..] else {
-    //        Err(format!("invalid syntax {s:?}, bad argument for lambda"))?
-    //    };
-    //    let sc = self.scope_creator.new_scope();
-    //    let id = arg_id.clone().add_scope(sc);
-    //    let binding = self.add_local_binding(id.clone());
-    //    let body_env = env.extend(binding.clone(), CompileTimeBinding::Variable(binding));
-    //    let exp_body = self.expand(body.clone().add_scope(sc), body_env)?;
-    //    Ok(Ast::List(vec![
-    //        lambda_id.clone(),
-    //        Ast::List(vec![Ast::Syntax(id)]),
-    //        exp_body,
-    //    ]))
-    //}
-
-    //fn expand_let_syntax(
-    //    &mut self,
-    //    s: Vec<Ast>,
-    //    env: CompileTimeEnvoirnment,
-    //) -> Result<Ast, String> {
-    //    let [_let_syntax_id, Ast::List(arg), body] = &s[..] else {
-    //        Err(format!("invalid syntax {s:?} bad let-syntax"))?
-    //    };
-    //    let [Ast::List(arg)] = &arg[..] else {
-    //        Err(format!(
-    //            "invalid syntax {s:?}, bad binder list for let-syntax {arg:?}"
-    //        ))?
-    //    };
-    //    let [Ast::Syntax(lhs_id), rhs] = &arg[..] else {
-    //        Err(format!(
-    //            "invalid syntax {s:?}, bad binder for let-syntax {arg:?}"
-    //        ))?
-    //    };
-    //    let sc = self.scope_creator.new_scope();
-    //    let id = lhs_id.clone().add_scope(sc);
-    //    let binding = self.add_local_binding(id);
-    //    let rhs_val = self.eval_for_syntax_binding(rhs.clone())?;
-    //    let body_env = env.extend(binding, rhs_val);
-    //    self.expand(body.clone().add_scope(sc), body_env)
-    //}
-
-    //fn eval_for_syntax_binding(&mut self, rhs: Ast) -> Result<CompileTimeBinding, String> {
-    //    // let var_name = format!("problem `evaluating` macro {rhs}");
-    //    let expand = self.expand(rhs, CompileTimeEnvoirnment::new());
-    //    self.eval_compiled(self.compile(expand?)?).and_then(|e| {
-    //        if let Ast::Function(f) = e {
-    //            Ok(CompileTimeBinding::Procedure(f))
-    //        } else {
-    //            Err(format!("{e} is not a macro"))
-    //        }
-    //    })
-    //}
-
-    //fn compile(&self, rhs: Ast) -> Result<Ast, String> {
-    //    match rhs {
-    //        Ast::List(l) => {
-    //            let s = l
-    //                .first()
-    //                .ok_or("bad syntax empty application".to_string())?;
-    //            let core_sym = if let Ast::Syntax(s) = s {
-    //                self.resolve(s)
-    //            } else {
-    //                Err("just for _ case in next match does not actually error".to_string())
-    //            };
-    //            match core_sym {
-    //                Ok(Binding::Lambda) => {
-    //                    let [_, Ast::List(arg), body] = &l[..] else {
-    //                        Err("bad syntax lambda")?
-    //                    };
-    //                    let [Ast::Syntax(id)] = &arg[..] else {
-    //                        Err("bad syntax lambda arg")?
-    //                    };
-    //                    let Binding::Variable(id) = self.resolve(id)? else {
-    //                        Err("bad syntax cannot play with core form")?
-    //                    };
-    //                    Ok(Ast::List(vec![
-    //                        Ast::Symbol(Symbol("lambda".into(), 0)),
-    //                        Ast::List(vec![Ast::Symbol(id.clone())]),
-    //                        self.compile(body.clone())?,
-    //                    ]))
-    //                }
-    //                Ok(Binding::Quote) => {
-    //                    if let [_, datum] = &l[..] {
-    //                        Ok(Ast::List(vec![
-    //                            Ast::Symbol(Symbol("quote".into(), 0)),
-    //                            datum.clone().syntax_to_datum(),
-    //                        ]))
-    //                    } else {
-    //                        Err("bad syntax, quote requires one expression")?
-    //                    }
-    //                }
-    //                Ok(Binding::QuoteSyntax) => {
-    //                    if let [_, datum] = &l[..] {
-    //                        Ok(Ast::List(vec![
-    //                            Ast::Symbol(Symbol("quote".into(), 0)),
-    //                            datum.clone(),
-    //                        ]))
-    //                    } else {
-    //                        Err("bad syntax, quote-syntax requires one expression")?
-    //                    }
-    //                }
-    //                _ => Ok(Ast::List(
-    //                    l.into_iter()
-    //                        .map(|e| self.compile(e))
-    //                        .collect::<Result<Vec<_>, _>>()?,
-    //                )),
-    //            }
-    //        }
-    //        Ast::Syntax(s) => {
-    //            if let Binding::Variable(s) = self.resolve(&s)? {
-    //                Ok(Ast::Symbol(s.clone()))
-    //            } else {
-    //                Err("bad syntax cannot play with core form")?
-    //            }
-    //        }
-    //        Ast::Boolean(_) | Ast::Number(_) | Ast::Function(_) => Ok(rhs),
-    //
-    //        Ast::Symbol(_) => unreachable!(),
-    //    }
-    //}
-
-    //fn eval_compiled(&self, new: Ast) -> Result<Ast, String> {
-    //    Evaluator::eval(new, self.env.clone())
-    //}
-
-    //fn apply_transformer(&mut self, m: Function, s: Ast) -> Result<Ast, String> {
-    //    let intro_scope = self.scope_creator.new_scope();
-    //    let intro_s = s.add_scope(intro_scope);
-    //    let transformed_s = m.apply(vec![intro_s])?;
-    //
-    //    Ok(transformed_s.flip_scope(intro_scope))
-    //}
+    // TODO: mutability of ns/ctx how should/are changes to envoirnments preserved over multiple
+    // expansions maybe have a namespace as part of the expander object
+    // TODO: annonate fully expanded expressions so we don't have to reexpand them
+    pub fn eval(&mut self, s: Ast, ns: NameSpace) -> Result<Values, String> {
+        let ctx = ExpandContext::new(ns.clone());
+        let expanded = self.expand(
+            self.namespace_syntax_introduce(s.datum_to_syntax(None, None, None)),
+            ctx,
+        )?;
+        let compiled = self.compile(expanded, &ns)?;
+        self.run_time_eval(compiled)
+    }
 }
 //#[cfg(test)]
 //mod unit_tests {
@@ -1021,25 +837,31 @@ impl Expander {
 #[cfg(test)]
 mod tests {
 
-    use crate::evaluator::Evaluator;
+    use crate::evaluator::{Evaluator, Values};
     use crate::expander::binding::CompileTimeEnvoirnment;
     use crate::expander::Expander;
     use crate::list;
     use crate::reader::Reader;
     use crate::Ast;
 
+    use super::expand_context::ExpandContext;
+
     impl Expander {
         fn expand_expression(&mut self, e: Ast) -> Result<Ast, String> {
+            let ctx = ExpandContext::new(self.namespace());
             self.expand(
                 self.namespace_syntax_introduce(e.datum_to_syntax(None, None, None)),
-                CompileTimeEnvoirnment::new(),
+                ctx,
             )
         }
 
-        fn compile_eval_expression(&mut self, e: Ast) -> (Ast, Ast) {
+        fn compile_eval_expression(&mut self, e: Ast) -> (Ast, Values) {
             let c = self
                 .expand_expression(e)
-                .and_then(|e| self.compile(e))
+                .and_then(|e| {
+                    let namespace = self.namespace();
+                    self.compile(e, &namespace)
+                })
                 .and_then(|e| {
                     Evaluator::eval(e.clone(), self.run_time_env.clone()).map(|v| (e, v))
                 });
@@ -1048,7 +870,7 @@ mod tests {
                 Err(e) => panic!("{}", e),
             }
         }
-        fn eval_expression(&mut self, e: Ast, check: Option<Ast>) -> Ast {
+        fn eval_expression(&mut self, e: Ast, check: Option<Values>) -> Values {
             let (_, v) = self.compile_eval_expression(e);
             check.inspect(|check| assert_eq!(&v, check));
             v
@@ -1122,7 +944,10 @@ mod tests {
       (let ((x 'x-3))
         (m))))",
         ));
-        expander.eval_expression(reader.read().unwrap(), Some(Ast::Symbol("x-1".into())));
+        expander.eval_expression(
+            reader.read().unwrap(),
+            Some(Values::Single(Ast::Symbol("x-1".into()))),
+        );
     }
 
     #[test]
@@ -1140,7 +965,10 @@ mod tests {
       (let (( x 'x-3 ))
         (m x))))",
         ));
-        expander.eval_expression(reader.read().unwrap(), Some(Ast::Symbol("x-3".into())));
+        expander.eval_expression(
+            reader.read().unwrap(),
+            Some(Values::Single(Ast::Symbol("x-3".into()))),
+        );
     }
 
     #[test]
@@ -1169,7 +997,7 @@ mod tests {
         ));
         expander.eval_expression(
             reader.read().unwrap(),
-            Some(list!(Ast::Number(1.), Ast::Number(2.))),
+            Some(Values::Single(list!(Ast::Number(1.), Ast::Number(2.)))),
         );
     }
     #[test]
