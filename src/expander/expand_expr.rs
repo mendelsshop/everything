@@ -5,7 +5,7 @@ use crate::{
         Ast, Pair, Symbol,
     },
     expander::{
-        duplicate_check::{self, check_no_duplicate_ids},
+        duplicate_check::{check_no_duplicate_ids, make_check_no_duplicate_table},
         expand,
     },
     list,
@@ -84,6 +84,15 @@ macro_rules! make_let_values_form {
                         })
                     }),
             )?;
+            check_no_duplicate_ids(
+                trans_idss
+                    .clone()
+                    .into_iter()
+                    .chain(val_idss.clone())
+                    .concat(),
+                s.clone(),
+                make_check_no_duplicate_table(),
+            );
             let mut rec_ctx = ctx.clone();
             let val_keyss = val_idss
                 .clone()
@@ -195,11 +204,7 @@ impl Expander {
     ) -> Result<(Ast, Ast), String> {
         let sc = self.scope_creator.new_scope();
         let ids = self.parse_and_flatten_formals(formals.clone(), sc.clone())?;
-        check_no_duplicate_ids(
-            ids.clone(),
-            s.clone(),
-            duplicate_check::make_check_no_duplicate_table(),
-        )?;
+        check_no_duplicate_ids(ids.clone(), s.clone(), make_check_no_duplicate_table())?;
         let variable = Ast::Symbol(self.variable.clone());
         let keys = ids.into_iter().map(|id| self.add_local_binding(id));
         let mut body_ctx = ctx;
@@ -314,62 +319,16 @@ impl Expander {
     make_let_values_form!(core_form_let_values, false, false);
     make_let_values_form!(core_form_letrec_values, true, false);
     make_let_values_form!(core_form_letrec_syntaxes_and_values, true, true);
-    // fn core_form_letrec_syntaxes_and_values(
-    //     &mut self,
-    //     s: Ast,
-    //     ctx: ExpandContext,
-    // ) -> Result<Ast, String> {
-    //     let m = match_syntax(
-    //         s,
-    //         list!(
-    //             "let-syntax".into(),
-    //             list!(list!("trans-id".into(), "trans-rhs".into()), "...".into()),
-    //             "body".into()
-    //         ),
-    //     )?;
-    //     let sc = self.scope_creator.new_scope();
-    //     let trans_ids = m("trans-id".into())
-    //         .ok_or("internal error".to_string())?
-    //         .foldl(
-    //             |current_id, ids| {
-    //                 let mut ids = ids?;
-    //                 match current_id {
-    //                     Ast::Syntax(id) if matches!(id.0, Ast::Symbol(_)) => {
-    //                         let id = id.add_scope(sc.clone());
-    //                         let id: Syntax<Symbol> = id.try_into()?;
-    //                         ids.push(self.add_local_binding(id));
-    //
-    //                         Ok(ids)
-    //                     }
-    //                     _ => Err(format!(
-    //                         "{current_id} is not a symbol so it cannot be a parameter"
-    //                     )),
-    //                 }
-    //             },
-    //             Ok(vec![]),
-    //         )??;
-    //     let trans_vals = m("trans-rhs".into())
-    //         .ok_or("internal error".to_string())?
-    //         .foldl(
-    //             |current_rhs, rhss: Result<Vec<Ast>, String>| {
-    //                 rhss.and_then(|mut rhss| {
-    //                     let current_rhs = self.eval_for_syntax_binding(current_rhs, ctx.clone())?;
-    //                     rhss.push(current_rhs);
-    //                     Ok(rhss)
-    //                 })
-    //             },
-    //             Ok(vec![]),
-    //         )??;
-    //     let mut hash_map = ctx.0;
-    //     hash_map.extend(trans_ids.into_iter().zip(trans_vals));
-    //     let body_env = CompileTimeEnvoirnment(hash_map);
-    //     self.expand(
-    //         m("body".into()).ok_or("internal error")?.add_scope(sc),
-    //         body_env,
-    //     )
-    // }
-    fn core_form_datum(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
-        todo!()
+    fn core_form_datum(&mut self, s: Ast, _: ExpandContext) -> Result<Ast, String> {
+        let m = match_syntax(s.clone(), list!("#%datum".into();  "datum".into()))?;
+        let datum = m("datum".into()).ok_or("internal error")?;
+        if matches!(datum, Ast::Syntax(ref s) if s.0.is_keyword()) {
+            return Err(format!("keyword misused as an expression: {datum}"));
+        }
+        Ok(rebuild(
+            s,
+            list!(self.core_datum_to_syntax("quote".into()), datum),
+        ))
     }
     fn core_form_app(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
         let m = match_syntax(
@@ -396,20 +355,64 @@ impl Expander {
         match_syntax(s.clone(), list!("quote-syntax".into(), "datum".into())).map(|_| s)
     }
     fn core_form_if(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
-        todo!()
+        let m = match_syntax(
+            s.clone(),
+            list!(
+                "if".into(),
+                "condition".into(),
+                "consequent".into(),
+                "alternative".into()
+            ),
+        )?;
+        Ok(rebuild(
+            s,
+            list!(
+                m("if".into()).ok_or("internal_error")?,
+                self.expand(m("condition".into()).ok_or("internal_error")?, ctx.clone())?,
+                self.expand(m("consequent".into()).ok_or("internal_error")?, ctx.clone())?,
+                self.expand(
+                    m("alternative".into()).ok_or("internal_error")?,
+                    ctx.clone()
+                )?
+            ),
+        ))
     }
     fn core_form_with_continuation_mark(
         &mut self,
         s: Ast,
         ctx: ExpandContext,
     ) -> Result<Ast, String> {
-        todo!()
+        let m = match_syntax(
+            s.clone(),
+            list!(
+                "with-continuation-mark".into(),
+                "key".into(),
+                "val".into(),
+                "body".into()
+            ),
+        )?;
+        Ok(rebuild(
+            s,
+            list!(
+                m("with-continuation-mark".into()).ok_or("internal_error")?,
+                self.expand(m("key".into()).ok_or("internal_error")?, ctx.clone())?,
+                self.expand(m("val".into()).ok_or("internal_error")?, ctx.clone())?,
+                self.expand(m("body".into()).ok_or("internal_error")?, ctx.clone())?
+            ),
+        ))
+    }
+    fn make_begin(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
+        let m = match_syntax(s.clone(), list!("begin".into(), "e".into(), "...+".into()))?;
+        Ok(rebuild(
+            s,
+            list!(m("begin".into()).ok_or("internal_error")?; m("e".into()).ok_or("internal_error")?.map(|e|self.expand(e, ctx.clone()))?),
+        ))
     }
     fn core_form_begin(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
-        todo!()
+        self.make_begin(s, ctx)
     }
     fn core_form_begin0(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
-        todo!()
+        self.make_begin(s, ctx)
     }
     fn core_form_set(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
         let m = match_syntax(s.clone(), list!("set!".into(), "id".into(), "rhs".into()))?;
