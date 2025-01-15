@@ -1,3 +1,4 @@
+use crate::DEPTH;
 use crate::{
     ast::{
         scope::{AdjustScope, Scope},
@@ -11,6 +12,7 @@ use crate::{
     list,
 };
 use itertools::Itertools;
+use trace::trace;
 
 use super::{
     binding::CompileTimeBinding, expand::rebuild, expand_context::ExpandContext,
@@ -92,7 +94,7 @@ macro_rules! make_let_values_form {
                     .concat(),
                 s.clone(),
                 make_check_no_duplicate_table(),
-            );
+            )?;
             let mut rec_ctx = ctx.clone();
             let val_keyss = val_idss
                 .clone()
@@ -215,7 +217,7 @@ impl Expander {
         let exp_body = self.expand_body(bodys, sc.clone(), s, body_ctx)?;
         Ok((formals.add_scope(sc), exp_body))
     }
-    //#[trace]
+    #[trace(format_enter = "{s}")]
     fn core_form_lambda(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
         let m = match_syntax(
             s.clone(),
@@ -229,7 +231,7 @@ impl Expander {
         let (formals, body) = self.make_lambda_expander(
             s.clone(),
             m("formals".into()).ok_or("internal error")?,
-            m("bodys".into()).ok_or("internal error")?,
+            m("body".into()).ok_or("internal error")?,
             ctx,
         )?;
         Ok(rebuild(
@@ -319,7 +321,9 @@ impl Expander {
     make_let_values_form!(core_form_let_values, false, false);
     make_let_values_form!(core_form_letrec_values, true, false);
     make_let_values_form!(core_form_letrec_syntaxes_and_values, true, true);
-    fn core_form_datum(&mut self, s: Ast, _: ExpandContext) -> Result<Ast, String> {
+
+    #[trace(format_enter = "{s}")]
+    fn core_form_datum(&mut self, s: Ast, _ctx: ExpandContext) -> Result<Ast, String> {
         let m = match_syntax(s.clone(), list!("#%datum".into();  "datum".into()))?;
         let datum = m("datum".into()).ok_or("internal error")?;
         if matches!(datum, Ast::Syntax(ref s) if s.0.is_keyword()) {
@@ -330,6 +334,7 @@ impl Expander {
             list!(self.core_datum_to_syntax("quote".into()), datum),
         ))
     }
+    #[trace(format_enter = "{s}")]
     fn core_form_app(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
         let m = match_syntax(
             s,
@@ -419,8 +424,13 @@ impl Expander {
         let id = m("id".into()).ok_or("internal error")?;
         let binding = self
             .resolve(&id.clone().try_into()?, false)
+            .inspect_err(|e| {
+                dbg!(format!("{e}"));
+            })
             .map_err(|_| format!("no binding for assignment: {s}"))?;
-        let t = ctx.env.lookup(&binding, &ctx.namespace, &s)?;
+        let t = ctx
+            .env
+            .lookup(&binding, &ctx.namespace, &s, self.variable.clone())?;
         if !matches!(t, CompileTimeBinding::Regular(Ast::Symbol(s)) if s == self.variable) {
             return Err(format!("cannot assign to syntax: {s}"));
         }

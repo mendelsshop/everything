@@ -9,6 +9,7 @@ use crate::{ast::Pair, Ast, Symbol};
 // just used internally to "parse" stuff
 // TODO: maybe have a recursive data structure that represents a match instead of using lists
 pub fn match_syntax(original: Ast, pattern: Ast) -> Result<impl Fn(Symbol) -> Option<Ast>, String> {
+    println!("{original}");
     fn r#match(s: Ast, pattern: Ast, original_s: &Ast) -> Result<HashMap<Symbol, Ast>, String> {
         // TODO: make sure pattern mathches ^id
         if let Ast::Symbol(pattern) = pattern {
@@ -64,7 +65,7 @@ pub fn match_syntax(original: Ast, pattern: Ast) -> Result<impl Fn(Symbol) -> Op
                         .collect::<HashMap<_, _>>()),
                         _ => {
                             // Error
-                            Err(format!("bad syntax {original_s}"))
+                            Err(format!("bad syntax1 {original_s}"))
                         }
                     }
                 }
@@ -78,9 +79,9 @@ pub fn match_syntax(original: Ast, pattern: Ast) -> Result<impl Fn(Symbol) -> Op
                         })
                     })
                 }
-                _ => {
+                s => {
                     // Error
-                    Err(format!("bad syntax {original_s}"))
+                    Err(format!("bad syntax, {} shoud be a pair, {original_s}", s.1))
                 }
             }
             // null s, p
@@ -88,13 +89,13 @@ pub fn match_syntax(original: Ast, pattern: Ast) -> Result<impl Fn(Symbol) -> Op
             if matches!(s, Ast::TheEmptyList) {
                 Ok(HashMap::new())
             } else {
-                Err(format!("bad syntax {original_s}"))
+                Err(format!("bad syntax3 {original_s}"))
             }
         } else if matches!(pattern, Ast::Boolean(_)) || pattern.is_keyword() && pattern == s {
             Ok(HashMap::new())
         } else {
             // Error
-            Err(format!("bad syntax {original_s}"))
+            Err(format!("bad syntax4 {original_s}"))
         }
     }
     let symbol_map = r#match(original.clone(), pattern, &original)?;

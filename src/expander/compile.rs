@@ -136,7 +136,9 @@ impl Expander {
             }
             Ast::Symbol(ref s1) => {
                 let with = syntax.with_ref(s1.clone());
-                let b = self.resolve(&with, false)?;
+                let b = self.resolve(&with, false).inspect_err(|e| {
+                    dbg!(format!("{e}"));
+                })?;
                 match b {
                     Binding::Local(b) => Ok(Ast::Symbol(key_to_symbol(b.clone()))),
                     Binding::TopLevel(s) => ns
@@ -146,7 +148,7 @@ impl Expander {
                         .cloned(),
                 }
             }
-            _ => Err(format!("bad syntax after expansion {s}")),
+            _ => Err(format!("bad syntax after expansion {s} compile")),
         }
     }
     fn loop_formals(&self, formals: Ast) -> Result<Ast, String> {
@@ -209,7 +211,9 @@ impl Expander {
         })
     }
     fn local_symbol(&self, id: &Syntax<Symbol>) -> Result<Symbol, String> {
-        let b = self.resolve(id, false)?;
+        let b = self.resolve(id, false).inspect_err(|e| {
+            dbg!(format!("{e}"));
+        })?;
         let Binding::Local(s) = b else {
             return Err(format!("bad binding {b}"));
         };

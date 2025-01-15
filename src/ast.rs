@@ -33,32 +33,6 @@ macro_rules! list {
     };
 }
 
-pub type AnalyzedResult = Result<Box<dyn AnalyzeFn>, String>;
-
-pub trait AnalyzeFn: Fn(EnvRef) -> Result<Ast, String> {
-    fn clone_box<'a>(&self) -> Box<dyn 'a + AnalyzeFn>
-    where
-        Self: 'a;
-}
-
-impl<F> AnalyzeFn for F
-where
-    F: Fn(EnvRef) -> Result<Ast, String> + Clone,
-{
-    fn clone_box<'a>(&self) -> Box<dyn 'a + AnalyzeFn>
-    where
-        Self: 'a,
-    {
-        Box::new(self.clone())
-    }
-}
-
-impl<'a> Clone for Box<dyn 'a + AnalyzeFn> {
-    fn clone(&self) -> Self {
-        (**self).clone_box()
-    }
-}
-
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Function {
     Lambda(Lambda),
@@ -116,11 +90,6 @@ pub type Primitive = fn(Ast) -> Result<Values, String>;
 pub struct Pair(pub Ast, pub Ast);
 
 impl Pair {
-    pub fn map(&self, mut f: impl FnMut(Ast) -> Result<Ast, String>) -> Result<Ast, String> {
-        let car = f(self.0.clone())?;
-        let cdr = self.1.map(f)?;
-        Ok(Ast::Pair(Box::new(Self(car, cdr))))
-    }
     #[must_use]
     pub fn list(&self) -> bool {
         self.1.list()

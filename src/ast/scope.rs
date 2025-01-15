@@ -17,17 +17,26 @@ pub struct Scope(
     pub Rc<RefCell<HashMap<Symbol, BTreeMap<ScopeSet, Binding>>>>,
 );
 
+impl std::fmt::Debug for Scope {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("Scope")
+            .field(&self.0)
+            .field(&self.1.borrow().keys().collect::<BTreeSet<_>>())
+            .finish()
+    }
+}
+
 impl Scope {
     pub fn scope_greater_than(&self, other: &Self) -> bool {
         self > other
     }
 }
 
-impl std::fmt::Debug for Scope {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("Scope").field(&self.0).finish()
-    }
-}
+// impl std::fmt::Debug for Scope {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         f.debug_tuple("Scope").field(&self.0).finish()
+//     }
+// }
 
 impl Ord for Scope {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
@@ -139,8 +148,8 @@ impl Expander {
                     .insert(scopes, binding);
             })
     }
-    pub fn add_binding(id: Syntax<Symbol>, binding: Binding) {
-        Self::add_binding_in_scope(id.1, id.0, binding);
+    pub fn add_binding(id: Syntax<Symbol>, binding: Binding) -> Result<(), String> {
+        Self::add_binding_in_scope(id.1, id.0, binding)
     }
     /// exactly by default should be false
     pub fn resolve(&self, id: &Syntax<Symbol>, exactly: bool) -> Result<Binding, String> {
@@ -148,8 +157,9 @@ impl Expander {
         let max_candidate = candidate_ids
             .clone()
             .max_by_key(|id| id.0.len())
+            .inspect(|_| println!("something"))
             .filter(|max_candidate: &(BTreeSet<Scope>, Binding)| {
-                exactly || max_candidate.0.len() == id.1.len()
+                !exactly || max_candidate.0.len() == id.1.len()
             })
             .ok_or(format!("free variable {id:?}"))?;
         if check_unambiguous(&max_candidate, candidate_ids) {
@@ -168,7 +178,7 @@ impl Expander {
             // hacky way to get it to be clonable
             .map(|x| x.into_iter().collect_vec().into_iter())
             .flatten()
-            .filter(move |c_id| scopes.is_subset(&c_id.0))
+            .filter(move |c_id| c_id.0.is_subset(scopes))
             .map(|x| x.clone())
     }
 }

@@ -64,6 +64,7 @@ impl CompileTimeEnvoirnment {
         ns: &NameSpace,
         // TODO: maybe core form can get their own type
         id: &T,
+        variable: Symbol,
     ) -> Result<CompileTimeBinding, String> {
         match key {
             Binding::Local(key) => self
@@ -72,11 +73,11 @@ impl CompileTimeEnvoirnment {
                 .cloned()
                 .map(CompileTimeBinding::Regular)
                 .ok_or(format!("identifier used out of context: {id}")),
-            Binding::TopLevel(core) => ns
+            Binding::TopLevel(core) => Ok(ns
                 .transformers
                 .get(&core.clone().into())
                 .cloned()
-                .ok_or(format!("not transformer found for: {key}")), // .unwrap_or(CompileTimeBinding::Regular(Ast::Symbol(id)))),
+                .unwrap_or(CompileTimeBinding::Regular(Ast::Symbol(variable)))),
         }
     }
 }

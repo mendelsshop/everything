@@ -1,3 +1,4 @@
+use core::fmt;
 use std::hash::Hash;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -17,8 +18,17 @@ pub struct SourceLocation {
     line: u32,
     column: u32,
 }
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq)]
 pub struct Syntax<T>(pub T, pub ScopeSet, pub SourceLocation, pub Properties);
+
+impl<T: Debug> Debug for Syntax<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("Syntax")
+            .field(&self.0)
+            // .field(&self.1).field(&self.2).field(&self.3)
+            .finish()
+    }
+}
 
 impl<T> Syntax<T> {
     // TODO: make with take &self so we only need to clone properties srcloc scopes
@@ -29,7 +39,11 @@ impl<T> Syntax<T> {
         Syntax(other, self.1.clone(), self.2.clone(), self.3.clone())
     }
 }
-
+impl<T: fmt::Display> fmt::Display for Syntax<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "#'{}", self.0)
+    }
+}
 impl<T: Hash> Hash for Syntax<T> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.0.hash(state);

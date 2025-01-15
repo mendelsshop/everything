@@ -1,4 +1,10 @@
-use std::{cell::RefCell, collections::BTreeSet, rc::Rc};
+use crate::DEPTH;
+use std::{
+    cell::RefCell,
+    collections::{BTreeSet, VecDeque},
+    rc::Rc,
+};
+use trace::trace;
 
 use itertools::Itertools;
 
@@ -25,7 +31,7 @@ impl Expander {
     pub fn namespace_syntax_introduce<T: AdjustScope>(&self, s: T) -> T {
         s.add_scope(self.core_scope.clone())
     }
-    //#[trace]
+    #[trace(format_enter = "{s}")]
     pub fn expand(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
         match s.clone() {
             Ast::Syntax(syntax) => match syntax.0 {
@@ -42,6 +48,7 @@ impl Expander {
     // constraints = s.len() > 0
     // constraints = s[0] == Ast::Syntax(Symbol)
     //#[trace]
+    #[trace(format_enter = "{s}")]
     pub(crate) fn expand_id_application_form(
         &mut self,
         p: Pair,
@@ -54,7 +61,11 @@ impl Expander {
         let Ast::Symbol(ref id) = id_syntax.0 else {
             unreachable!();
         };
-        let binding = self.resolve(&id_syntax.with_ref(id.clone()), false);
+        let binding = self.resolve(&id_syntax.with_ref(id.clone()), false)
+            // .inspect_err(|e| {
+                    // dbg!(format!("{e} id"));
+                // })
+        ;
         let binding = binding.and_then(|binding| self.lookup(&binding, &ctx, id));
         match binding {
             Ok(binding) if !matches!(&binding, CompileTimeBinding::Regular(Ast::Symbol(sym)) if *sym == self.variable) => {
@@ -64,15 +75,24 @@ impl Expander {
         }
     }
 
+    #[trace(format_enter = "{sym} {s}")]
     fn expand_implicit(&mut self, sym: Symbol, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
         let scopes = s.scope_set();
         let id = sym.clone().datum_to_syntax(scopes, None, None);
-        let binding = self.resolve(&id, false);
+        let binding = self.resolve(&id, false).inspect_err(|e| {
+            dbg!(format!("{e}"));
+        });
         let transformer = binding.and_then(|binding| self.lookup(&binding, &ctx, &sym))?;
         match transformer {
             CompileTimeBinding::CoreForm(_) if ctx.only_immediate => Ok(s),
             CompileTimeBinding::Regular(Ast::Function(_)) | CompileTimeBinding::CoreForm(_) => {
-                self.dispatch(transformer, s, ctx)
+                let scope_set = s.scope_set();
+                let syntax_src_loc = s.syntax_src_loc();
+                self.dispatch(
+                    transformer,
+                    list!(Ast::Symbol(sym); s).datum_to_syntax(scope_set, syntax_src_loc, None),
+                    ctx,
+                )
             }
             _ => Err(format!("no tranformer binding for {sym}")),
         }
@@ -84,7 +104,8 @@ impl Expander {
         ctx: &ExpandContext,
         id: &Symbol,
     ) -> Result<CompileTimeBinding, String> {
-        ctx.env.lookup(binding, &ctx.namespace, id)
+        ctx.env
+            .lookup(binding, &ctx.namespace, id, self.variable.clone())
     }
     pub(crate) fn apply_transformer(
         &mut self,
@@ -122,6 +143,7 @@ impl Expander {
             }
         }
     }
+    #[trace(format_enter = "{s}")]
     fn dispatch(
         &mut self,
         t: CompileTimeBinding,
@@ -149,143 +171,157 @@ impl Expander {
 
     // unlike the racket version done_bodys and val_binds are in the correct order, as it is
     // probably more effecient from a rust perspective anyway
+    #[trace(format_enter = "")]
     fn expand_body_loop(
         &mut self,
         mut body_ctx: ExpandContext,
         ctx: ExpandContext,
-        mut bodys: impl Iterator<Item = Ast>,
+        mut bodys: VecDeque<Ast>,
         mut done_bodys: Vec<Ast>,
         mut val_binds: Vec<(Vec<Syntax<Symbol>>, Ast)>,
         duplicate: DuplicateMap,
         original_syntax: Ast,
     ) -> Result<Ast, String> {
-        match bodys.next() {
+        // let mut bodys = bodys.into_iter();
+        match bodys.pop_front() {
             None => self.finish_expanding_body(body_ctx, done_bodys, val_binds, original_syntax),
             Some(body) => {
                 let exp_body = self.expand(body, body_ctx.clone())?;
-                match self
-                    .core_form_symbol(exp_body.clone())?
-                    .to_string()
-                    .as_str()
-                {
-                    "begin" => {
-                        let m = match_syntax(
-                            exp_body.clone(),
-                            list!("begin".into(), "e".into(), "...".into()),
-                        )?;
-                        let e = m("e".into()).ok_or("internal error")?;
-                        self.expand_body_loop(
-                            body_ctx,
-                            ctx,
-                            e.to_list_checked()?.into_iter().chain(bodys),
-                            done_bodys,
-                            val_binds,
-                            duplicate,
-                            original_syntax,
-                        )
-                    }
-                    "define-values" => {
-                        let m = match_syntax(
-                            exp_body.clone(),
-                            list!(
-                                "define-values".into(),
-                                list!("id".into(), "...".into()),
-                                "rhs".into()
-                            ),
-                        )?;
-                        let ids = self.remove_use_site_scopes(
-                            m("id".into()).ok_or("internal error")?,
-                            &body_ctx,
-                        );
-                        let ids = to_id_list(ids)?;
-                        let new_duplicates = duplicate_check::check_no_duplicate_ids(
-                            ids.clone(),
-                            exp_body,
-                            duplicate,
-                        )?;
-                        let keys = ids
-                            .clone()
-                            .into_iter()
-                            .map(|id| self.add_local_binding(id))
-                            .collect_vec();
+                if let Ok(pat) = self.core_form_symbol(exp_body.clone()) {
+                    match pat.to_string().as_str() {
+                        "begin" => {
+                            let m = match_syntax(
+                                exp_body.clone(),
+                                list!("begin".into(), "e".into(), "...".into()),
+                            )?;
+                            let e = m("e".into()).ok_or("internal error")?;
+                            let mut new_bodys = VecDeque::from(e.to_list_checked()?);
 
-                        body_ctx.env.0.extend(
-                            keys.into_iter()
-                                .map(|key| (key, Ast::Symbol(self.variable.clone()))),
-                        );
+                            new_bodys.append(&mut bodys);
+                            self.expand_body_loop(
+                                body_ctx,
+                                ctx,
+                                new_bodys,
+                                done_bodys,
+                                val_binds,
+                                duplicate,
+                                original_syntax,
+                            )
+                        }
+                        "define-values" => {
+                            let m = match_syntax(
+                                exp_body.clone(),
+                                list!(
+                                    "define-values".into(),
+                                    list!("id".into(), "...".into()),
+                                    "rhs".into()
+                                ),
+                            )?;
+                            let ids = self.remove_use_site_scopes(
+                                m("id".into()).ok_or("internal error")?,
+                                &body_ctx,
+                            );
+                            let ids = to_id_list(ids)?;
+                            let new_duplicates = duplicate_check::check_no_duplicate_ids(
+                                ids.clone(),
+                                exp_body,
+                                duplicate,
+                            )?;
+                            let keys = ids
+                                .clone()
+                                .into_iter()
+                                .map(|id| self.add_local_binding(id))
+                                .collect_vec();
 
-                        val_binds.append(&mut self.no_binds(done_bodys));
-                        val_binds.push((ids, m("rhs".into()).ok_or("internal error")?));
-                        self.expand_body_loop(
-                            body_ctx,
-                            ctx,
-                            bodys,
-                            vec![],
-                            val_binds,
-                            new_duplicates,
-                            original_syntax,
-                        )
-                    }
-                    "define-syntaxes" => {
-                        let m = match_syntax(
-                            exp_body.clone(),
-                            list!(
-                                "define-syntaxes".into(),
-                                list!("id".into(), "...".into()),
-                                "rhs".into()
-                            ),
-                        )?;
-                        let ids = self.remove_use_site_scopes(
-                            m("id".into()).ok_or("internal error")?,
-                            &body_ctx,
-                        );
-                        let ids = ids.to_list_checked()?;
+                            body_ctx.env.0.extend(
+                                keys.into_iter()
+                                    .map(|key| (key, Ast::Symbol(self.variable.clone()))),
+                            );
 
-                        let id_count = ids.len();
-                        let ids = ids
-                            .into_iter()
-                            .map(|id| id.try_into())
-                            .collect::<Result<Vec<_>, _>>()?;
-                        let new_duplicates = duplicate_check::check_no_duplicate_ids(
-                            ids.clone(),
-                            exp_body,
-                            duplicate,
-                        )?;
-                        let keys = ids
-                            .into_iter()
-                            .map(|id| self.add_local_binding(id))
-                            .collect_vec();
-                        let vals = self.eval_for_syntaxes_binding(
-                            m("rhs".into()).ok_or("internal error")?,
-                            id_count,
-                            ctx.clone(),
-                        )?;
-                        body_ctx
-                            .env
-                            .0
-                            .extend(keys.into_iter().zip(vals.into_iter()));
-                        self.expand_body_loop(
-                            body_ctx,
-                            ctx,
-                            bodys,
-                            done_bodys,
-                            val_binds,
-                            new_duplicates,
-                            original_syntax,
-                        )
+                            val_binds.append(&mut self.no_binds(done_bodys));
+                            val_binds.push((ids, m("rhs".into()).ok_or("internal error")?));
+                            self.expand_body_loop(
+                                body_ctx,
+                                ctx,
+                                bodys,
+                                vec![],
+                                val_binds,
+                                new_duplicates,
+                                original_syntax,
+                            )
+                        }
+                        "define-syntaxes" => {
+                            let m = match_syntax(
+                                exp_body.clone(),
+                                list!(
+                                    "define-syntaxes".into(),
+                                    list!("id".into(), "...".into()),
+                                    "rhs".into()
+                                ),
+                            )?;
+                            let ids = self.remove_use_site_scopes(
+                                m("id".into()).ok_or("internal error")?,
+                                &body_ctx,
+                            );
+                            let ids = ids.to_list_checked()?;
+
+                            let id_count = ids.len();
+                            let ids = ids
+                                .into_iter()
+                                .map(|id| id.try_into())
+                                .collect::<Result<Vec<_>, _>>()?;
+                            let new_duplicates = duplicate_check::check_no_duplicate_ids(
+                                ids.clone(),
+                                exp_body,
+                                duplicate,
+                            )?;
+                            let keys = ids
+                                .into_iter()
+                                .map(|id| self.add_local_binding(id))
+                                .collect_vec();
+                            let vals = self.eval_for_syntaxes_binding(
+                                m("rhs".into()).ok_or("internal error")?,
+                                id_count,
+                                ctx.clone(),
+                            )?;
+                            body_ctx
+                                .env
+                                .0
+                                .extend(keys.into_iter().zip(vals.into_iter()));
+                            self.expand_body_loop(
+                                body_ctx,
+                                ctx,
+                                bodys,
+                                done_bodys,
+                                val_binds,
+                                new_duplicates,
+                                original_syntax,
+                            )
+                        }
+                        _ => {
+                            done_bodys.push(exp_body);
+                            self.expand_body_loop(
+                                body_ctx,
+                                ctx,
+                                bodys,
+                                done_bodys,
+                                val_binds,
+                                duplicate,
+                                original_syntax,
+                            )
+                        }
                     }
-                    _ => {
-                        done_bodys.push(exp_body);
-                        self.expand_body_loop(
-                            body_ctx,
-                            ctx,
-                            bodys,
-                            done_bodys,
-                            val_binds,
-                            duplicate,
-                            original_syntax,
-                        )
-                    }
+                } else {
+                    done_bodys.push(exp_body);
+                    self.expand_body_loop(
+                        body_ctx,
+                        ctx,
+                        bodys,
+                        done_bodys,
+                        val_binds,
+                        duplicate,
+                        original_syntax,
+                    )
                 }
             }
         }
@@ -375,6 +411,7 @@ impl Expander {
             })
             .collect_vec()
     }
+    #[trace(format_enter = "{bodys}")]
     pub fn expand_body(
         &mut self,
         bodys: Ast,
@@ -401,7 +438,7 @@ impl Expander {
         self.expand_body_loop(
             body_context,
             context,
-            init_bodys.into_iter(),
+            init_bodys.into(),
             vec![],
             vec![],
             make_check_no_duplicate_table(),
@@ -454,6 +491,7 @@ impl Expander {
                 }
             })
     }
+
     fn expand_transformer(&mut self, rhs: Ast, ctx: ExpandContext) -> Result<Ast, String> {
         self.expand(
             rhs,
@@ -466,6 +504,7 @@ impl Expander {
         )
     }
 
+    #[trace(format_enter = "{s}")]
     pub(crate) fn expand_identifier(
         &mut self,
         s: Syntax<Symbol>,
@@ -476,7 +515,7 @@ impl Expander {
         let s = Ast::Syntax(Box::new(s.with(Ast::Symbol(id.clone()))));
         match binding {
             Ok(binding) => self.dispatch(self.lookup(&binding, &ctx, &id)?, s, ctx),
-            _ => self.expand_implicit("%top".into(), s, ctx),
+            _ => self.expand_implicit("#%top".into(), s, ctx),
         }
     }
 }

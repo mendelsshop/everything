@@ -194,7 +194,7 @@ impl Evaluator {
                 .borrow()
                 .lookup(&s)
                 .map(Values::Single)
-                .ok_or(format!("free variable {s}")),
+                .ok_or(format!("free variable {s} eval")),
             _ => Ok(Values::Single(expr.clone())),
         }
     }

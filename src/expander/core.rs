@@ -13,7 +13,7 @@ use super::{
 };
 
 impl Expander {
-    fn add_core_binding(&mut self, sym: Symbol) {
+    fn add_core_binding(&mut self, sym: Symbol) -> Result<(), String> {
         Self::add_binding(
             Syntax(
                 sym.clone(),
@@ -22,7 +22,7 @@ impl Expander {
                 Properties::new(),
             ),
             Binding::TopLevel(sym.0),
-        );
+        )
     }
 
     pub fn add_core_form(&mut self, sym: Rc<str>, proc: CoreForm) {
@@ -65,10 +65,14 @@ impl Expander {
             let Ast::Symbol(ref sym) = s.0 else {
                 return Err("no such pattern variable id".to_string());
             };
-            let b = self.resolve(&s.with_ref(sym.clone()), false)?;
+            let b = self
+                .resolve(&s.with_ref(sym.clone()), false)
+                .inspect_err(|e| {
+                    dbg!(format!("{e}"));
+                })?;
             match b {
                 Binding::Local(_) => Err(format!("{sym} is not a core form")),
-                Binding::TopLevel(s) => Ok(s.clone()),
+                Binding::TopLevel(s) => Ok(s),
             }
         })
     }

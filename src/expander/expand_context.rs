@@ -4,7 +4,7 @@ use crate::ast::scope::Scope;
 
 use super::{binding::CompileTimeEnvoirnment, namespace::NameSpace};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ExpandContext {
     pub(crate) use_site_scopes: Option<Rc<RefCell<BTreeSet<Scope>>>>,
     pub(crate) namespace: NameSpace,

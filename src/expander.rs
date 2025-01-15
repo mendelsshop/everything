@@ -97,6 +97,7 @@ impl Expander {
             self.namespace_syntax_introduce(s.datum_to_syntax(None, None, None)),
             ctx,
         )?;
+        println!("after expand {expanded}");
         let compiled = self.compile(expanded, &ns)?;
         self.run_time_eval(compiled)
     }
