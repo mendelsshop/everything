@@ -1,7 +1,7 @@
-use std::rc::Rc;
+use std::{mem, rc::Rc};
 
 use crate::{
-    ast::{Ast, Pair, Symbol},
+    ast::{syntax::Syntax, Ast, Pair, Symbol},
     evaluator::{Evaluator, Values},
     list,
 };
@@ -149,11 +149,29 @@ impl Expander {
             _ => Err(format!("bad syntax after expansion {s}")),
         }
     }
-
+    fn loop_formals(&self, formals: Ast) -> Result<Ast, String> {
+        match formals {
+            Ast::Syntax(mut s) => {
+                let mut a = Ast::TheEmptyList;
+                mem::swap(&mut s.0, &mut a);
+                match a {
+                    Ast::Symbol(sym) => self.local_symbol(&s.with(sym)).map(Ast::Symbol),
+                    a @ (Ast::Pair(_) | Ast::TheEmptyList) => self.loop_formals(a),
+                    formals => Err(format!("bad parameter: {formals}")),
+                }
+            }
+            Ast::Pair(p) => Ok(Ast::Pair(Box::new(Pair(
+                self.loop_formals(p.0)?,
+                self.loop_formals(p.1)?,
+            )))),
+            Ast::TheEmptyList => Ok(Ast::TheEmptyList),
+            _ => Err(format!("bad parameter: {formals}")),
+        }
+    }
     fn compile_lambda(&self, formals: Ast, body: Ast, ns: &NameSpace) -> Result<Ast, String> {
         Ok(list!(
             "lambda".into(),
-            formals.map(|id| self.local_symbol(id).map(Ast::Symbol))?,
+            self.loop_formals(formals)?,
             self.compile(body, ns)?
         ))
     }
@@ -177,7 +195,7 @@ impl Expander {
             m("rhs".into()).ok_or("internal error")?,
             |ids, rhs| {
                 ids.map(|id| {
-                    self.local_symbol(id)
+                    self.local_symbol(&id.try_into()?)
                         .map(Ast::Symbol)
                         .and_then(|ids| self.compile(rhs.clone(), ns).map(|rhs| list!(ids, rhs)))
                 })
@@ -190,18 +208,12 @@ impl Expander {
                 .map(|body| list!(Ast::Symbol(core_sym.into()), signature, body))
         })
     }
-    fn local_symbol(&self, id: Ast) -> Result<Symbol, String> {
-        let Ast::Syntax(ref s) = id else {
-            return Err(format!("expected symbol found {id}"));
-        };
-        let Ast::Symbol(ref id) = s.0 else {
-            return Err(format!("expected symbol found {id}"));
-        };
-        let b = self.resolve(&s.with_ref(id.clone()), false)?;
+    fn local_symbol(&self, id: &Syntax<Symbol>) -> Result<Symbol, String> {
+        let b = self.resolve(id, false)?;
         let Binding::Local(s) = b else {
             return Err(format!("bad binding {b}"));
         };
-        Ok(key_to_symbol(s.clone()))
+        Ok(key_to_symbol(s))
     }
 
     pub fn expand_time_eval(&self, compiled: Ast) -> Result<Values, String> {

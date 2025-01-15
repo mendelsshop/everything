@@ -1003,6 +1003,7 @@ mod tests {
     #[test]
     fn expander_test_non_transformer_binding_misuse() {
         let mut expander = Expander::new();
+        let env = ExpandContext::new(expander.namespace());
         let mut reader = Reader::new_with_input(
             &"(let-syntax ((v 1))
                             v)",
@@ -1012,7 +1013,7 @@ mod tests {
                 expander.namespace_syntax_introduce(
                     reader.read().unwrap().datum_to_syntax(None, None, None)
                 ),
-                CompileTimeEnvoirnment::new()
+                env
             )
             .is_err_and(|e| e.contains("illegal use of syntax")));
     }
