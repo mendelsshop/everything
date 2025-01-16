@@ -38,7 +38,63 @@ pub enum Function {
     Lambda(Lambda),
     Primitive(Primitive),
 }
+#[macro_export]
+/// s-expression like quasi-quoter
+/// \# for unquote
+/// ; for dot
+/// do mbe limitations each item in list must be delimeted by , unless its followed by ; or the
+/// last thing in a list
+macro_rules! sexpr {
+    (@list) => {$crate::ast::Ast::TheEmptyList};
+    (()) => {$crate::ast::Ast::TheEmptyList};
+    ($i:ident) => {
+        $crate::ast::Ast::from(stringify!($i))
+    };
+    ($l:literal) => {
+        $crate::ast::Ast::from($l)
+    };
+    (# $e:expr ) => {
+        $e
+    };
 
+    (@list; $($cdr:tt)+) => {
+       sexpr!($($cdr)+)
+    };
+    (@list, $car:ident $($cdr:tt)*) => {
+        $crate::ast::Ast::Pair(Box::new($crate::ast::Pair(stringify!($car).into(), sexpr!(@list $($cdr)*))))
+    };
+    (($car:ident $($cdr:tt)*)) => {
+        $crate::ast::Ast::Pair(Box::new($crate::ast::Pair(stringify!($car).into(), sexpr!(@list $($cdr)*))))
+    };
+
+    (@list, $car:literal $($cdr:tt)*) => {
+        $crate::ast::Ast::Pair(Box::new($crate::ast::Pair($car.into(), sexpr!(@list $($cdr)*))))
+    };
+    (($car:literal $($cdr:tt)*)) => {
+        $crate::ast::Ast::Pair(Box::new($crate::ast::Pair($car.into(), sexpr!(@list $($cdr)*))))
+    };
+
+    ((#$car:expr, $($cdr:tt)*)) => {
+        $crate::ast::Ast::Pair(Box::new($crate::ast::Pair($car, sexpr!(@list ,$($cdr)*))))
+    };
+    ((#$car:expr; $($cdr:tt)*)) => {
+        $crate::ast::Ast::Pair(Box::new($crate::ast::Pair($car, sexpr!(@list ;$($cdr)*))))
+    };
+    ((#$car:expr)) => {
+        $crate::ast::Ast::Pair(Box::new($crate::ast::Pair($car, $crate::ast::Ast::TheEmptyList)))
+    };
+
+    (@list #$car:expr, $($cdr:tt)*) => {
+        $crate::ast::Ast::Pair(Box::new($crate::ast::Pair($car, sexpr!(@list ,$($cdr)*))))
+    };
+    (@list #$car:expr; $($cdr:tt)*) => {
+        $crate::ast::Ast::Pair(Box::new($crate::ast::Pair($car, sexpr!(@list ;$($cdr)*))))
+    };
+    (@list #$car:expr) => {
+        $crate::ast::Ast::Pair(Box::new($crate::ast::Pair($car, $crate::ast::Ast::TheEmptyList)))
+    };
+
+}
 impl fmt::Display for Function {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
