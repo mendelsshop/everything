@@ -99,6 +99,7 @@ impl Expander {
         )?;
         println!("after expand {expanded}");
         let compiled = self.compile(expanded, &ns)?;
+        println!("after compile {compiled}");
         self.run_time_eval(compiled)
     }
 }

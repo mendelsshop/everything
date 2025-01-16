@@ -337,7 +337,7 @@ impl Expander {
     #[trace(format_enter = "{s}")]
     fn core_form_app(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
         let m = match_syntax(
-            s,
+            s.clone(),
             //TODO: should app be a syntax object
             list!("#%app".into(), "rator".into(), "rand".into(), "...".into()),
         )?;
@@ -345,13 +345,13 @@ impl Expander {
             m("rator".into()).ok_or("internal error".to_string())?,
             ctx.clone(),
         )?;
-        let rand = m("rator".into())
+        let rand = m("rand".into())
             .ok_or("internal error".to_string())?
             .map(|rand| self.expand(rand, ctx.clone()))?;
-        Ok(Ast::Pair(Box::new(Pair(
+        Ok(rebuild(s, Ast::Pair(Box::new(Pair(
             m("#%app".into()).ok_or("internal error")?,
             Ast::Pair(Box::new(Pair(rator, rand))),
-        ))))
+        )))))
     }
     fn core_form_quote(&mut self, s: Ast, _ctx: ExpandContext) -> Result<Ast, String> {
         match_syntax(s.clone(), list!("quote".into(), "datum".into())).map(|_| s)

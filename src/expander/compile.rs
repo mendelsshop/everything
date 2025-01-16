@@ -171,11 +171,7 @@ impl Expander {
         }
     }
     fn compile_lambda(&self, formals: Ast, body: Ast, ns: &NameSpace) -> Result<Ast, String> {
-        Ok(list!(
-            "lambda".into(),
-            self.loop_formals(formals)?,
-            self.compile(body, ns)?
-        ))
+        Ok(list!(self.loop_formals(formals)?, self.compile(body, ns)?))
     }
 
     fn compile_let(&self, core_sym: Rc<str>, s: Ast, ns: &NameSpace) -> Result<Ast, String> {
