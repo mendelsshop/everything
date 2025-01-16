@@ -195,6 +195,9 @@ impl Expander {
         self.add_core_form("begin".into(), Self::core_form_begin);
         self.add_core_form("begin0".into(), Self::core_form_begin0);
         self.add_core_form("set!".into(), Self::core_form_set);
+        // from expand_top_level
+        self.add_core_form("define-values".into(), Self::core_form_define_values);
+        self.add_core_form("define-syntaxes".into(), Self::core_form_define_syntaxes);
     }
 
     fn make_lambda_expander(
@@ -348,10 +351,13 @@ impl Expander {
         let rand = m("rand".into())
             .ok_or("internal error".to_string())?
             .map(|rand| self.expand(rand, ctx.clone()))?;
-        Ok(rebuild(s, Ast::Pair(Box::new(Pair(
-            m("#%app".into()).ok_or("internal error")?,
-            Ast::Pair(Box::new(Pair(rator, rand))),
-        )))))
+        Ok(rebuild(
+            s,
+            Ast::Pair(Box::new(Pair(
+                m("#%app".into()).ok_or("internal error")?,
+                Ast::Pair(Box::new(Pair(rator, rand))),
+            ))),
+        ))
     }
     fn core_form_quote(&mut self, s: Ast, _ctx: ExpandContext) -> Result<Ast, String> {
         match_syntax(s.clone(), list!("quote".into(), "datum".into())).map(|_| s)

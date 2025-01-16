@@ -182,6 +182,15 @@ impl Evaluator {
                     };
                     Ok(Values::Single(datum))
                 }
+                Ast::Symbol(Symbol(expression, 0)) if *expression == *"#%expression" => {
+                    let Pair(_, Ast::Pair(datum)) = *list else {
+                        Err("bad syntax, #%expression requires one expression")?
+                    };
+                    let Pair(datum, Ast::TheEmptyList) = *datum else {
+                        Err("bad syntax, #%expression requires one expression")?
+                    };
+                    Self::eval(datum, env)
+                }
                 f => {
                     let f: Ast = Self::eval_single_value(f, env.clone())?;
                     let rest = list

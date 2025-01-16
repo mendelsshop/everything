@@ -387,7 +387,7 @@ impl Expander {
                                         ids)
                                 ).datum_to_syntax(None, None, None),
                                 expr); exprs))
-                    })?;
+                    })?,
                 finish_bodys
             )
             .datum_to_syntax(None, None, None))
