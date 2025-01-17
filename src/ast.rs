@@ -47,13 +47,14 @@ pub enum Function {
 macro_rules! sexpr {
     (@list) => {$crate::ast::Ast::TheEmptyList};
     (()) => {$crate::ast::Ast::TheEmptyList};
+    ([]) => {$crate::ast::Ast::TheEmptyList};
     ($i:ident) => {
         $crate::ast::Ast::from(stringify!($i))
     };
     ($l:literal) => {
         $crate::ast::Ast::from($l)
     };
-    (# $e:expr ) => {
+    (#$e:expr) => {
         $e
     };
 
@@ -63,15 +64,40 @@ macro_rules! sexpr {
     (@list, $car:ident $($cdr:tt)*) => {
         $crate::ast::Ast::Pair(Box::new($crate::ast::Pair(stringify!($car).into(), sexpr!(@list $($cdr)*))))
     };
+    (@list,($($car:tt)+) $($cdr:tt)*) => {
+        $crate::ast::Ast::Pair(Box::new($crate::ast::Pair(sexpr!(($($car)+)), sexpr!(@list $($cdr)*))))
+    };
+    (@list,[ $($car:tt)+ ] $($cdr:tt)*) => {
+        $crate::ast::Ast::Pair(Box::new($crate::ast::Pair(sexpr!([ $($car)+ ]), sexpr!(@list $($cdr)*))))
+    };
+    (@list,$car:literal $($cdr:tt)*) => {
+        $crate::ast::Ast::Pair(Box::new($crate::ast::Pair($car.into(), sexpr!(@list $($cdr)*))))
+    };
+
     (($car:ident $($cdr:tt)*)) => {
         $crate::ast::Ast::Pair(Box::new($crate::ast::Pair(stringify!($car).into(), sexpr!(@list $($cdr)*))))
     };
-
-    (@list, $car:literal $($cdr:tt)*) => {
-        $crate::ast::Ast::Pair(Box::new($crate::ast::Pair($car.into(), sexpr!(@list $($cdr)*))))
-    };
     (($car:literal $($cdr:tt)*)) => {
         $crate::ast::Ast::Pair(Box::new($crate::ast::Pair($car.into(), sexpr!(@list $($cdr)*))))
+    };
+    ((($($car:tt)+) $($cdr:tt)*)) => {
+        $crate::ast::Ast::Pair(Box::new($crate::ast::Pair(sexpr!(($($car)+)), sexpr!(@list $($cdr)*))))
+    };
+    (([ $($car:tt)+ ] $($cdr:tt)*)) => {
+        $crate::ast::Ast::Pair(Box::new($crate::ast::Pair(sexpr!([ $($car)+ ]), sexpr!(@list $($cdr)*))))
+    };
+
+    ([ $car:ident $($cdr:tt)* ]) => {
+        $crate::ast::Ast::Pair(Box::new($crate::ast::Pair(stringify!($car).into(), sexpr!(@list $($cdr)*))))
+    };
+    ([ $car:literal $($cdr:tt)* ]) => {
+        $crate::ast::Ast::Pair(Box::new($crate::ast::Pair($car.into(), sexpr!(@list $($cdr)*))))
+    };
+    ([ ($($car:tt)+) $($cdr:tt)* ]) => {
+        $crate::ast::Ast::Pair(Box::new($crate::ast::Pair(sexpr!(($($car)+)), sexpr!(@list $($cdr)*))))
+    };
+    ([ [ $($car:tt)+ ] $($cdr:tt)* ]) => {
+        $crate::ast::Ast::Pair(Box::new($crate::ast::Pair(sexpr!([ $($car)+ ]), sexpr!(@list $($cdr)*))))
     };
 
     ((#$car:expr, $($cdr:tt)*)) => {
@@ -84,13 +110,23 @@ macro_rules! sexpr {
         $crate::ast::Ast::Pair(Box::new($crate::ast::Pair($car, $crate::ast::Ast::TheEmptyList)))
     };
 
-    (@list #$car:expr, $($cdr:tt)*) => {
+    ([ #$car:expr, $($cdr:tt)* ]) => {
         $crate::ast::Ast::Pair(Box::new($crate::ast::Pair($car, sexpr!(@list ,$($cdr)*))))
     };
-    (@list #$car:expr; $($cdr:tt)*) => {
+    ([ #$car:expr; $($cdr:tt)* ]) => {
         $crate::ast::Ast::Pair(Box::new($crate::ast::Pair($car, sexpr!(@list ;$($cdr)*))))
     };
-    (@list #$car:expr) => {
+    ([ #$car:expr ]) => {
+        $crate::ast::Ast::Pair(Box::new($crate::ast::Pair($car, $crate::ast::Ast::TheEmptyList)))
+    };
+
+    (@list, #$car:expr, $($cdr:tt)*) => {
+        $crate::ast::Ast::Pair(Box::new($crate::ast::Pair($car, sexpr!(@list ,$($cdr)*))))
+    };
+    (@list; #$car:expr; $($cdr:tt)*) => {
+        $crate::ast::Ast::Pair(Box::new($crate::ast::Pair($car, sexpr!(@list ;$($cdr)*))))
+    };
+    (@list, #$car:expr) => {
         $crate::ast::Ast::Pair(Box::new($crate::ast::Pair($car, $crate::ast::Ast::TheEmptyList)))
     };
 
@@ -227,7 +263,7 @@ impl fmt::Display for Ast {
                 }
                 write!(f, "({string})")
             }
-            Self::Syntax(s) => write!(f, "#'{}", s.0),
+            Self::Syntax(s) => write!(f, "#'{}", s.0.clone().syntax_to_datum()),
             Self::Number(n) => write!(f, "{n}"),
             Self::Symbol(s) => write!(f, "'{s}"),
             Self::Function(function) => write!(f, "{function}"),

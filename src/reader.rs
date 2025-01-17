@@ -28,6 +28,13 @@ impl Iterator for OwnedChars {
         Some(c)
     }
 }
+impl DoubleEndedIterator for OwnedChars {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        let c = self.string[self.position..].chars().next_back()?;
+        self.position -= c.len_utf8();
+        Some(c)
+    }
+}
 
 pub trait OwnedCharsExt {
     fn chars(self) -> OwnedChars;
@@ -42,6 +49,7 @@ impl OwnedCharsExt for String {
     }
 }
 
+// pub type Input = Peekable<OwnedChars>;
 pub type Input = Peekable<OwnedChars>;
 
 pub type ReaderInnerResult = Result<(Ast, Input), (String, Input)>;
@@ -94,6 +102,27 @@ impl Reader {
             Some(')' | ']') => {
                 input.next();
                 Err(("unfinished pair".to_string(), input))
+            }
+            Some('#') => {
+                input.next();
+                match input.next() {
+                    Some('t') => Ok((Ast::Boolean(true), input)),
+                    Some('f') => Ok((Ast::Boolean(false), input)),
+                    Some('%') => {
+                        input.next_back();
+                        input.next_back();
+                        Self::read_symbol(input)
+                    }
+                    Some('\'') => todo!("syntax object syntax"),
+                    Some(s) => {
+                        input.next_back();
+                        Err((
+                            format!("# must be followed by t, f, % or ', found {s}"),
+                            input,
+                        ))
+                    }
+                    None => Err((format!("# must be followed by t, f, % or '"), input)),
+                }
             }
             Some('\'') => {
                 input.next();
@@ -164,13 +193,10 @@ impl Reader {
                 Err(e) => Err((e.to_string(), input)),
             },
 
-            (first, second, last) => {
-                println!("{first} {second} {last}");
-                Ok((
-                    Ast::Symbol(Symbol(format!("{first}{second}{last}").into(), 0)),
-                    input,
-                ))
-            }
+            (first, second, last) => Ok((
+                Ast::Symbol(Symbol(format!("{first}{second}{last}").into(), 0)),
+                input,
+            )),
         }
     }
     pub(crate) fn read_digit(mut input: Input) -> (String, Input) {

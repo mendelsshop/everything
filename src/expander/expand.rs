@@ -379,14 +379,14 @@ impl Expander {
                 val_binds
                     .into_iter()
                     .try_rfold(Ast::TheEmptyList, |exprs, (ids, values)| {
-                        self.expand(values, finish_ctx.clone())
-                            .map(|expr| list!(list!(
+                        self.expand(values, finish_ctx.clone()).map(|expr| {
+                            list!(list!(
                                 ids.into_iter().rfold(Ast::TheEmptyList, |ids, id|
                                     list!(
                                         Ast::Syntax(Box::new(id.clone().with(Ast::Symbol(id.0))));
                                         ids)
                                 ).datum_to_syntax(None, None, None),
-                                expr); exprs))
+                                expr); exprs)
                     })?,
                 finish_bodys
             )

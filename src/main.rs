@@ -1,7 +1,6 @@
 #![warn(clippy::pedantic, clippy::nursery, clippy::cargo)]
 #![deny(static_mut_refs)]
 #![deny(clippy::use_self, rust_2018_idioms, clippy::missing_panics_doc)]
-#![recursion_limit = "1024"]
 use std::{
     cell::RefCell,
     collections::HashMap,

@@ -52,6 +52,8 @@ pub fn match_syntax(original: Ast, pattern: Ast) -> Result<impl Fn(Symbol) -> Op
                         // TODO: maybe better way to get/garuntee matches are in correct order
                         .rev()
                         .flatten()
+                        // chunk is not a true group by in that it only groups similiar things if they are next to each other so we first sort them
+                        .sorted_by_key(|x| x.0.clone())
                         .chunk_by(|vars| vars.0.clone())
                         .into_iter()
                         .map(|(s, matches)| {

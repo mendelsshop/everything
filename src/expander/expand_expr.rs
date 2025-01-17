@@ -9,7 +9,7 @@ use crate::{
         duplicate_check::{check_no_duplicate_ids, make_check_no_duplicate_table},
         expand,
     },
-    list,
+    list, sexpr,
 };
 use itertools::Itertools;
 use trace::trace;
@@ -18,7 +18,6 @@ use super::{
     binding::CompileTimeBinding, expand::rebuild, expand_context::ExpandContext,
     r#match::match_syntax, Expander,
 };
-
 macro_rules! make_let_values_form {
     ($id:ident, $syntaxes:literal, $rec:literal) => {
         fn $id(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
@@ -26,32 +25,23 @@ macro_rules! make_let_values_form {
             let m = if $syntaxes {
                 match_syntax(
                     s.clone(),
-                    list!(
-                        "letrec-syntaxes+values".into(),
-                        list!(
-                            list!(list!("trans-id".into(), "...".into()), "trans-rhs".into()),
-                            "...".into()
-                        ),
-                        list!(
-                            list!(list!("val-id".into(), "...".into()), "val-rhs".into()),
-                            "...".into()
-                        ),
-                        "body".into(),
-                        "...+".into()
-                    ),
+                    sexpr!((
+                        "letrec-syntaxes+values",
+                        ([("trans-id", "..."), "trans-rhs"], "..."),
+                        ([("val-id", "..."), "val-rhs"], "..."),
+                        "body",
+                        "...+"
+                    )),
                 )?
             } else {
                 match_syntax(
                     s.clone(),
-                    list!(
-                        "let-values".into(),
-                        list!(
-                            list!(list!("val-id".into(), "...".into()), "val-rhs".into()),
-                            "...".into()
-                        ),
-                        "body".into(),
-                        "...+".into()
-                    ),
+                    sexpr!((
+                        "let-values",
+                        ([("val-id", "..."), "val-rhs"], "..."),
+                        "body",
+                        "...+"
+                    )),
                 )?
             };
             let sc = self.scope_creator.new_scope();

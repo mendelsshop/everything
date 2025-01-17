@@ -157,7 +157,6 @@ impl Expander {
         let max_candidate = candidate_ids
             .clone()
             .max_by_key(|id| id.0.len())
-            .inspect(|_| println!("something"))
             .filter(|max_candidate: &(BTreeSet<Scope>, Binding)| {
                 !exactly || max_candidate.0.len() == id.1.len()
             })
