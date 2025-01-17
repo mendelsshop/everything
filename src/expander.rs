@@ -3,7 +3,7 @@ use std::{
     rc::Rc,
 };
 
-use binding::{Binding, CoreForm};
+use binding::CoreForm;
 use expand_context::ExpandContext;
 use namespace::NameSpace;
 
@@ -37,7 +37,6 @@ pub struct Expander {
     core_primitives: HashMap<Rc<str>, Ast>,
     core_scope: Scope,
     scope_creator: UniqueNumberManager,
-    pub(crate) all_bindings: HashMap<Syntax<Symbol>, Binding>,
     expand_time_env: EnvRef,
     run_time_env: EnvRef,
     core_syntax: Syntax<Ast>,
@@ -67,7 +66,6 @@ impl Expander {
             core_scope,
             core_primitives: HashMap::new(),
             core_forms: HashMap::new(),
-            all_bindings: HashMap::new(),
             run_time_env: Env::new_env(),
             expand_time_env: Env::new_env(),
             variable,
@@ -97,9 +95,7 @@ impl Expander {
             self.namespace_syntax_introduce(s.datum_to_syntax(None, None, None)),
             ctx,
         )?;
-        println!("after expand {expanded}");
         let compiled = self.compile(expanded, &ns)?;
-        println!("after compile {compiled}");
         self.run_time_eval(compiled)
     }
 }
@@ -840,7 +836,7 @@ impl Expander {
 mod tests {
 
     use crate::evaluator::{Evaluator, Values};
-    use crate::expander::binding::CompileTimeEnvoirnment;
+
     use crate::expander::Expander;
     use crate::list;
     use crate::reader::Reader;

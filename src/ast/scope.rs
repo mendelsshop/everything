@@ -32,12 +32,6 @@ impl Scope {
     }
 }
 
-// impl std::fmt::Debug for Scope {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         f.debug_tuple("Scope").field(&self.0).finish()
-//     }
-// }
-
 impl Ord for Scope {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.0.cmp(&other.0)
@@ -144,7 +138,7 @@ impl Expander {
                 bindings
                     .borrow_mut()
                     .entry(sym)
-                    .or_insert(BTreeMap::new())
+                    .or_default()
                     .insert(scopes, binding);
             })
     }
@@ -164,7 +158,7 @@ impl Expander {
         if check_unambiguous(&max_candidate, candidate_ids) {
             Ok(max_candidate.1)
         } else {
-            Err(format!("ambiguous binding {:?}", id))
+            Err(format!("ambiguous binding {id:?}"))
         }
     }
 
@@ -175,10 +169,8 @@ impl Expander {
     ) -> impl Iterator<Item = (BTreeSet<Scope>, Binding)> + Clone + 'a {
         all_bindings(scopes, id)
             // hacky way to get it to be clonable
-            .map(|x| x.into_iter().collect_vec().into_iter())
-            .flatten()
+            .flat_map(|x| x.into_iter().collect_vec())
             .filter(move |c_id| c_id.0.is_subset(scopes))
-            .map(|x| x.clone())
     }
 }
 
@@ -187,7 +179,7 @@ fn all_bindings<'a>(
     id: &'a Syntax<Symbol>,
 ) -> impl Iterator<Item = BTreeMap<BTreeSet<Scope>, Binding>> + Clone + 'a {
     scopes
-        .into_iter()
+        .iter()
         .filter_map(move |sc| sc.1.borrow().get(&id.0).cloned())
 }
 // TODO: return error if ambiguous

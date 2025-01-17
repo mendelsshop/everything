@@ -1,4 +1,3 @@
-use crate::DEPTH;
 use crate::{
     ast::{
         scope::{AdjustScope, Scope},
@@ -12,7 +11,6 @@ use crate::{
     list, sexpr,
 };
 use itertools::Itertools;
-use trace::trace;
 
 use super::{
     binding::CompileTimeBinding, expand::rebuild, expand_context::ExpandContext,
@@ -82,7 +80,7 @@ macro_rules! make_let_values_form {
                     .into_iter()
                     .chain(val_idss.clone())
                     .concat(),
-                s.clone(),
+                &s,
                 make_check_no_duplicate_table(),
             )?;
             let mut rec_ctx = ctx.clone();
@@ -199,7 +197,7 @@ impl Expander {
     ) -> Result<(Ast, Ast), String> {
         let sc = self.scope_creator.new_scope();
         let ids = self.parse_and_flatten_formals(formals.clone(), sc.clone())?;
-        check_no_duplicate_ids(ids.clone(), s.clone(), make_check_no_duplicate_table())?;
+        check_no_duplicate_ids(ids.clone(), &s, make_check_no_duplicate_table())?;
         let variable = Ast::Symbol(self.variable.clone());
         let keys = ids.into_iter().map(|id| self.add_local_binding(id));
         let mut body_ctx = ctx;
@@ -210,7 +208,6 @@ impl Expander {
         let exp_body = self.expand_body(bodys, sc.clone(), s, body_ctx)?;
         Ok((formals.add_scope(sc), exp_body))
     }
-    #[trace(format_enter = "{s}")]
     fn core_form_lambda(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
         let m = match_syntax(
             s.clone(),
@@ -286,7 +283,10 @@ impl Expander {
         ) -> Result<(), String> {
             match formals {
                 Ast::Syntax(s) => match s.0 {
-                    Ast::Symbol(ref sym) => Ok(formals_list.push(s.clone().with(sym.clone()))),
+                    Ast::Symbol(ref sym) => {
+                        formals_list.push(s.clone().with(sym.clone()));
+                        Ok(())
+                    }
                     Ast::TheEmptyList => Ok(()),
                     p @ Ast::Pair(_) => {
                         parse_and_flatten_formals_loop(p, all_formals, sc, formals_list)
@@ -309,13 +309,12 @@ impl Expander {
         }
         let mut formal_list = vec![];
         parse_and_flatten_formals_loop(formals.clone(), formals, sc, &mut formal_list)
-            .map(|_| formal_list)
+            .map(|()| formal_list)
     }
     make_let_values_form!(core_form_let_values, false, false);
     make_let_values_form!(core_form_letrec_values, true, false);
     make_let_values_form!(core_form_letrec_syntaxes_and_values, true, true);
 
-    #[trace(format_enter = "{s}")]
     fn core_form_datum(&mut self, s: Ast, _ctx: ExpandContext) -> Result<Ast, String> {
         let m = match_syntax(s.clone(), list!("#%datum".into();  "datum".into()))?;
         let datum = m("datum".into()).ok_or("internal error")?;
@@ -327,7 +326,6 @@ impl Expander {
             list!(self.core_datum_to_syntax("quote".into()), datum),
         ))
     }
-    #[trace(format_enter = "{s}")]
     fn core_form_app(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
         let m = match_syntax(
             s.clone(),
@@ -371,10 +369,7 @@ impl Expander {
                 m("if".into()).ok_or("internal_error")?,
                 self.expand(m("condition".into()).ok_or("internal_error")?, ctx.clone())?,
                 self.expand(m("consequent".into()).ok_or("internal_error")?, ctx.clone())?,
-                self.expand(
-                    m("alternative".into()).ok_or("internal_error")?,
-                    ctx.clone()
-                )?
+                self.expand(m("alternative".into()).ok_or("internal_error")?, ctx)?
             ),
         ))
     }
@@ -398,7 +393,7 @@ impl Expander {
                 m("with-continuation-mark".into()).ok_or("internal_error")?,
                 self.expand(m("key".into()).ok_or("internal_error")?, ctx.clone())?,
                 self.expand(m("val".into()).ok_or("internal_error")?, ctx.clone())?,
-                self.expand(m("body".into()).ok_or("internal_error")?, ctx.clone())?
+                self.expand(m("body".into()).ok_or("internal_error")?, ctx)?
             ),
         ))
     }

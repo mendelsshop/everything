@@ -1,10 +1,8 @@
-use crate::DEPTH;
 use std::{
     cell::RefCell,
     collections::{BTreeSet, VecDeque},
     rc::Rc,
 };
-use trace::trace;
 
 use itertools::Itertools;
 
@@ -31,7 +29,6 @@ impl Expander {
     pub fn namespace_syntax_introduce<T: AdjustScope>(&self, s: T) -> T {
         s.add_scope(self.core_scope.clone())
     }
-    #[trace(format_enter = "{s}")]
     pub fn expand(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
         match s.clone() {
             Ast::Syntax(syntax) => match syntax.0 {
@@ -47,8 +44,6 @@ impl Expander {
     }
     // constraints = s.len() > 0
     // constraints = s[0] == Ast::Syntax(Symbol)
-    //#[trace]
-    #[trace(format_enter = "{s}")]
     pub(crate) fn expand_id_application_form(
         &mut self,
         p: Pair,
@@ -75,7 +70,6 @@ impl Expander {
         }
     }
 
-    #[trace(format_enter = "{sym} {s}")]
     fn expand_implicit(&mut self, sym: Symbol, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
         let scopes = s.scope_set();
         let id = sym.clone().datum_to_syntax(scopes, None, None);
@@ -143,7 +137,6 @@ impl Expander {
             }
         }
     }
-    #[trace(format_enter = "{s}")]
     fn dispatch(
         &mut self,
         t: CompileTimeBinding,
@@ -171,7 +164,6 @@ impl Expander {
 
     // unlike the racket version done_bodys and val_binds are in the correct order, as it is
     // probably more effecient from a rust perspective anyway
-    #[trace(format_enter = "")]
     fn expand_body_loop(
         &mut self,
         mut body_ctx: ExpandContext,
@@ -191,7 +183,7 @@ impl Expander {
                     match pat.to_string().as_str() {
                         "begin" => {
                             let m = match_syntax(
-                                exp_body.clone(),
+                                exp_body,
                                 list!("begin".into(), "e".into(), "...".into()),
                             )?;
                             let e = m("e".into()).ok_or("internal error")?;
@@ -224,7 +216,7 @@ impl Expander {
                             let ids = to_id_list(ids)?;
                             let new_duplicates = duplicate_check::check_no_duplicate_ids(
                                 ids.clone(),
-                                exp_body,
+                                &exp_body,
                                 duplicate,
                             )?;
                             let keys = ids
@@ -268,11 +260,11 @@ impl Expander {
                             let id_count = ids.len();
                             let ids = ids
                                 .into_iter()
-                                .map(|id| id.try_into())
+                                .map(std::convert::TryInto::try_into)
                                 .collect::<Result<Vec<_>, _>>()?;
                             let new_duplicates = duplicate_check::check_no_duplicate_ids(
                                 ids.clone(),
-                                exp_body,
+                                &exp_body,
                                 duplicate,
                             )?;
                             let keys = ids
@@ -284,10 +276,7 @@ impl Expander {
                                 id_count,
                                 ctx.clone(),
                             )?;
-                            body_ctx
-                                .env
-                                .0
-                                .extend(keys.into_iter().zip(vals.into_iter()));
+                            body_ctx.env.0.extend(keys.into_iter().zip(vals));
                             self.expand_body_loop(
                                 body_ctx,
                                 ctx,
@@ -387,6 +376,7 @@ impl Expander {
                                         ids)
                                 ).datum_to_syntax(None, None, None),
                                 expr); exprs)
+                        })
                     })?,
                 finish_bodys
             )
@@ -411,7 +401,6 @@ impl Expander {
             })
             .collect_vec()
     }
-    #[trace(format_enter = "{bodys}")]
     pub fn expand_body(
         &mut self,
         bodys: Ast,
@@ -504,7 +493,6 @@ impl Expander {
         )
     }
 
-    #[trace(format_enter = "{s}")]
     pub(crate) fn expand_identifier(
         &mut self,
         s: Syntax<Symbol>,
@@ -524,7 +512,7 @@ pub fn to_id_list(ids: Ast) -> Result<Vec<Syntax<Symbol>>, String> {
     let ids = ids.to_list_checked()?;
     let ids = ids
         .into_iter()
-        .map(|id| id.try_into())
+        .map(std::convert::TryInto::try_into)
         .collect::<Result<Vec<_>, _>>()?;
     Ok(ids)
 }

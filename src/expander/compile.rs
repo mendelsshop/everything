@@ -3,7 +3,7 @@ use std::{mem, rc::Rc};
 use crate::{
     ast::{syntax::Syntax, Ast, Pair, Symbol},
     evaluator::{Evaluator, Values},
-    list,
+    list, sexpr,
 };
 
 use super::{binding::Binding, namespace::NameSpace, r#match::match_syntax, Expander};
@@ -33,30 +33,16 @@ impl Expander {
                         .map(|body| list!("lambda".into(); body))
                     }
                     "case-lambda" => {
-                        // TODO: better tools to iterate over two/multiple things at once
-                        //let m = match_syntax(s, list!("case-lambda".into(), list!("formals".into(), "body".into()), "...".into()))?;
-                        //let formals = m("formals".into()).ok_or("internal error")?;
-                        //let bodies = m("body".into()).ok_or("internal error")?;
-                        let m = match_syntax(
-                            s,
-                            list!("case-lambda".into(), "case".into(), "...".into()),
-                        )?;
-                        let cases = m("case".into()).ok_or("internal error")?.map(|case| {
-                            let m = match_syntax(case, list!("formals".into(), "body".into()))?;
-                            let formals = m("formals".into()).ok_or("internal error")?;
-                            let body = m("body".into()).ok_or("internal error")?;
-                            self.compile_lambda(formals, body, ns)
-                        });
-                        cases.map(|cases| list!("case-lambda".into(); cases))
+                        let m = match_syntax(s, sexpr!(("case-lambda", [formals, body], "...")))?;
+                        Ast::map2(
+                            m("formals".into()).ok_or("internal error")?,
+                            m("body".into()).ok_or("internal error")?,
+                            |formals, body| self.compile_lambda(formals, body, ns),
+                        )
+                        .map(|cases| sexpr!(("case-lambda"; #cases)))
                     }
                     "#%app" => {
-                        let m = match_syntax(
-                            s,
-                            // TODO: should this (#%app) be a syntax object
-                            // TODO FIX: the problem seems to be that rest is not a list
-                            Ast::Pair(Box::new(Pair("#%app".into(), "rest".into()))),
-                        )?;
-                        let l = m("rest".into()).ok_or("internal error")?.list();
+                        let m = match_syntax(s, sexpr!(("#%app"; rest)))?;
                         m("rest".into()).ok_or("internal error")?.map(compile)
                     }
                     "if" => {
@@ -140,7 +126,7 @@ impl Expander {
                     dbg!(format!("{e}"));
                 })?;
                 match b {
-                    Binding::Local(b) => Ok(Ast::Symbol(key_to_symbol(b.clone()))),
+                    Binding::Local(b) => Ok(Ast::Symbol(key_to_symbol(b))),
                     Binding::TopLevel(s) => ns
                         .variables
                         .get(&s.clone().into())
@@ -230,6 +216,6 @@ impl Expander {
     }
 }
 
-fn key_to_symbol(key: Symbol) -> Symbol {
+const fn key_to_symbol(key: Symbol) -> Symbol {
     key
 }

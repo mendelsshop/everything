@@ -211,12 +211,12 @@ impl Symbol {
         scopes: Option<BTreeSet<Scope>>,
         srcloc: Option<SourceLocation>,
         properties: Option<Properties>,
-    ) -> Syntax<Symbol> {
+    ) -> Syntax<Self> {
         Syntax(
             self,
             scopes.unwrap_or_default(),
             srcloc.unwrap_or_default(),
-            properties.clone().unwrap_or_default(),
+            properties.unwrap_or_default(),
         )
     }
 }
@@ -282,8 +282,8 @@ impl Ast {
         }
     }
     pub fn map2(
-        a: Ast,
-        b: Ast,
+        a: Self,
+        b: Self,
         mut f: impl FnMut(Self, Self) -> Result<Self, String>,
     ) -> Result<Self, String> {
         match (a, b) {
@@ -351,10 +351,10 @@ impl Ast {
         )
     }
     // TODO: have Vec<Ast> -> Ast
-    pub fn to_list(self) -> Vec<Ast> {
+    pub fn to_list(self) -> Vec<Self> {
         self.foldl_pair(
             |term, base, mut init| {
-                if base && term == Ast::TheEmptyList {
+                if base && term == Self::TheEmptyList {
                     init
                 } else {
                     init.push(term);
@@ -364,7 +364,7 @@ impl Ast {
             Vec::new(),
         )
     }
-    pub fn to_list_checked(self) -> Result<Vec<Ast>, String> {
+    pub fn to_list_checked(self) -> Result<Vec<Self>, String> {
         self.foldl(
             |term, mut init| {
                 init.push(term);
@@ -374,7 +374,7 @@ impl Ast {
         )
     }
 
-    pub fn is_keyword(&self) -> bool {
+    pub const fn is_keyword(&self) -> bool {
         // https://docs.racket-lang.org/guide/keywords.html
         false
     }
@@ -411,7 +411,7 @@ impl Ast {
         }
     }
 
-    pub(crate) fn append(self, list: Ast) -> Ast {
+    pub(crate) fn append(self, list: Self) -> Self {
         fn inner(list1: Ast, list2: Ast, f: impl FnOnce(Ast) -> Ast) -> Ast {
             match list1 {
                 Ast::Pair(pair) => {

@@ -5,7 +5,7 @@ use std::iter::Peekable;
 pub struct Reader(String);
 
 impl Reader {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self(String::new())
     }
     pub fn new_with_input(input: &impl ToString) -> Self {
@@ -86,7 +86,6 @@ impl Reader {
             }
         }
     }
-    // #[trace(format_enter = "", format_exit = "")]
     pub(crate) fn read_inner(
         input: Input,
         empty_continuation: &mut impl FnMut() -> Option<String>,
@@ -121,7 +120,7 @@ impl Reader {
                             input,
                         ))
                     }
-                    None => Err((format!("# must be followed by t, f, % or '"), input)),
+                    None => Err(("# must be followed by t, f, % or '".to_string(), input)),
                 }
             }
             Some('\'') => {
@@ -147,7 +146,6 @@ impl Reader {
         }
     }
 
-    // #[trace(format_enter = "", format_exit = "")]
     pub(crate) fn read_whitespace_and_comments(mut input: Input) -> (bool, Input) {
         let mut found = false;
         while let Some(c) = input.peek() {
@@ -170,7 +168,6 @@ impl Reader {
         (found, input)
     }
 
-    // #[trace(format_enter = "", format_exit = "")]
     // parse symbol if not followed by space paren or comment
     // invariant Some('.') | Some(c) if c.is_ascci_digit() = input.peek()
     // TODO: if number is immediatly followed by symbol combine into one symbol
@@ -208,13 +205,11 @@ impl Reader {
         (number, input)
     }
     // constraints input.next() == Some(c) if c != whitespace or comment or paren
-    // #[trace(format_enter = "", format_exit = "")]
     pub(crate) fn read_symbol(input: Input) -> ReaderInnerResult {
         let (symbol, input) = Self::read_symbol_inner(input);
         Ok((Ast::Symbol(Symbol(symbol.into(), 0)), input))
     }
 
-    // #[trace(format_enter = "", format_exit = "")]
     pub(crate) fn read_list(
         mut input: Input,
         bracket: char,

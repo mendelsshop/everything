@@ -67,14 +67,14 @@ impl TryFrom<Ast> for Syntax<Symbol> {
 
 const EMPTY_SCOPE: BTreeSet<Scope> = ScopeSet::new();
 const EMPTY_PROPERTY: Properties = BTreeMap::new();
-fn empty_srcloc() -> SourceLocation {
+const fn empty_srcloc() -> SourceLocation {
     SourceLocation {
         file: String::new(),
         line: 0,
         column: 0,
     }
 }
-fn empty_syntax() -> Syntax<Ast> {
+const fn empty_syntax() -> Syntax<Ast> {
     Syntax(
         Ast::Boolean(false),
         EMPTY_SCOPE,
@@ -137,13 +137,13 @@ impl Ast {
             _ => self,
         }
     }
-    pub fn identifier(&self) -> bool {
+    pub const fn identifier(&self) -> bool {
         matches!( self, Self::Syntax(s) if  matches!(**s,Syntax(Self::Symbol(_), ..)))
     }
 }
 impl<T> Syntax<T> {
     #[must_use]
-    pub fn new(expr: T) -> Self {
+    pub const fn new(expr: T) -> Self {
         Self(expr, EMPTY_SCOPE, empty_srcloc(), EMPTY_PROPERTY)
     }
     pub fn bound_identifier(&self, other: &Self) -> bool

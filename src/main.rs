@@ -23,7 +23,7 @@ mod reader;
 struct UniqueNumberManager(usize);
 
 impl UniqueNumberManager {
-    fn new() -> Self {
+    const fn new() -> Self {
         Self(1)
     }
 

@@ -112,7 +112,7 @@ impl Ast {
         Ok(Values::Single(snd))
     }
 
-    pub fn primitive_list(self) -> Result<Values, String> {
+    pub const fn primitive_list(self) -> Result<Values, String> {
         Ok(Values::Single(self))
     }
     pub fn primitive_map(self) -> Result<Values, String> {
@@ -141,16 +141,16 @@ impl Ast {
     }
     pub fn primitive_values(self) -> Result<Values, String> {
         match self {
-            Ast::Pair(p) if p.1 == Ast::TheEmptyList => Ok(Values::Single(p.0)),
+            Self::Pair(p) if p.1 == Self::TheEmptyList => Ok(Values::Single(p.0)),
             _ => self.to_list_checked().map(Values::Many),
         }
     }
     pub fn primitive_null(self) -> Result<Values, String> {
         match self {
-            Ast::Pair(p) if *p == Pair(Ast::TheEmptyList, Ast::TheEmptyList) => {
-                Ok(Values::Single(Ast::Boolean(true)))
+            Self::Pair(p) if *p == Pair(Self::TheEmptyList, Self::TheEmptyList) => {
+                Ok(Values::Single(Self::Boolean(true)))
             }
-            _ => Ok(Values::Single(Ast::Boolean(false))),
+            _ => Ok(Values::Single(Self::Boolean(false))),
         }
     }
 }

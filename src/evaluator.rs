@@ -1,11 +1,9 @@
 use crate::{
     ast::{Ast, Function, Lambda, Pair, Symbol},
     primitives::new_primitive_env,
-    DEPTH,
 };
 
 use itertools::Itertools;
-use trace::trace;
 
 use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
 
@@ -119,12 +117,12 @@ impl PartialEq for Values {
 impl Values {
     pub fn into_single(self) -> Result<Ast, Vec<Ast>> {
         match self {
-            Values::Many(mut vec) if vec.len() == 1 => {
+            Self::Many(mut vec) if vec.len() == 1 => {
                 let ast = vec.remove(0);
                 Ok(ast)
             }
-            Values::Many(vec) => Err(vec),
-            Values::Single(ast) => Ok(ast),
+            Self::Many(vec) => Err(vec),
+            Self::Single(ast) => Ok(ast),
         }
     }
 }
@@ -132,24 +130,23 @@ impl Values {
 impl fmt::Display for Values {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Values::Many(vec) => write!(
+            Self::Many(vec) => write!(
                 f,
                 "{}",
                 vec.iter().map(ToString::to_string).collect_vec().join("\n")
             ),
-            Values::Single(ast) => write!(f, "{ast}"),
+            Self::Single(ast) => write!(f, "{ast}"),
         }
     }
 }
 impl Evaluator {
     pub(crate) fn eval_single_value(expr: Ast, env: EnvRef) -> Result<Ast, String> {
-        Evaluator::eval(expr, env).and_then(|values| {
+        Self::eval(expr, env).and_then(|values| {
             values
                 .into_single()
                 .map_err(|_| "arity error expected one value".to_string())
         })
     }
-    #[trace]
     pub(crate) fn eval(expr: Ast, env: EnvRef) -> Result<Values, String> {
         match expr {
             Ast::Pair(list) => match list.0 {
