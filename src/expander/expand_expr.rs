@@ -24,10 +24,10 @@ macro_rules! make_let_values_form {
                 match_syntax(
                     s.clone(),
                     sexpr!((
-                        "letrec-syntaxes+values",
-                        ([("trans-id", "..."), "trans-rhs"], "..."),
-                        ([("val-id", "..."), "val-rhs"], "..."),
-                        "body",
+                        "letrec-syntaxes+values"
+                        ([("trans-id" "...") "trans-rhs"] "...")
+                        ([("val-id" "...") "val-rhs"] "...")
+                        body
                         "...+"
                     )),
                 )?
@@ -35,9 +35,9 @@ macro_rules! make_let_values_form {
                 match_syntax(
                     s.clone(),
                     sexpr!((
-                        "let-values",
-                        ([("val-id", "..."), "val-rhs"], "..."),
-                        "body",
+                        "let-values"
+                        ([("val-id" "...") "val-rhs"] "...")
+                        body
                         "...+"
                     )),
                 )?

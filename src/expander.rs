@@ -838,9 +838,8 @@ mod tests {
     use crate::evaluator::{Evaluator, Values};
 
     use crate::expander::Expander;
-    use crate::list;
-    use crate::reader::Reader;
     use crate::Ast;
+    use crate::{list, sexpr};
 
     use super::expand_context::ExpandContext;
 
@@ -875,126 +874,113 @@ mod tests {
         }
     }
 
-    fn add_let(e: &str) -> String {
-        format!(
-            "(let-syntax (( let (lambda (stx)
-                       (datum->syntax
-                        (quote-syntax here)
+    fn add_let(e: Ast) -> Ast {
+        sexpr!(
+            ("letrec-syntaxes+values" ([ (let) (lambda (stx)
+                       ("datum->syntax"
+                        ("quote-syntax" here)
                         (cons
-                         (list (quote-syntax lambda)
+                         (list ("quote-syntax" lambda)
                                (map (lambda (b)
-                                      (car (syntax-e b)))
-                                    (syntax-e (car (cdr (syntax-e stx)))))
-                               (car (cdr (cdr (syntax-e stx)))))
+                                      (car ("syntax-e" b)))
+                                    ("syntax-e" (car (cdr ("syntax-e" stx)))))
+                               (car (cdr (cdr ("syntax-e" stx)))))
                          (map (lambda (b)
-                                (car (cdr (syntax-e b))))
-                              (syntax-e (car (cdr (syntax-e stx)))))))) ))
-                {e})"
+                                (car (cdr ("syntax-e" b))))
+                              ("syntax-e" (car (cdr ("syntax-e" stx)))))))) ])
+            ()
+                #(e))
         )
     }
 
     #[test]
     fn expander_test_lambda() {
         let mut expander = Expander::new();
-        expander.compile_eval_expression(list!(
-            Ast::Symbol("lambda".into()),
-            list!(Ast::Symbol("x".into())),
-            Ast::Symbol("x".into())
-        ));
+        expander.compile_eval_expression(sexpr!((lambda (x) x)));
     }
 
     #[test]
     fn expander_test_basic_let() {
         let mut expander = Expander::new();
-        let mut reader = Reader::new_with_input(&add_let("(lambda (x) (let ((y x)) y))"));
-        expander.compile_eval_expression(reader.read().unwrap());
+        let expr = add_let(sexpr!((lambda (x) (let ((y x)) y))));
+        expander.compile_eval_expression(expr);
     }
     #[test]
     fn expander_test_basic_macro() {
         let mut expander = Expander::new();
-        let mut reader = Reader::new_with_input(
-            &"(lambda (x)
-                (let-syntax ((y (lambda (stx) (quote-syntax 7))))
-     y))",
-        );
-        expander.compile_eval_expression(reader.read().unwrap());
+        let expr = sexpr!((lambda (x)
+                ("letrec-syntaxes+values" ([ (y) (lambda (stx) ("quote-syntax" 7)) ]) ()
+     y)));
+
+        expander.compile_eval_expression(expr);
     }
     #[test]
     fn expander_test_complex_let() {
         let mut expander = Expander::new();
-        let mut reader = Reader::new_with_input(&add_let(
-            "(let ((z 9))
-    (let-syntax (( m (lambda (stx) (car (cdr (syntax-e stx)))) ))
-      (let (( x 5 )
-            ( y (lambda (z) z) ))
-        (let (( z 10 ))
-          (list z (m 10))))))",
-        ));
-        expander.compile_eval_expression(reader.read().unwrap());
+        let expr = add_let(sexpr!((let ((z 9))
+        ("letrec-syntaxes+values" ([ (m) (lambda (stx) (car (cdr ("syntax-e" stx)))) ]) ()
+          (let (( x 5 )
+                ( y (lambda (z) z) ))
+            (let (( z 10 ))
+              (list z (m 10))))))
+            ));
+        expander.compile_eval_expression(expr);
     }
 
     #[test]
     fn expander_test_expansion_not_captured() {
         let mut expander = Expander::new();
-        let mut reader = Reader::new_with_input(&add_let(
-            "(let ((x 'x-1))
-    (let-syntax ((m (lambda (stx) (quote-syntax x))))
-      (let ((x 'x-3))
-        (m))))",
-        ));
-        expander.eval_expression(
-            reader.read().unwrap(),
-            Some(Values::Single(Ast::Symbol("x-1".into()))),
-        );
+        let expr = add_let(sexpr!((let ((x (quote "x-1")))
+        ("letrec-syntaxes+values" ([ (m) (lambda (stx) ("quote-syntax" x)) ]) ()
+          (let ((x (quote "x-3")))
+            (m))))
+            ));
+        expander.eval_expression(expr, Some(Values::Single(Ast::Symbol("x-1".into()))));
     }
 
     #[test]
     fn expander_test_not_capturing_expansion() {
         let mut expander = Expander::new();
-        let mut reader = Reader::new_with_input(&add_let(
-            "(let (( x 'x-1 ))
-    (let-syntax (( m (lambda (stx)
-                      (datum->syntax
-(quote-syntax here)
-                       (list (quote-syntax let)
-                             (list (list (quote-syntax x)
-                                         (quote-syntax 'x-2)))
-                             (car (cdr (syntax-e stx)))))) ))
-      (let (( x 'x-3 ))
-        (m x))))",
-        ));
-        expander.eval_expression(
-            reader.read().unwrap(),
-            Some(Values::Single(Ast::Symbol("x-3".into()))),
-        );
+        let expr = add_let(sexpr!(
+                    (let (( x (quote "x-1") ))
+            ("letrec-syntaxes+values" ([ (m) (lambda (stx)
+                              ("datum->syntax"
+        ("quote-syntax" here)
+                               (list ("quote-syntax" let)
+                                     (list (list ("quote-syntax" x)
+                                                 ("quote-syntax"(quote  "x-2"))))
+                                     (car (cdr ("syntax-e" stx)))))) ]) ()
+              (let (( x (quote "x-3") ))
+                (m x))))
+                ));
+        expander.eval_expression(expr, Some(Values::Single(Ast::Symbol("x-3".into()))));
     }
 
     #[test]
     fn expander_test_distinct_generated_variables_via_introduction_scope() {
         let mut expander = Expander::new();
-        let mut reader = Reader::new_with_input(&add_let(
-            "(let-syntax (( gen2 (lambda (stx)
-                        (datum->syntax
-(quote-syntax here)
-                         (list (quote-syntax let)
-                               (list (list (car (cdr (cdr (syntax-e stx))))
-                                           (car (cdr (cdr (cdr (cdr (syntax-e stx)))))))
-                                     (list (car (cdr (cdr (cdr (syntax-e stx)))))
-                                           (car (cdr (cdr (cdr (cdr (cdr (syntax-e stx)))))))))
-                               (list (quote-syntax list)
-                                     (car (cdr (cdr (syntax-e stx))))
-                                     (car (cdr (cdr (cdr (syntax-e stx))))))))) ))
-    (let-syntax (( gen1 (lambda ( stx)
-                         (datum->syntax
-(quote-syntax here)
-                          (cons (car (cdr (syntax-e stx)))
-                                (cons (quote-syntax gen2)
-                                      (cons (quote-syntax x)
-                                            (cdr (cdr (syntax-e stx)))))))) ))
-      (gen1 gen1 1 2)))",
-        ));
+        let expr = add_let(sexpr!(
+            ("letrec-syntaxes+values" ([ (gen2) (lambda (stx)
+                        ("datum->syntax"
+("quote-syntax" here)
+                         (list ("quote-syntax" let)
+                               (list (list (car (cdr (cdr ("syntax-e" stx))))
+                                           (car (cdr (cdr (cdr (cdr ("syntax-e" stx)))))))
+                                     (list (car (cdr (cdr (cdr ("syntax-e" stx)))))
+                                           (car (cdr (cdr (cdr (cdr (cdr ("syntax-e" stx)))))))))
+                               (list ("quote-syntax" list)
+                                     (car (cdr (cdr ("syntax-e" stx))))
+                                     (car (cdr (cdr (cdr ("syntax-e" stx))))))))) ]) ()
+    ("letrec-syntaxes+values" ([ (gen1) (lambda ( stx)
+                         ("datum->syntax"
+("quote-syntax" here)
+                          (cons (car (cdr ("syntax-e" stx)))
+                                (cons ("quote-syntax" gen2)
+                                      (cons ("quote-syntax" x)
+                                            (cdr (cdr ("syntax-e" stx)))))))) ]) ()
+      (gen1 gen1 1 2)))));
         expander.eval_expression(
-            reader.read().unwrap(),
+            expr,
             Some(Values::Single(list!(Ast::Number(1.), Ast::Number(2.)))),
         );
     }
@@ -1002,15 +988,13 @@ mod tests {
     fn expander_test_non_transformer_binding_misuse() {
         let mut expander = Expander::new();
         let env = ExpandContext::new(expander.namespace());
-        let mut reader = Reader::new_with_input(
-            &"(let-syntax ((v 1))
-                            v)",
+        let expr = sexpr!(
+            ("letrec-syntaxes+values" ([ (v) 1 ]) ()
+                            v)
         );
         assert!(expander
             .expand(
-                expander.namespace_syntax_introduce(
-                    reader.read().unwrap().datum_to_syntax(None, None, None)
-                ),
+                expander.namespace_syntax_introduce(expr.datum_to_syntax(None, None, None)),
                 env
             )
             .is_err_and(|e| e.contains("illegal use of syntax")));

@@ -33,16 +33,16 @@ impl Expander {
                         .map(|body| list!("lambda".into(); body))
                     }
                     "case-lambda" => {
-                        let m = match_syntax(s, sexpr!(("case-lambda", [formals, body], "...")))?;
+                        let m = match_syntax(s, sexpr!(("case-lambda" [formals body] "...")))?;
                         Ast::map2(
                             m("formals".into()).ok_or("internal error")?,
                             m("body".into()).ok_or("internal error")?,
                             |formals, body| self.compile_lambda(formals, body, ns),
                         )
-                        .map(|cases| sexpr!(("case-lambda"; #cases)))
+                        .map(|cases| sexpr!(("case-lambda". #(cases))))
                     }
                     "#%app" => {
-                        let m = match_syntax(s, sexpr!(("#%app"; rest)))?;
+                        let m = match_syntax(s, sexpr!(("#%app".rest)))?;
                         m("rest".into()).ok_or("internal error")?.map(compile)
                     }
                     "if" => {
