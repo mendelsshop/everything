@@ -178,11 +178,8 @@ impl Expander {
             idss,
             m("rhs".into()).ok_or("internal error")?,
             |ids, rhs| {
-                ids.map(|id| {
-                    self.local_symbol(&id.try_into()?)
-                        .map(Ast::Symbol)
-                        .and_then(|ids| self.compile(rhs.clone(), ns).map(|rhs| list!(ids, rhs)))
-                })
+                ids.map(|id| self.local_symbol(&id.try_into()?).map(Ast::Symbol))
+                    .and_then(|ids| self.compile(rhs.clone(), ns).map(|rhs| list!(ids, rhs)))
             },
         )
         .and_then(|signature| {

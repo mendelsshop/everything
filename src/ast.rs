@@ -443,3 +443,13 @@ impl Ast {
         inner(self, list, |x| x)
     }
 }
+impl TryFrom<Ast> for Symbol {
+    type Error = String;
+
+    fn try_from(value: Ast) -> Result<Self, Self::Error> {
+        let Ast::Symbol(s) = value else {
+            return Err("not a symbol".to_string());
+        };
+        Ok(s)
+    }
+}

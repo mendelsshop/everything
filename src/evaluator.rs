@@ -1,11 +1,12 @@
 use crate::{
     ast::{Ast, Function, Lambda, Pair, Symbol},
+    expander::expand,
     primitives::new_primitive_env,
 };
 
 use itertools::Itertools;
 
-use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, fmt, process::id, rc::Rc};
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct Env {
@@ -79,7 +80,9 @@ impl Env {
                 (arg, _) => Err(format!("bad argument expected symbol found: {arg}")),
             }
         }
-        extend_envoirnment(new_envoirnment.clone(), params, args).map(|()| new_envoirnment)
+        extend_envoirnment(new_envoirnment.clone(), params.clone(), args.clone())
+            .map(|()| new_envoirnment)
+            .map_err(|e| format!("{e} {params} {args}"))
     }
 
     pub(crate) fn new() -> EnvRef {
@@ -188,6 +191,28 @@ impl Evaluator {
                     };
                     Self::eval(datum, env)
                 }
+                Ast::Symbol(Symbol(letrec_values, 0)) if &*letrec_values == "letrec-values" => {
+                    let (values, bodies) = Self::check_let(&*letrec_values, list.1)?;
+                    todo!()
+                }
+                Ast::Symbol(Symbol(let_values, 0)) if &*let_values == "let-values" => {
+                    let (values, bodies) = Self::check_let(&*let_values, list.1)?;
+                    let values = values.into_iter().map(|(mut ids, value)| {
+                        let value = Self::eval(value, Rc::clone(&env))?;
+                        match value {
+                            Values::Many(vec) if vec.len() == ids.len() => {
+                                Ok(ids.into_iter().zip(vec).collect_vec())
+                            },
+                            Values::Single(ast) if ids.len() == 1 => Ok(vec![(ids.remove(0), ast)]),
+                            _ => Err("let-values error: number of values is not the same as the number of ids".to_string()),
+                        }
+                    }).try_collect::<_, Vec<_>, _>()?.concat();
+                    let env = Rc::new(RefCell::new(Env {
+                        scope: HashMap::from_iter(values),
+                        parent: Some(env),
+                    }));
+                    Evaluator::eval(bodies, env)
+                }
                 f => {
                     let f: Ast = Self::eval_single_value(f, env.clone())?;
                     let rest = list
@@ -225,5 +250,52 @@ impl Evaluator {
             Self::eval(pair.0, env.clone())?;
             Self::eval_sequence(pair.1, env)
         }
+    }
+    pub fn to_id_list(ids: Ast) -> Result<Vec<Symbol>, String> {
+        let ids = ids.to_list_checked()?;
+        let ids = ids
+            .into_iter()
+            .map(std::convert::TryInto::try_into)
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(ids)
+    }
+    fn check_let(letrec_values: &str, list: Ast) -> Result<(Vec<(Vec<Symbol>, Ast)>, Ast), String> {
+        let Ast::Pair(pair) = list else {
+            return Err(format!("error {letrec_values}: expected key values pairs"));
+        };
+        let values = pair.0;
+        let values: Vec<(Vec<Symbol>, Ast)> = values
+            .to_list_checked()?
+            .into_iter()
+            .map(|value| {
+                let Ast::Pair(value) = value else {
+                    return Err(format!(
+                        "error {letrec_values}: expected [(ids) value], got {value}"
+                    ));
+                };
+                let ids = Self::to_id_list(value.0)?;
+                let Ast::Pair(value) = value.1 else {
+                    return Err(format!(
+                        "error {letrec_values}: expected [(ids) value], missing value {}",
+                        value.1
+                    ));
+                };
+                if value.1 != Ast::TheEmptyList {
+                    return Err(format!(
+                        "error {letrec_values}: expected [(ids) value], it is unclosed, got {}",
+                        value.1
+                    ));
+                };
+                Ok((ids, value.0))
+            })
+            .try_collect()?;
+        let Ast::Pair(pair) = pair.1 else {
+            return Err(format!("error {letrec_values}: expected body"));
+        };
+        let body = pair.0;
+        if pair.1 != Ast::TheEmptyList {
+            return Err(format!("error {letrec_values}: unclosed body"));
+        }
+        Ok((values, body))
     }
 }
