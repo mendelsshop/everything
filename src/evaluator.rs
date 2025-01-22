@@ -1,12 +1,11 @@
 use crate::{
     ast::{Ast, Function, Lambda, Pair, Symbol},
-    expander::expand,
     primitives::new_primitive_env,
 };
 
 use itertools::Itertools;
 
-use std::{cell::RefCell, collections::HashMap, fmt, process::id, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct Env {
@@ -45,6 +44,13 @@ impl Env {
     }
     fn define(&mut self, symbol: Symbol, expr: Ast) -> bool {
         self.scope.insert(symbol, expr).is_some()
+    }
+    fn define_values(
+        &mut self,
+        symbols: impl IntoIterator<Item = Symbol>,
+        values: impl IntoIterator<Item = Ast>,
+    ) {
+        self.scope.extend(symbols.into_iter().zip(values));
     }
     fn new_scope(env: EnvRef) -> EnvRef {
         let parent = Some(env);
@@ -182,6 +188,20 @@ impl Evaluator {
                     };
                     Ok(Values::Single(datum))
                 }
+                Ast::Symbol(Symbol(begin, 0)) if *begin == *"begin" => {
+                    Self::eval_sequence(list.1, env)
+                }
+                Ast::Symbol(Symbol(begin, 0)) if *begin == *"begin0" => {
+                    let vec = list.1.to_list_checked()?;
+                    if vec.is_empty() {
+                        return Err("expected at least one expression in begin".to_string());
+                    }
+                    let mut results: Vec<Values> = vec
+                        .into_iter()
+                        .map(|e| Self::eval(e, Rc::clone(&env)))
+                        .try_collect()?;
+                    Ok(results.remove(0))
+                }
                 Ast::Symbol(Symbol(expression, 0)) if *expression == *"#%expression" => {
                     let Pair(_, Ast::Pair(datum)) = *list else {
                         Err("bad syntax, #%expression requires one expression")?
@@ -192,11 +212,26 @@ impl Evaluator {
                     Self::eval(datum, env)
                 }
                 Ast::Symbol(Symbol(letrec_values, 0)) if &*letrec_values == "letrec-values" => {
-                    let (values, bodies) = Self::check_let(&*letrec_values, list.1)?;
-                    todo!()
+                    let (values, bodies) = Self::check_let(&letrec_values, list.1)?;
+                    let env = Env::new_scope(env);
+                    values.into_iter().try_for_each(|(mut ids, value)| {
+                        let value = Self::eval(value, Rc::clone(&env))?;
+                        match value {
+                            Values::Many(vec) if vec.len() == ids.len() => {
+                                env.borrow_mut().define_values(ids, vec);
+                                Ok(())
+                            },
+                            Values::Single(ast) if ids.len() == 1 => {
+                                env.borrow_mut().define(ids.remove(0), ast);
+                                Ok(())
+                            },
+                            _ => Err("let-values error: number of values is not the same as the number of ids".to_string()),
+                        }
+                    })?;
+                    Self::eval(bodies, env)
                 }
                 Ast::Symbol(Symbol(let_values, 0)) if &*let_values == "let-values" => {
-                    let (values, bodies) = Self::check_let(&*let_values, list.1)?;
+                    let (values, bodies) = Self::check_let(&let_values, list.1)?;
                     let values = values.into_iter().map(|(mut ids, value)| {
                         let value = Self::eval(value, Rc::clone(&env))?;
                         match value {
@@ -211,7 +246,7 @@ impl Evaluator {
                         scope: HashMap::from_iter(values),
                         parent: Some(env),
                     }));
-                    Evaluator::eval(bodies, env)
+                    Self::eval(bodies, env)
                 }
                 f => {
                     let f: Ast = Self::eval_single_value(f, env.clone())?;
