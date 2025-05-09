@@ -13,7 +13,7 @@ use crate::{
         Ast, Function, Pair, Symbol,
     },
     evaluator::Values,
-    list,
+    list, UniqueNumberManager,
 };
 
 use super::{
@@ -21,7 +21,6 @@ use super::{
     duplicate_check::{self, make_check_no_duplicate_table, DuplicateMap},
     expand_context::ExpandContext,
     namespace::NameSpace,
-    r#match::match_syntax,
     Expander,
 };
 
@@ -107,7 +106,7 @@ impl Expander {
         s: Ast,
         ctx: &ExpandContext,
     ) -> Result<Ast, String> {
-        let intro_scope = self.scope_creator.new_scope();
+        let intro_scope = UniqueNumberManager::new_scope();
         let intro_s = s.add_scope(intro_scope.clone());
         let uses_s = self.maybe_add_use_site_scope(intro_s, ctx);
         let transformed_s = m.apply_single(Ast::Pair(Box::new(Pair(uses_s, Ast::TheEmptyList))))?;
@@ -121,7 +120,7 @@ impl Expander {
     fn maybe_add_use_site_scope(&mut self, s: Ast, ctx: &ExpandContext) -> Ast {
         match &ctx.use_site_scopes {
             Some(scopes) => {
-                let sc = self.scope_creator.new_scope();
+                let sc = UniqueNumberManager::new_scope();
 
                 scopes.borrow_mut().insert(sc.clone());
                 s.add_scope(sc)
@@ -222,7 +221,7 @@ impl Expander {
                             let keys = ids
                                 .clone()
                                 .into_iter()
-                                .map(|id| self.add_local_binding(id))
+                                .map(|id| Self::add_local_binding(id))
                                 .collect_vec();
 
                             body_ctx.env.0.extend(
@@ -269,7 +268,7 @@ impl Expander {
                             )?;
                             let keys = ids
                                 .into_iter()
-                                .map(|id| self.add_local_binding(id))
+                                .map(|id| Self::add_local_binding(id))
                                 .collect_vec();
                             let vals = self.eval_for_syntaxes_binding(
                                 m("rhs".into()).ok_or("internal error")?,
@@ -408,8 +407,8 @@ impl Expander {
         original_syntax: Ast,
         context: ExpandContext,
     ) -> Result<Ast, String> {
-        let outside_scope = self.scope_creator.new_scope();
-        let inside_scope = self.scope_creator.new_scope();
+        let outside_scope = UniqueNumberManager::new_scope();
+        let inside_scope = UniqueNumberManager::new_scope();
         let init_bodys = bodys
             .map(|body| {
                 Ok(body

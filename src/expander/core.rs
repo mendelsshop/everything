@@ -8,7 +8,6 @@ use crate::ast::{
 use super::{
     binding::{Binding, CompileTimeBinding, CoreForm},
     namespace::NameSpace,
-    r#match::try_match_syntax,
     Expander,
 };
 

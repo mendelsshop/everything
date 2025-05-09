@@ -30,13 +30,11 @@ pub mod expand;
 mod expand_context;
 mod expand_expr;
 mod expand_top_level;
-mod r#match;
 mod namespace;
 pub struct Expander {
     core_forms: HashMap<Rc<str>, CoreForm>,
     core_primitives: HashMap<Rc<str>, Ast>,
     core_scope: Scope,
-    scope_creator: UniqueNumberManager,
     expand_time_env: EnvRef,
     run_time_env: EnvRef,
     core_syntax: Syntax<Ast>,
@@ -52,9 +50,8 @@ impl Default for Expander {
 impl Expander {
     #[must_use]
     pub fn new() -> Self {
-        let mut scope_creator = UniqueNumberManager::new();
-        let core_scope = scope_creator.new_scope();
-        let variable = scope_creator.gen_sym("variable");
+        let core_scope = UniqueNumberManager::new_scope();
+        let variable = UniqueNumberManager::gen_sym("variable");
         let mut this = Self {
             core_syntax: Syntax(
                 Ast::Boolean(false),
@@ -62,7 +59,6 @@ impl Expander {
                 SourceLocation::default(),
                 Properties::new(),
             ),
-            scope_creator,
             core_scope,
             core_primitives: HashMap::new(),
             core_forms: HashMap::new(),

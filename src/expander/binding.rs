@@ -1,6 +1,9 @@
 use std::{collections::HashMap, fmt, rc::Rc};
 
-use crate::ast::{syntax::Syntax, Ast, Symbol};
+use crate::{
+    ast::{syntax::Syntax, Ast, Symbol},
+    UniqueNumberManager,
+};
 
 use super::{expand_context::ExpandContext, namespace::NameSpace, Expander};
 
@@ -87,8 +90,8 @@ impl Expander {
         let bb = self.resolve(&b, false)?;
         Ok(ab == bb)
     }
-    pub fn add_local_binding(&mut self, id: Syntax<Symbol>) -> Symbol {
-        let symbol = self.scope_creator.gen_sym(&id.0 .0);
+    pub fn add_local_binding(id: Syntax<Symbol>) -> Symbol {
+        let symbol = UniqueNumberManager::gen_sym(&id.0 .0);
         Self::add_binding(id, Binding::Local(symbol.clone()));
         symbol
     }

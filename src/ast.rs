@@ -213,7 +213,7 @@ pub enum Ast {
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub struct Symbol(pub Rc<str>, pub usize);
+pub struct Symbol(pub Rc<str>);
 impl Symbol {
     pub(crate) fn datum_to_syntax(
         self,
@@ -246,19 +246,19 @@ impl From<f64> for Ast {
 }
 impl fmt::Display for Symbol {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}{}", self.0, self.1)
+        write!(f, "{}", self.0)
     }
 }
 
 impl From<Rc<str>> for Symbol {
     fn from(value: Rc<str>) -> Self {
-        Self(value, 0)
+        Self(value)
     }
 }
 
 impl From<&str> for Symbol {
     fn from(value: &str) -> Self {
-        Self(value.into(), 0)
+        Self(value.into())
     }
 }
 
@@ -382,6 +382,34 @@ impl Ast {
             Vec::new(),
         )
     }
+    pub fn map_to_list_checked<T>(
+        self,
+        mut f: impl FnMut(Ast) -> Result<T, String>,
+    ) -> Result<Vec<T>, Option<String>> {
+        {
+            let init = Vec::new();
+            self.foldl_pair(
+                |term, base, init: Result<Vec<T>, Option<String>>| {
+                    if !base {
+                        init.and_then(|mut init| {
+                            f(term)
+                                .map(|x| {
+                                    init.push(x);
+                                    init
+                                })
+                                .map_err(Some)
+                        })
+                    } else {
+                        match term {
+                            Self::TheEmptyList => init,
+                            _other => Err(None),
+                        }
+                    }
+                },
+                Ok(init),
+            )
+        }
+    }
     pub fn to_list_checked(self) -> Result<Vec<Self>, String> {
         self.foldl(
             |term, mut init| {
@@ -451,5 +479,43 @@ impl TryFrom<Ast> for Symbol {
             return Err("not a symbol".to_string());
         };
         Ok(s)
+    }
+}
+impl Ast {
+    pub fn to_synax_list(self) -> Self {
+        match self {
+            Self::Pair(l) => Self::Pair(Box::new(Pair(l.0, l.1.to_synax_list()))),
+            Self::Syntax(s) => s.0.to_synax_list(),
+            _ => self,
+        }
+    }
+
+    pub fn fold_to_syntax_list<T, E>(
+        self,
+        mut f: &mut impl FnMut(Self, T) -> Result<T, E>,
+        init: T,
+    ) -> Result<T, E> {
+        match self {
+            Self::Pair(l) => {
+                let Pair(car, cdr) = *l;
+                cdr.fold_to_syntax_list(&mut f, init)
+                    .and_then(|init| f(car, init))
+            }
+            Self::Syntax(s) => s.0.fold_to_syntax_list(f, init),
+            _ => Ok(init),
+        }
+    }
+    pub fn map_to_syntax_list<E>(
+        self,
+        mut f: impl FnMut(Self) -> Result<Ast, E>,
+    ) -> Result<Self, E> {
+        match self {
+            Self::Pair(l) => Ok(Self::Pair(Box::new(Pair(
+                f(l.0)?,
+                l.1.map_to_syntax_list(f)?,
+            )))),
+            Self::Syntax(s) => s.0.map_to_syntax_list(f),
+            _ => Ok(self),
+        }
     }
 }

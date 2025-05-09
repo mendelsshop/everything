@@ -6,6 +6,7 @@ use std::{
     collections::HashMap,
     io::{BufRead, BufReader, Write},
     rc::Rc,
+    sync::atomic::{AtomicUsize, Ordering},
 };
 
 use ast::{scope::Scope, Ast, Symbol};
@@ -20,25 +21,23 @@ mod primitives;
 mod reader;
 
 #[derive(Debug)]
-struct UniqueNumberManager(usize);
+struct UniqueNumberManager;
 
 impl UniqueNumberManager {
-    const fn new() -> Self {
-        Self(1)
+    fn next() -> usize {
+        static COUNTER: AtomicUsize = AtomicUsize::new(1);
+        COUNTER.fetch_add(1, Ordering::Relaxed)
     }
 
-    fn next(&mut self) -> usize {
-        let current = self.0;
-        self.0 += 1;
-        current
+    fn new_scope() -> Scope {
+        Scope(
+            UniqueNumberManager::next(),
+            Rc::new(RefCell::new(HashMap::new())),
+        )
     }
 
-    fn new_scope(&mut self) -> Scope {
-        Scope(self.next(), Rc::new(RefCell::new(HashMap::new())))
-    }
-
-    fn gen_sym(&mut self, name: impl ToString) -> Symbol {
-        Symbol(name.to_string().into(), self.next())
+    fn gen_sym(name: impl ToString) -> Symbol {
+        Symbol((name.to_string() + &UniqueNumberManager::next().to_string()).into())
     }
 }
 

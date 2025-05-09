@@ -4,5 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-itertools = "0.13.0"
+itertools = "0.14.0"
+matcher = { version = "0.1.0", path = "matcher" }
 trace = { git = "https://github.com/gsingh93/trace", version = "0.1.7" }

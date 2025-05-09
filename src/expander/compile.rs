@@ -6,7 +6,7 @@ use crate::{
     list, sexpr,
 };
 
-use super::{binding::Binding, namespace::NameSpace, r#match::match_syntax, Expander};
+use super::{binding::Binding, namespace::NameSpace, Expander};
 
 impl Expander {
     pub fn compile(&self, s: Ast, ns: &NameSpace) -> Result<Ast, String> {
