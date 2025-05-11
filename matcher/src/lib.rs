@@ -1,3 +1,11 @@
+#![warn(clippy::pedantic, clippy::nursery, clippy::cargo)]
+#![deny(
+    clippy::use_self,
+    rust_2018_idioms,
+    missing_debug_implementations,
+    clippy::missing_panics_doc
+)]
+use core::fmt;
 use std::collections::HashSet;
 
 use crate::custom::DotDotPlus;
@@ -9,7 +17,7 @@ use syn::{
     Ident, Token, ext::IdentExt, parenthesized, parse::Parse, parse_macro_input, spanned::Spanned,
 };
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 struct MatchStruct {
     binders: HashSet<Ident>,
 }
@@ -21,14 +29,14 @@ mod custom {
 }
 struct NameAsSExpr(Ident, SExpr);
 impl Parse for NameAsSExpr {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+    fn parse(input: syn::parse::ParseStream<'_>) -> syn::Result<Self> {
         let ident = Ident::parse_any(input)?;
         input.parse::<Token![as]>()?;
         let sexpr = input.parse()?;
-        Ok(NameAsSExpr(ident, sexpr))
+        Ok(Self(ident, sexpr))
     }
 }
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone)]
 enum SExpr {
     Many(Box<Self>, MatchStruct),
     ManyOne(Box<Self>, MatchStruct),
@@ -42,21 +50,49 @@ enum SExpr {
         binders: MatchStruct,
     },
 }
+impl fmt::Display for SExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Many(sexpr, _) => write!(f, "{sexpr} ..."),
+            Self::ManyOne(sexpr, _) => write!(f, "{sexpr} ..+"),
+            Self::Symbol(ident) => write!(f, "{ident}"),
+            Self::Identifier(ident) => write!(f, "{ident}:id"),
+            Self::Empty => write!(f, "()"),
+            Self::Pair {
+                car,
+                cdr,
+                binders: _,
+            } => {
+                write!(f, "({car}")?;
+                let mut second: Self = *(cdr.clone());
+                while let Self::Pair {
+                    car,
+                    cdr,
+                    binders: _,
+                } = second
+                {
+                    write!(f, " {car}")?;
+                    second = *cdr;
+                }
+                if second != Self::Empty {
+                    write!(f, " . {second}")?;
+                }
+                write!(f, ")")
+            }
+        }
+    }
+}
 impl SExpr {
     fn binders(&self) -> MatchStruct {
         match self {
-            SExpr::Many(_, match_struct) => match_struct.clone(),
-            SExpr::ManyOne(_, match_struct) => match_struct.clone(),
-            SExpr::Symbol(ident) => MatchStruct {
+            Self::Many(_, match_struct) | Self::ManyOne(_, match_struct) => match_struct.clone(),
+            Self::Symbol(ident) | Self::Identifier(ident) => MatchStruct {
                 binders: HashSet::from([ident.clone()]),
             },
-            SExpr::Identifier(ident) => MatchStruct {
-                binders: HashSet::from([ident.clone()]),
-            },
-            SExpr::Empty => MatchStruct {
+            Self::Empty => MatchStruct {
                 binders: HashSet::new(),
             },
-            SExpr::Pair {
+            Self::Pair {
                 car: _,
                 cdr: _,
                 binders,
@@ -65,7 +101,7 @@ impl SExpr {
     }
 }
 impl Parse for SExpr {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+    fn parse(input: syn::parse::ParseStream<'_>) -> syn::Result<Self> {
         let sexpr = if input.peek(Ident::peek_any) {
             let ident = Ident::parse_any(input)?;
             if input.peek(Token![:]) {
@@ -91,11 +127,11 @@ impl Parse for SExpr {
             input.parse::<Token![...]>()?;
 
             let binders = sexpr.binders();
-            Ok(SExpr::Many(Box::new(sexpr), binders))
+            Ok(Self::Many(Box::new(sexpr), binders))
         } else if input.peek(DotDotPlus) {
             input.parse::<DotDotPlus>()?;
             let binders = sexpr.binders();
-            Ok(SExpr::ManyOne(Box::new(sexpr), binders))
+            Ok(Self::ManyOne(Box::new(sexpr), binders))
         } else {
             Ok(sexpr)
         }
@@ -125,10 +161,11 @@ fn parse_paren(input: &syn::parse::ParseBuffer<'_>) -> syn::Result<SExpr> {
             } else {
                 Err(input.error("expected nothing after last expression in improper list"))
             }
+        } else if input.is_empty() && matches!(current, |SExpr::Many(_, _)| SExpr::ManyOne(_, _)) {
+            Ok(current)
         } else {
             let next = parse_paren(input)?;
             check_duplicates(input, &mut current_binders, &next)?;
-
             Ok(SExpr::Pair {
                 car: Box::new(current),
                 cdr: Box::new(next),
@@ -145,10 +182,10 @@ fn check_duplicates(
 ) -> Result<(), syn::Error> {
     next.binders().binders.into_iter().try_for_each(|binder| {
         let message = format!("duplicate binder {binder}");
-        if !current_binders.binders.insert(binder) {
-            Err(input.error(message))
-        } else {
+        if current_binders.binders.insert(binder) {
             Ok(())
+        } else {
+            Err(input.error(message))
         }
     })
 }
@@ -156,7 +193,7 @@ fn check_duplicates(
 impl ToTokens for SExpr {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         match self {
-            SExpr::Many(sexpr, match_struct) => {
+            Self::Many(sexpr, match_struct) => {
                 let binders = match_struct.binders.clone().into_iter();
                 let binders1 = match_struct.binders.clone().into_iter();
                 let token = quote! {
@@ -174,14 +211,14 @@ impl ToTokens for SExpr {
                 };
                 tokens.append_all(token);
             }
-            SExpr::ManyOne(sexpr, match_struct) => {
+            Self::ManyOne(sexpr, match_struct) => {
                 // TODO: make sure at least one
-                let sexpr_string = format!("{sexpr:?}");
+                let sexpr_string = format!("{sexpr}");
                 let binders = match_struct.binders.clone().into_iter();
                 let binders1 = match_struct.binders.clone().into_iter();
                 let token = quote! {
                     let sexpr = #sexpr_string;
-                    let error = format!("expected at least one of {sexpr:?} {s}");
+                    let error = format!("expected at least one of {sexpr} {s}");
                     let res = s.fold_to_syntax_list::<(usize, Self), String>(
                         &mut |s, (i, mut current)| {
                             let next_i = if s == crate::ast::Ast::TheEmptyList { 0 } else  {1  } + i;
@@ -200,35 +237,41 @@ impl ToTokens for SExpr {
                 };
                 tokens.append_all(token);
             }
-            SExpr::Symbol(ident) => {
+            Self::Symbol(ident) => {
                 let token = quote! {
                     this.#ident = s;
                 };
                 tokens.append_all(token);
             }
-            SExpr::Identifier(ident) => {
+            Self::Identifier(ident) => {
+                let ident_string = ident.to_string();
                 let token = quote! {
+                    let ident = #ident_string;
                     if !s.identifier() {
-                       return Err(format!("not an identifier {s}"))
+                       return Err(format!("not an identifier {s} when matching identifier: {ident}"))
                     }
                     this.#ident = s;
                 };
                 tokens.append_all(token);
             }
-            SExpr::Empty => {
+            Self::Empty => {
                 let token = quote! {
+                   let s = if let Ast::Syntax(s) = s { s.0} else { s};
                     if s != crate::ast::Ast::TheEmptyList {
                        return Err(format!("bad syntax expected expected null {s}"))
                     }
                 };
                 tokens.append_all(token);
             }
-            SExpr::Pair {
+            Self::Pair {
                 car,
                 cdr,
                 binders: _,
             } => {
+                let this_string = self.to_string();
                 let token = quote! {
+                   let s = if let Ast::Syntax(s) = s { s.0} else { s};
+                        let this_string = #this_string;
                    if let crate::ast::Ast::Pair(p) = s {
                         let crate::ast::Pair(car, cdr) = *p;
                         {
@@ -238,10 +281,12 @@ impl ToTokens for SExpr {
                         {
 
                             let s = cdr;
+                           // let s = if let Ast::Syntax(s) = s { s.0} else { s};
                             #cdr
                         }
                     } else {
-                       return Err(format!("not a pair {s}"))
+                        let this_string = #this_string;
+                       return Err(format!("not a pair {s} when matching pair: {this_string}"))
                     }
                 };
                 tokens.append_all(token);
@@ -257,7 +302,6 @@ pub fn match_syntax_as(input: TokenStream) -> TokenStream {
     let binders = input.binders().binders.into_iter();
     let binders1 = input.binders().binders.into_iter();
     quote! {
-
         #[derive(Clone)]
         struct #name {
             #(  #binders: crate::ast::Ast, )*
