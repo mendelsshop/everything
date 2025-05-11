@@ -27,7 +27,7 @@ impl Expander {
                         let m = match_syntax!(
                             (lambda id body)
                         )(s)?;
-                        let id  = m.id.try_into()?;
+                        let id = m.id.try_into()?;
                         Ok(
                             // do we need local to symbol if its (lambda n ...) where n is a number
                             sexpr!((lambda #(Self::local_symbol(&id).map(Ast::Symbol)?))),

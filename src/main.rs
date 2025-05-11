@@ -7,7 +7,14 @@
 )]
 // #![allow(clippy::similar_names, dead_code, unused)]
 
-use std::{cell::RefCell, collections::HashMap, error::Error, fs, rc::Rc, sync::atomic::{AtomicUsize, Ordering}};
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    error::Error,
+    fs,
+    rc::Rc,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 use ast::{scope::Scope, Ast, Symbol};
 use expander::{expand_context::ExpandContext, Expander};
@@ -130,7 +137,7 @@ fn compile(file: &str, out: &str) {
     let mut expander = Expander::new();
     // let env = CompileTimeEnvoirnment::new();
     let contents = fs::read_to_string(file).unwrap();
-                let ns = expander.namespace();
+    let ns = expander.namespace();
     let ctx = ExpandContext::new(ns.clone());
     for ele in lexer::everything_parse(&contents).unwrap() {
         let ele = expander.namespace_syntax_introduce(ele.datum_to_syntax(None, None, None));

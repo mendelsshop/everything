@@ -263,7 +263,7 @@ impl Expander {
                 rebuild(
                     s,
                     Ast::Syntax(Box::new(
-                        n.with::<Ast>( Ast::Symbol(format!("{:o}",n0 ).into())),
+                        n.with::<Ast>(Ast::Symbol(format!("{:o}", n0).into())),
                     )),
                 )
             })
@@ -322,9 +322,12 @@ impl Expander {
 
         let mut body_ctx = ctx;
         body_ctx.env.0.extend(
-            args.clone()
-                .map(|i| (Self::add_local_binding(i), Ast::Symbol(self.variable.clone())))
-                // .fold(HashMap::new(), |env, i| {
+            args.clone().map(|i| {
+                (
+                    Self::add_local_binding(i),
+                    Ast::Symbol(self.variable.clone()),
+                )
+            }), // .fold(HashMap::new(), |env, i| {
                 //     env.extend(i.0, Ast::Symbol(i.1))
                 // }),
         );
@@ -337,7 +340,8 @@ impl Expander {
                 let i0 = &i.0;
                 list!(
                     lambda.clone(),
-                    Ast::Syntax(Box::new(i.with_ref( Ast::Symbol(
+                    Ast::Syntax(Box::new(
+                        i.with_ref(Ast::Symbol(
                             variadiac
                                 .and_then(|varidiac| {
                                     if i0.0.to_string() == format!("{arg_count:o}") {
@@ -347,7 +351,8 @@ impl Expander {
                                     }
                                 })
                                 .unwrap_or(i0.clone()),
-                        )))),
+                        ))
+                    )),
                     body
                 )
             })
