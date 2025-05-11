@@ -89,7 +89,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         ArgType::Compile { filename, output } => compile(&filename, &output),
         ArgType::Run { filename } => run(&filename),
         ArgType::Expand { filename } => expand(&filename),
-    };
+    }
     Ok(())
 }
 

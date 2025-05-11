@@ -1,4 +1,4 @@
-use std::{collections::HashMap, usize};
+use std::usize;
 
 use crate::{
     ast::{
@@ -16,7 +16,7 @@ use crate::{sexpr, UniqueNumberManager};
 use itertools::Itertools;
 use matcher::match_syntax;
 
-use super::binding::{CompileTimeBinding, CompileTimeEnvoirnment};
+use super::binding::CompileTimeBinding;
 use super::{expand::rebuild, expand_context::ExpandContext, Expander};
 matcher::match_syntax_as!(LetSyntaxMatcher as
 
@@ -263,7 +263,7 @@ impl Expander {
                 rebuild(
                     s,
                     Ast::Syntax(Box::new(
-                        n.with::<Ast>(Ast::Symbol(format!("{:o}", n0).into())),
+                        n.with::<Ast>(Ast::Symbol(format!("{n0:o}").into())),
                     )),
                 )
             })
@@ -312,7 +312,7 @@ impl Expander {
         //    Ok(env),
         //)?;
         let arg_count = variadiac.map_or(formals.0, |_| formals.0 + 1);
-        let mut args = (0..arg_count).map(|i| {
+        let args = (0..arg_count).map(|i| {
             formals
                 .clone()
                 .with::<Symbol>(format!("{i:o}").into())
@@ -345,7 +345,7 @@ impl Expander {
                             variadiac
                                 .and_then(|varidiac| {
                                     if i0.0.to_string() == format!("{arg_count:o}") {
-                                        Some(Symbol(format!("{}{varidiac}", i0).into()))
+                                        Some(Symbol(format!("{i0}{varidiac}").into()))
                                     } else {
                                         None
                                     }
