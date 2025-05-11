@@ -272,7 +272,7 @@ impl Expander {
     //#[trace]
     fn core_form_lambda(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
         let m = match_syntax!(
-            (lambda formals body)
+            (lambda formals body..+)
         )(s.clone())?;
         let sc = UniqueNumberManager::new_scope();
         let id = m.formals;
@@ -331,10 +331,10 @@ impl Expander {
                 //     env.extend(i.0, Ast::Symbol(i.1))
                 // }),
         );
-        let exp_body = self.expand(m.body.add_scope(sc.clone()), body_ctx)?;
+        let exp_body = self.expand_body(m.body, sc.clone(),s.clone(), body_ctx)?;
         let lambda = m.lambda;
         let new_lambda = if formals.0 == 0 && variadiac.is_none() {
-            sexpr!( (#(lambda) exp_body))
+            sexpr!( (#(lambda) #(exp_body)))
         } else {
             args.rfold(exp_body, |body, i| {
                 let i0 = &i.0;
@@ -465,8 +465,8 @@ impl Expander {
     make_let_values_form!(syntax core_form_letrec_syntaxes_and_values, true);
 
     fn core_form_datum(&mut self, s: Ast, _ctx: ExpandContext) -> Result<Ast, String> {
-        // TODO: let m = matcher::match_syntax!((#%datum  datum))(s.clone())?;
-        let m = matcher::match_syntax!((_datum  datum))(s.clone())?;
+        // TODO: let m = matcher::match_syntax!((#%datum  . datum))(s.clone())?;
+        let m = matcher::match_syntax!((_datum . datum))(s.clone())?;
         let datum = m.datum;
         if matches!(datum, Ast::Syntax(ref s) if s.0.is_keyword()) {
             return Err(format!("keyword misused as an expression: {datum}"));
@@ -483,7 +483,7 @@ impl Expander {
             (app rator rand ...)
         )(s.clone())?;
         let rator = self.expand(m.rator, ctx.clone())?;
-        let rand = self.expand(m.rand, ctx)?;
+        let rand =m.rand.map(|s|self.expand(s, ctx.clone()))?;
         Ok(rebuild(
             s,
             Ast::Pair(Box::new(Pair(

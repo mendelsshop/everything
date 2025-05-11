@@ -31,6 +31,7 @@ impl Expander {
                         Ok(
                             // do we need local to symbol if its (lambda n ...) where n is a number
                             sexpr!((lambda #(Self::local_symbol(&id).map(Ast::Symbol)?))),
+                            sexpr!((lambda #(Self::local_symbol(&id).map(Ast::Symbol)?) #(compile(m.body)?))),
                         )
                     }
                     // "case-lambda" => {
