@@ -30,7 +30,6 @@ impl Expander {
                         let id = m.id.try_into()?;
                         Ok(
                             // do we need local to symbol if its (lambda n ...) where n is a number
-                            sexpr!((lambda #(Self::local_symbol(&id).map(Ast::Symbol)?))),
                             sexpr!((lambda #(Self::local_symbol(&id).map(Ast::Symbol)?) #(compile(m.body)?))),
                         )
                     }
@@ -157,13 +156,10 @@ impl Expander {
         let m = match_syntax!(
             (
                 let_values
-                (
-                    (
-                        (id ... rhs)
-                        ...
-                    )
+                
+                    (((id ...) rhs) ...)
                     body
-                )
+                
             )
         )(s)?;
         let idss = m.id;
