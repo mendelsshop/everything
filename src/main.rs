@@ -7,10 +7,10 @@
 )]
 // #![allow(clippy::similar_names, dead_code, unused)]
 
-use std::{error::Error, fs};
+use std::{cell::RefCell, collections::HashMap, error::Error, fs, rc::Rc, sync::atomic::{AtomicUsize, Ordering}};
 
 use ast::{scope::Scope, Ast, Symbol};
-use expander::{binding::CompileTimeEnvoirnment, Expander};
+use expander::{expand_context::ExpandContext, Expander};
 //use codegen::{
 //    register_to_llvm::CodeGen,
 //    sicp::{Linkage, Register},
@@ -128,12 +128,14 @@ fn expand(file: &str) {
 
 fn compile(file: &str, out: &str) {
     let mut expander = Expander::new();
-    let env = CompileTimeEnvoirnment::new();
+    // let env = CompileTimeEnvoirnment::new();
     let contents = fs::read_to_string(file).unwrap();
+                let ns = expander.namespace();
+    let ctx = ExpandContext::new(ns.clone());
     for ele in lexer::everything_parse(&contents).unwrap() {
-        let ele = expander.namespace_syntax_introduce(ele.datum_to_syntax(None));
-        let ele = expander.expand(ele, env.clone()).unwrap();
-        let ele = expander.compile(ele).unwrap();
+        let ele = expander.namespace_syntax_introduce(ele.datum_to_syntax(None, None, None));
+        let ele = expander.expand(ele, ctx.clone()).unwrap();
+        let ele = expander.compile(ele, &ns).unwrap();
         println!("{ele}");
     }
     //let program = parse_and_expand(&contents).unwrap();
@@ -185,22 +187,17 @@ trace::init_depth_var!();
 struct UniqueNumberManager(usize);
 
 impl UniqueNumberManager {
-    const fn new() -> Self {
-        Self(1)
+    fn next() -> usize {
+        static COUNTER: AtomicUsize = AtomicUsize::new(1);
+        COUNTER.fetch_add(1, Ordering::Relaxed)
     }
 
-    fn next(&mut self) -> usize {
-        let current = self.0;
-        self.0 += 1;
-        current
+    fn new_scope() -> Scope {
+        Scope(Self::next(), Rc::new(RefCell::new(HashMap::new())))
     }
 
-    fn new_scope(&mut self) -> Scope {
-        Scope(self.next())
-    }
-
-    fn gen_sym(&mut self, name: impl ToString) -> Symbol {
-        Symbol(name.to_string().into(), self.next())
+    fn gen_sym(name: impl ToString) -> Symbol {
+        Symbol((name.to_string() + &Self::next().to_string()).into())
     }
 }
 

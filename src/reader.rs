@@ -1,4 +1,4 @@
-use crate::ast::{Ast, Pair, Symbol};
+use crate::ast::{Ast, Boolean, Pair, Symbol};
 
 use std::iter::Peekable;
 
@@ -28,6 +28,13 @@ impl Iterator for OwnedChars {
         Some(c)
     }
 }
+impl DoubleEndedIterator for OwnedChars {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        let c = self.string[self.position..].chars().next_back()?;
+        self.position -= c.len_utf8();
+        Some(c)
+    }
+}
 
 pub trait OwnedCharsExt {
     fn chars(self) -> OwnedChars;
@@ -42,6 +49,7 @@ impl OwnedCharsExt for String {
     }
 }
 
+// pub type Input = Peekable<OwnedChars>;
 pub type Input = Peekable<OwnedChars>;
 
 pub type ReaderInnerResult = Result<(Ast, Input), (String, Input)>;
@@ -78,7 +86,6 @@ impl Reader {
             }
         }
     }
-    // #[trace(format_enter = "", format_exit = "")]
     pub(crate) fn read_inner(
         input: Input,
         empty_continuation: &mut impl FnMut() -> Option<String>,
@@ -86,13 +93,35 @@ impl Reader {
         let mut input = Self::read_whitespace_and_comments(input).1;
         match input.peek() {
             // TODO: quote
-            Some('(') => {
+            Some(bracket @ ('(' | '[')) => {
+                let bracket = *bracket;
                 input.next();
-                Self::read_list(input, empty_continuation)
+                Self::read_list(input, bracket, empty_continuation)
             }
-            Some(')') => {
+            Some(')' | ']') => {
                 input.next();
                 Err(("unfinished pair".to_string(), input))
+            }
+            Some('#') => {
+                input.next();
+                match input.next() {
+                    Some('t') => Ok((Ast::Boolean(Boolean::True), input)),
+                    Some('f') => Ok((Ast::Boolean(Boolean::False), input)),
+                    Some('%') => {
+                        input.next_back();
+                        input.next_back();
+                        Self::read_symbol(input)
+                    }
+                    Some('\'') => todo!("syntax object syntax"),
+                    Some(s) => {
+                        input.next_back();
+                        Err((
+                            format!("# must be followed by t, f, % or ', found {s}"),
+                            input,
+                        ))
+                    }
+                    None => Err(("# must be followed by t, f, % or '".to_string(), input)),
+                }
             }
             Some('\'') => {
                 input.next();
@@ -117,7 +146,6 @@ impl Reader {
         }
     }
 
-    // #[trace(format_enter = "", format_exit = "")]
     pub(crate) fn read_whitespace_and_comments(mut input: Input) -> (bool, Input) {
         let mut found = false;
         while let Some(c) = input.peek() {
@@ -140,7 +168,6 @@ impl Reader {
         (found, input)
     }
 
-    // #[trace(format_enter = "", format_exit = "")]
     // parse symbol if not followed by space paren or comment
     // invariant Some('.') | Some(c) if c.is_ascci_digit() = input.peek()
     // TODO: if number is immediatly followed by symbol combine into one symbol
@@ -163,13 +190,10 @@ impl Reader {
                 Err(e) => Err((e.to_string(), input)),
             },
 
-            (first, second, last) => {
-                println!("{first} {second} {last}");
-                Ok((
-                    Ast::Symbol(Symbol(format!("{first}{second}{last}").into(), 0)),
-                    input,
-                ))
-            }
+            (first, second, last) => Ok((
+                Ast::Symbol(Symbol(format!("{first}{second}{last}").into())),
+                input,
+            )),
         }
     }
     pub(crate) fn read_digit(mut input: Input) -> (String, Input) {
@@ -181,23 +205,28 @@ impl Reader {
         (number, input)
     }
     // constraints input.next() == Some(c) if c != whitespace or comment or paren
-    // #[trace(format_enter = "", format_exit = "")]
     pub(crate) fn read_symbol(input: Input) -> ReaderInnerResult {
         let (symbol, input) = Self::read_symbol_inner(input);
-        Ok((Ast::Symbol(Symbol(symbol.into(), 0)), input))
+        Ok((Ast::Symbol(Symbol(symbol.into())), input))
     }
 
-    // #[trace(format_enter = "", format_exit = "")]
     pub(crate) fn read_list(
         mut input: Input,
+        bracket: char,
         empty_continuation: &mut impl FnMut() -> Option<String>,
     ) -> ReaderInnerResult {
         input = Self::read_whitespace_and_comments(input).1;
         match input.peek() {
             // TODO: dot tailed list and pair instead of list
-            Some(')') => {
+            Some(end_bracket @ (')' | ']')) => {
+                let expected_end_bracket = if bracket == '(' { ')' } else { ']' };
+                let end_bracket = *end_bracket;
                 input.next();
-                Ok((Ast::TheEmptyList, input))
+                if end_bracket == expected_end_bracket {
+                    Ok((Ast::TheEmptyList, input))
+                } else {
+                    Err((format!("unfinished pair expected {expected_end_bracket} to finish the pair but found {end_bracket}"), input))
+                }
             }
             Some('.') => {
                 let item: Ast;
@@ -210,7 +239,7 @@ impl Reader {
                 let item: Ast;
                 (item, input) = Self::read_inner(input, empty_continuation)?;
                 let item2: Ast;
-                (item2, input) = Self::read_list(input, empty_continuation)?;
+                (item2, input) = Self::read_list(input, bracket, empty_continuation)?;
                 Ok((Ast::Pair(Box::new(Pair(item, item2))), input))
             }
             None => {
@@ -218,7 +247,7 @@ impl Reader {
                     .ok_or(("unfinished list".to_string(), input))
                     .map(|input| input.chars().peekable())?;
 
-                Self::read_list(input, empty_continuation)
+                Self::read_list(input, bracket, empty_continuation)
             }
         }
     }
@@ -246,7 +275,7 @@ impl Reader {
     pub(crate) fn read_symbol_inner(mut input: Input) -> (String, Input) {
         let mut str = String::new();
         while let Some(char) = input.peek().copied() {
-            if char.is_whitespace() || ['(', ')', ';', '"', '\''].contains(&char) {
+            if char.is_whitespace() || ['(', '[', ']', ')', ';', '"', '\''].contains(&char) {
                 break;
             }
             input.next();

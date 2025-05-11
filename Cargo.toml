@@ -19,5 +19,6 @@ inkwell = {version = "0.4.0", features = ["llvm15-0"]}
 clap = {version = "4.4.0", features = ["derive"]}
 log = "0.4.21"
 simple_file_logger = { version = "0.4.1", features = ["clap"] }
-itertools = "0.13.0"
+itertools = "0.14.0"
+matcher = { version = "0.1.0", path = "matcher" }
 trace = { git = "https://github.com/gsingh93/trace", version = "0.1.7" }

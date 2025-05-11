@@ -1,13 +1,16 @@
 use std::{collections::HashMap, fmt, rc::Rc};
 
-use crate::ast::{syntax::Syntax, Ast, Symbol};
+use crate::{
+    ast::{syntax::Syntax, Ast, Symbol},
+    UniqueNumberManager,
+};
 
-use super::Expander;
+use super::{expand_context::ExpandContext, namespace::NameSpace, Expander};
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub enum Binding {
-    Variable(Symbol),
-    CoreBinding(Rc<str>),
+    Local(Symbol),
+    TopLevel(Rc<str>),
 }
 impl fmt::Display for Binding {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -15,8 +18,8 @@ impl fmt::Display for Binding {
             f,
             "{}",
             match self {
-                Self::Variable(s) => format!("{s}"),
-                Self::CoreBinding(s) => format!("{s}"),
+                Self::Local(s) => format!("{s}"),
+                Self::TopLevel(s) => format!("{s}"),
             }
         )
     }
@@ -24,8 +27,8 @@ impl fmt::Display for Binding {
 impl From<Binding> for Symbol {
     fn from(value: Binding) -> Self {
         match value {
-            Binding::Variable(s) => s,
-            Binding::CoreBinding(c) => c.into(),
+            Binding::Local(s) => s,
+            Binding::TopLevel(c) => c.into(),
         }
     }
 }
@@ -37,7 +40,7 @@ pub enum CompileTimeBinding {
     // as we need to capture expander state
     CoreForm(CoreForm),
 }
-pub type CoreForm = fn(&mut Expander, Ast, CompileTimeEnvoirnment) -> Result<Ast, String>;
+pub type CoreForm = fn(&mut Expander, Ast, ExpandContext) -> Result<Ast, String>;
 #[derive(Clone, Debug)]
 pub struct CompileTimeEnvoirnment(pub(crate) HashMap<Symbol, Ast>);
 
@@ -58,37 +61,38 @@ impl CompileTimeEnvoirnment {
         Self(map)
     }
 
-    pub fn lookup(
+    pub fn lookup<T: fmt::Display>(
         &self,
         key: &Binding,
+        ns: &NameSpace,
         // TODO: maybe core form can get their own type
-        core_forms: HashMap<Rc<str>, CoreForm>,
+        id: &T,
         variable: Symbol,
     ) -> Result<CompileTimeBinding, String> {
         match key {
-            Binding::Variable(key) => self
+            Binding::Local(key) => self
                 .0
                 .get(key)
                 .cloned()
                 .map(CompileTimeBinding::Regular)
-                .ok_or(format!("identifier used out of context: {key}")),
-            Binding::CoreBinding(core) => Ok(core_forms
-                .get(core)
-                .map_or(CompileTimeBinding::Regular(Ast::Symbol(variable)), |f| {
-                    CompileTimeBinding::CoreForm(*f)
-                })),
+                .ok_or(format!("identifier used out of context: {id}")),
+            Binding::TopLevel(core) => Ok(ns
+                .transformers
+                .get(&core.clone().into())
+                .cloned()
+                .unwrap_or(CompileTimeBinding::Regular(Ast::Symbol(variable)))),
         }
     }
 }
 impl Expander {
-    pub fn free_identifier(&self, a: Syntax<Symbol>, b: Syntax<Symbol>) -> Result<bool, String> {
-        let ab = self.resolve(&a)?;
-        let bb = self.resolve(&b)?;
+    pub fn free_identifier(a: Syntax<Symbol>, b: Syntax<Symbol>) -> Result<bool, String> {
+        let ab = Self::resolve(&a, false)?;
+        let bb = Self::resolve(&b, false)?;
         Ok(ab == bb)
     }
-    pub fn add_local_binding(&mut self, id: Syntax<Symbol>) -> Symbol {
-        let symbol = self.scope_creator.gen_sym(&id.0 .0);
-        self.add_binding(id, Binding::Variable(symbol.clone()));
+    pub fn add_local_binding(id: Syntax<Symbol>) -> Symbol {
+        let symbol = UniqueNumberManager::gen_sym(&id.0 .0);
+        Self::add_binding(id, Binding::Local(symbol.clone()));
         symbol
     }
 }

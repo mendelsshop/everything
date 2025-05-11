@@ -1,20 +1,31 @@
 use std::{collections::BTreeSet, rc::Rc};
 
-use crate::ast::{syntax::Syntax, Ast, Pair, Symbol};
+use matcher::match_syntax;
+
+use crate::ast::{
+    syntax::{Properties, SourceLocation, Syntax},
+    Ast, Symbol,
+};
 
 use super::{
-    binding::{Binding, CoreForm},
-    r#match::try_match_syntax,
+    binding::{Binding, CompileTimeBinding, CoreForm},
+    namespace::NameSpace,
     Expander,
 };
 
 impl Expander {
-    fn add_core_binding(&mut self, sym: Symbol) {
-        self.add_binding(
-            Syntax(sym.clone(), BTreeSet::from([self.core_scope])),
-            Binding::CoreBinding(sym.0),
-        );
+    fn add_core_binding(&self, sym: Symbol) -> Result<(), String> {
+        Self::add_binding(
+            Syntax(
+                sym.clone(),
+                BTreeSet::from([self.core_scope.clone()]),
+                SourceLocation::default(),
+                Properties::new(),
+            ),
+            Binding::TopLevel(sym.0),
+        )
     }
+
     pub fn add_core_form(&mut self, sym: Rc<str>, proc: CoreForm) {
         self.add_core_binding(sym.clone().into());
         self.core_forms.insert(sym, proc);
@@ -24,26 +35,36 @@ impl Expander {
         self.core_primitives.insert(sym, proc);
     }
 
-    pub fn core_form_symbol(&mut self, s: Ast) -> Result<Rc<str>, String> {
-        try_match_syntax(
-            s,
-            Ast::Pair(Box::new(Pair(
-                Ast::Symbol("id".into()),
-                Ast::Symbol("_".into()),
-            ))),
-        )
-        .and_then(|f| {
+    pub fn declare_core_top_level(&self, ns: &mut NameSpace) {
+        ns.transformers.extend(
+            self.core_forms
+                .clone()
+                .into_iter()
+                .map(|(key, value)| (key.into(), CompileTimeBinding::CoreForm(value))),
+        );
+        ns.variables.extend(
+            self.core_primitives
+                .clone()
+                .into_iter()
+                .map(|(key, value)| (key.into(), value)),
+        );
+    }
+
+    pub fn core_form_symbol(s: Ast) -> Result<Rc<str>, String> {
+        match_syntax!((id._id))(s).and_then(|f| {
             // could this also be a plain symbol?
-            let Some(Ast::Syntax(s)) = f("id".into()) else {
+            let Ast::Syntax(s) = f.id else {
                 return Err("no such pattern variable id".to_string());
             };
-            let Ast::Symbol(sym) = s.0 else {
+            let Ast::Symbol(ref sym) = s.0 else {
                 return Err("no such pattern variable id".to_string());
             };
-            let b = self.resolve(&Syntax(sym.clone(), s.1))?;
+            let b = Self::resolve(&s.with_ref(sym.clone()), false).inspect_err(|e| {
+                dbg!(format!("{e}"));
+            })?;
             match b {
-                Binding::Variable(_) => Err(format!("{sym} is not a core form")),
-                Binding::CoreBinding(s) => Ok(s.clone()),
+                Binding::Local(_) => Err(format!("{sym} is not a core form")),
+                Binding::TopLevel(s) => Ok(s),
             }
         })
     }

@@ -1,7 +1,7 @@
 pub mod scope;
 pub mod syntax;
 use scope::Scope;
-use syntax::Syntax;
+use syntax::{Properties, SourceLocation, Syntax};
 
 //pub mod ast1;
 //pub mod ast2;
@@ -15,7 +15,7 @@ use std::{
     rc::Rc,
 };
 
-use crate::evaluator::{Env, EnvRef, Evaluator};
+use crate::evaluator::{Env, EnvRef, Evaluator, Values};
 
 #[macro_export]
 macro_rules! list {
@@ -23,46 +23,129 @@ macro_rules! list {
     ($car:expr $(,)?) => {
         $crate::ast::Ast::Pair(Box::new($crate::ast::Pair($car, $crate::ast::Ast::TheEmptyList)))
     };
-    ($car:expr ; $cdr:expr) => {
+
+
+
+    ($car:expr; $cdr:expr) => {
         $crate::ast::Ast::Pair(Box::new($crate::ast::Pair($car, $cdr)))
     };
+
     ($car:expr, $($cdr:tt)+) => {
         $crate::ast::Ast::Pair(Box::new($crate::ast::Pair($car, list!($($cdr)+))))
     };
+
+    (quote $($datum:tt)*) =>  {
+        $crate::ast::Ast::Pair(Box::new($crate::ast::Pair("quote".into(), list!($($datum)+))))
+    };
 }
 
-pub type AnalyzedResult = Result<Box<dyn AnalyzeFn>, String>;
-
-pub trait AnalyzeFn: Fn(EnvRef) -> Result<Ast, String> {
-    fn clone_box<'a>(&self) -> Box<dyn 'a + AnalyzeFn>
-    where
-        Self: 'a;
-}
-
-impl<F> AnalyzeFn for F
-where
-    F: Fn(EnvRef) -> Result<Ast, String> + Clone,
-{
-    fn clone_box<'a>(&self) -> Box<dyn 'a + AnalyzeFn>
-    where
-        Self: 'a,
-    {
-        Box::new(self.clone())
-    }
-}
-
-impl<'a> Clone for Box<dyn 'a + AnalyzeFn> {
-    fn clone(&self) -> Self {
-        (**self).clone_box()
-    }
-}
-
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Function {
     Lambda(Lambda),
     Primitive(Primitive),
 }
+#[macro_export]
+/// s-expression like quasi-quoter
+/// \# for unquote
+/// ; for dot
+/// do mbe limitations each item in list must be delimeted by , unless its followed by ; or the
+/// last thing in a list
+macro_rules! sexpr {
+    (@list) => {$crate::ast::Ast::TheEmptyList};
+    (()) => {$crate::ast::Ast::TheEmptyList};
+    ([]) => {$crate::ast::Ast::TheEmptyList};
+    ($i:ident) => {
+        $crate::ast::Ast::from(stringify!($i))
+    };
+    ($l:literal) => {
+        $crate::ast::Ast::from($l)
+    };
+    (#($e:expr)) => {
+        $e
+    };
 
+    (@list . $($cdr:tt)+) => {
+       sexpr!($($cdr)+)
+    };
+    (@list $car:ident $($cdr:tt)*) => {
+        $crate::ast::Ast::Pair(Box::new($crate::ast::Pair(stringify!($car).into(), sexpr!(@list $($cdr)*))))
+    };
+    (@list ($($car:tt)*) $($cdr:tt)*) => {
+        $crate::ast::Ast::Pair(Box::new($crate::ast::Pair(sexpr!(($($car)*)), sexpr!(@list $($cdr)*))))
+    };
+    (@list[ $($car:tt)* ] $($cdr:tt)*) => {
+        $crate::ast::Ast::Pair(Box::new($crate::ast::Pair(sexpr!([ $($car)* ]), sexpr!(@list $($cdr)*))))
+    };
+    (@list $car:literal $($cdr:tt)*) => {
+        $crate::ast::Ast::Pair(Box::new($crate::ast::Pair($car.into(), sexpr!(@list $($cdr)*))))
+    };
+    (@list #($car:expr) $($cdr:tt)*) => {
+        $crate::ast::Ast::Pair(Box::new($crate::ast::Pair($car, sexpr!(@list $($cdr)*))))
+    };
+
+    (($car:ident $($cdr:tt)*)) => {
+        $crate::ast::Ast::Pair(Box::new($crate::ast::Pair(stringify!($car).into(), sexpr!(@list $($cdr)*))))
+    };
+    (($car:literal $($cdr:tt)*)) => {
+        $crate::ast::Ast::Pair(Box::new($crate::ast::Pair($car.into(), sexpr!(@list $($cdr)*))))
+    };
+    ((($($car:tt)*) $($cdr:tt)*)) => {
+        $crate::ast::Ast::Pair(Box::new($crate::ast::Pair(sexpr!(($($car)*)), sexpr!(@list $($cdr)*))))
+    };
+    (([ $($car:tt)* ] $($cdr:tt)*)) => {
+        $crate::ast::Ast::Pair(Box::new($crate::ast::Pair(sexpr!([ $($car)* ]), sexpr!(@list $($cdr)*))))
+    };
+    ((#($car:expr) $($cdr:tt)*)) => {
+        $crate::ast::Ast::Pair(Box::new($crate::ast::Pair($car, sexpr!(@list $($cdr)*))))
+    };
+
+    ([ $car:ident $($cdr:tt)* ]) => {
+        $crate::ast::Ast::Pair(Box::new($crate::ast::Pair(stringify!($car).into(), sexpr!(@list $($cdr)*))))
+    };
+    ([ $car:literal $($cdr:tt)* ]) => {
+        $crate::ast::Ast::Pair(Box::new($crate::ast::Pair($car.into(), sexpr!(@list $($cdr)*))))
+    };
+    ([ ($($car:tt)+) $($cdr:tt)* ]) => {
+        $crate::ast::Ast::Pair(Box::new($crate::ast::Pair(sexpr!(($($car)+)), sexpr!(@list $($cdr)*))))
+    };
+    ([ [ $($car:tt)+ ] $($cdr:tt)* ]) => {
+        $crate::ast::Ast::Pair(Box::new($crate::ast::Pair(sexpr!([ $($car)+ ]), sexpr!(@list $($cdr)*))))
+    };
+    ([ #($car:expr) $($cdr:tt)* ]) => {
+        $crate::ast::Ast::Pair(Box::new($crate::ast::Pair($car, sexpr!(@list $($cdr)*))))
+    };
+
+    // ((#$car:expr, $($cdr:tt)*)) => {
+    //     $crate::ast::Ast::Pair(Box::new($crate::ast::Pair($car, sexpr!(@list ,$($cdr)*))))
+    // };
+    // ((#$car:expr; $($cdr:tt)*)) => {
+    //     $crate::ast::Ast::Pair(Box::new($crate::ast::Pair($car, sexpr!(@list ;$($cdr)*))))
+    // };
+    // ((#$car:expr)) => {
+    //     $crate::ast::Ast::Pair(Box::new($crate::ast::Pair($car, $crate::ast::Ast::TheEmptyList)))
+    // };
+    //
+    // ([ #$car:expr, $($cdr:tt)* ]) => {
+    //     $crate::ast::Ast::Pair(Box::new($crate::ast::Pair($car, sexpr!(@list ,$($cdr)*))))
+    // };
+    // ([ #$car:expr; $($cdr:tt)* ]) => {
+    //     $crate::ast::Ast::Pair(Box::new($crate::ast::Pair($car, sexpr!(@list ;$($cdr)*))))
+    // };
+    // ([ #$car:expr ]) => {
+    //     $crate::ast::Ast::Pair(Box::new($crate::ast::Pair($car, $crate::ast::Ast::TheEmptyList)))
+    // };
+    //
+    // (@list #($car:expr) $($cdr:tt)*) => {
+    //     $crate::ast::Ast::Pair(Box::new($crate::ast::Pair($car, sexpr!(@list ,$($cdr)*))))
+    // };
+    // (@list; #($car:expr) $($cdr:tt)*) => {
+    //     $crate::ast::Ast::Pair(Box::new($crate::ast::Pair($car, sexpr!(@list ;$($cdr)*))))
+    // };
+    // (@list, #($car:expr)) => {
+    //     $crate::ast::Ast::Pair(Box::new($crate::ast::Pair($car, $crate::ast::Ast::TheEmptyList)))
+    // };
+
+}
 impl fmt::Display for Function {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -73,7 +156,7 @@ impl fmt::Display for Function {
 }
 
 impl Function {
-    pub(crate) fn apply(&self, args: Ast) -> Result<Ast, String> {
+    pub(crate) fn apply(&self, args: Ast) -> Result<Values, String> {
         match self {
             Self::Lambda(Lambda(body, env, params)) => {
                 let env = Env::extend_envoirnment(env.clone(), *params.clone(), args)?;
@@ -81,6 +164,14 @@ impl Function {
             }
             Self::Primitive(p) => p(args),
         }
+    }
+
+    pub fn apply_single(&self, args: Ast) -> Result<Ast, String> {
+        self.apply(args).and_then(|values| {
+            values
+                .into_single()
+                .map_err(|_| "arity error expected one value".to_string())
+        })
     }
 }
 
@@ -92,6 +183,7 @@ impl PartialEq for Lambda {
         false
     }
 }
+impl Eq for Lambda {}
 
 impl fmt::Debug for Lambda {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -99,17 +191,12 @@ impl fmt::Debug for Lambda {
     }
 }
 
-pub type Primitive = fn(Ast) -> Result<Ast, String>;
+pub type Primitive = fn(Ast) -> Result<Values, String>;
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct Pair(pub Ast, pub Ast);
 
 impl Pair {
-    pub fn map(&self, mut f: impl FnMut(Ast) -> Result<Ast, String>) -> Result<Ast, String> {
-        let car = f(self.0.clone())?;
-        let cdr = self.1.map(f)?;
-        Ok(Ast::Pair(Box::new(Self(car, cdr))))
-    }
     #[must_use]
     pub fn list(&self) -> bool {
         self.1.list()
@@ -134,7 +221,22 @@ pub enum Ast {
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub struct Symbol(pub Rc<str>, pub usize);
+pub struct Symbol(pub Rc<str>);
+impl Symbol {
+    pub(crate) fn datum_to_syntax(
+        self,
+        scopes: Option<BTreeSet<Scope>>,
+        srcloc: Option<SourceLocation>,
+        properties: Option<Properties>,
+    ) -> Syntax<Self> {
+        Syntax(
+            self,
+            scopes.unwrap_or_default(),
+            srcloc.unwrap_or_default(),
+            properties.unwrap_or_default(),
+        )
+    }
+}
 impl From<&str> for Ast {
     fn from(value: &str) -> Self {
         Self::Symbol(value.into())
@@ -145,31 +247,38 @@ impl From<String> for Ast {
         Self::Symbol(value.into())
     }
 }
-
+impl From<usize> for Ast {
+    fn from(value: usize) -> Self {
+        Self::Number(value as f64)
+    }
+}
+impl From<f64> for Ast {
+    fn from(value: f64) -> Self {
+        Self::Number(value)
+    }
+}
 impl fmt::Display for Symbol {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}{}", self.0, self.1)
+        write!(f, "{}", self.0)
     }
 }
 
 impl From<Rc<str>> for Symbol {
     fn from(value: Rc<str>) -> Self {
-        Self(value, 0)
+        Self(value)
     }
 }
-
-impl From<&str> for Symbol {
-    fn from(value: &str) -> Self {
-        Self(value.into(), 0)
-    }
-}
-
 impl From<String> for Symbol {
     fn from(value: String) -> Self {
-        Self(value.into(), 0)
+        Self(value.into())
     }
 }
-#[must_use]
+impl From<&str> for Symbol {
+    fn from(value: &str) -> Self {
+        Self(value.into())
+    }
+}
+
 pub fn bound_identifier(a: Ast, b: Ast) -> bool {
     matches!((a, b), (Ast::Syntax(a), Ast::Syntax(b)) if a == b)
 }
@@ -190,7 +299,7 @@ impl fmt::Display for Ast {
                 write!(f, "({string})")
             }
             Self::String(f0) => write!(f, "{f0}"),
-            Self::Syntax(s) => write!(f, "#'{}", s.0),
+            Self::Syntax(s) => write!(f, "#'{}", s.0.clone().syntax_to_datum()),
             Self::Number(n) => write!(f, "{n}"),
             Self::Symbol(s) => write!(f, "'{s}"),
             Self::Function(function) => write!(f, "{function}"),
@@ -207,6 +316,21 @@ impl Ast {
         match self {
             Self::Pair(p) => p.size(),
             _ => 0,
+        }
+    }
+    pub fn map2(
+        a: Self,
+        b: Self,
+        mut f: impl FnMut(Self, Self) -> Result<Self, String>,
+    ) -> Result<Self, String> {
+        match (a, b) {
+            (Self::Pair(p), Self::Pair(p1)) => {
+                let car = f(p.0.clone(), p1.0.clone())?;
+                let cdr = Self::map2(p.1, p1.1, f)?;
+                Ok(Self::Pair(Box::new(Pair(car, cdr))))
+            }
+            (Self::TheEmptyList, Self::TheEmptyList) => Ok(Self::TheEmptyList),
+            bad => Err(format!("cannot map {} and {}", bad.0, bad.1)),
         }
     }
     pub fn map(&self, f: impl FnMut(Self) -> Result<Self, String>) -> Result<Self, String> {
@@ -251,20 +375,70 @@ impl Ast {
     pub fn foldl<A>(self, mut f: impl FnMut(Self, A) -> A, init: A) -> Result<A, String> {
         self.foldl_pair(
             |term, base, init: Result<A, String>| {
-                if !base {
-                    init.map(|init| f(term, init))
-                } else {
+                if base {
                     match term {
                         Self::TheEmptyList => init,
                         _other => Err(String::new()),
                     }
+                } else {
+                    init.map(|init| f(term, init))
                 }
             },
             Ok(init),
         )
     }
+    // TODO: have Vec<Ast> -> Ast
+    pub fn to_list(self) -> Vec<Self> {
+        self.foldl_pair(
+            |term, base, mut init| {
+                if base && term == Self::TheEmptyList {
+                    init
+                } else {
+                    init.push(term);
+                    init
+                }
+            },
+            Vec::new(),
+        )
+    }
+    pub fn map_to_list_checked<T>(
+        self,
+        mut f: impl FnMut(Self) -> Result<T, String>,
+    ) -> Result<Vec<T>, Option<String>> {
+        {
+            let init = Vec::new();
+            self.foldl_pair(
+                |term, base, init: Result<Vec<T>, Option<String>>| {
+                    if base {
+                        match term {
+                            Self::TheEmptyList => init,
+                            _other => Err(None),
+                        }
+                    } else {
+                        init.and_then(|mut init| {
+                            f(term)
+                                .map(|x| {
+                                    init.push(x);
+                                    init
+                                })
+                                .map_err(Some)
+                        })
+                    }
+                },
+                Ok(init),
+            )
+        }
+    }
+    pub fn to_list_checked(self) -> Result<Vec<Self>, String> {
+        self.foldl(
+            |term, mut init| {
+                init.push(term);
+                init
+            },
+            Vec::new(),
+        )
+    }
 
-    #[must_use]
     pub const fn is_keyword(&self) -> bool {
         // https://docs.racket-lang.org/guide/keywords.html
         false
@@ -286,6 +460,79 @@ impl Ast {
         match self {
             Self::Syntax(s) => Some(s.1.clone()),
             _ => None,
+        }
+    }
+    pub(crate) fn properties(&self) -> Option<Properties> {
+        match self {
+            Self::Syntax(s) => Some(s.3.clone()),
+            _ => None,
+        }
+    }
+    pub(crate) fn syntax_src_loc(&self) -> Option<syntax::SourceLocation> {
+        match self {
+            Self::Syntax(s) => Some(s.2.clone()),
+            _ => None,
+        }
+    }
+    pub(crate) fn append(self, list: Self) -> Self {
+        fn inner(list1: Ast, list2: Ast, f: impl FnOnce(Ast) -> Ast) -> Ast {
+            match list1 {
+                Ast::Pair(pair) => {
+                    let Pair(x, xs) = *pair;
+                    inner(xs, list2, |acc| f(list!(x;acc)))
+                }
+                Ast::TheEmptyList => f(list2),
+                _ => list1,
+            }
+        }
+        inner(self, list, |x| x)
+    }
+}
+impl TryFrom<Ast> for Symbol {
+    type Error = String;
+
+    fn try_from(value: Ast) -> Result<Self, Self::Error> {
+        let Ast::Symbol(s) = value else {
+            return Err("not a symbol".to_string());
+        };
+        Ok(s)
+    }
+}
+impl Ast {
+    pub fn to_synax_list(self) -> Self {
+        match self {
+            Self::Pair(l) => Self::Pair(Box::new(Pair(l.0, l.1.to_synax_list()))),
+            Self::Syntax(s) => s.0.to_synax_list(),
+            _ => self,
+        }
+    }
+
+    pub fn fold_to_syntax_list<T, E>(
+        self,
+        f: &mut impl FnMut(Self, T) -> Result<T, E>,
+        init: T,
+    ) -> Result<T, E> {
+        match self {
+            Self::Pair(l) => {
+                let Pair(car, cdr) = *l;
+                cdr.fold_to_syntax_list(f, init)
+                    .and_then(|init| f(car, init))
+            }
+            Self::Syntax(s) => s.0.fold_to_syntax_list(f, init),
+            _ => Ok(init),
+        }
+    }
+    pub fn map_to_syntax_list<E>(
+        self,
+        mut f: impl FnMut(Self) -> Result<Self, E>,
+    ) -> Result<Self, E> {
+        match self {
+            Self::Pair(l) => Ok(Self::Pair(Box::new(Pair(
+                f(l.0)?,
+                l.1.map_to_syntax_list(f)?,
+            )))),
+            Self::Syntax(s) => s.0.map_to_syntax_list(f),
+            _ => Ok(self),
         }
     }
 }
