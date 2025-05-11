@@ -9,7 +9,7 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use ast::{scope::Scope, Ast, Symbol};
+use ast::{scope::Scope, Symbol};
 use expander::Expander;
 
 trace::init_depth_var!();
@@ -30,14 +30,11 @@ impl UniqueNumberManager {
     }
 
     fn new_scope() -> Scope {
-        Scope(
-            UniqueNumberManager::next(),
-            Rc::new(RefCell::new(HashMap::new())),
-        )
+        Scope(Self::next(), Rc::new(RefCell::new(HashMap::new())))
     }
 
     fn gen_sym(name: impl ToString) -> Symbol {
-        Symbol((name.to_string() + &UniqueNumberManager::next().to_string()).into())
+        Symbol((name.to_string() + &Self::next().to_string()).into())
     }
 }
 

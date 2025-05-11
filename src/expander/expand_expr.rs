@@ -164,9 +164,7 @@ fn list_to_cons<T>(list: impl DoubleEndedIterator<Item = T>, mut f: impl FnMut(T
 }
 impl Expander {
     fn add_local_bindings(ids: Vec<Syntax<Symbol>>) -> Vec<Symbol> {
-        ids.into_iter()
-            .map(|id| Expander::add_local_binding(id))
-            .collect()
+        ids.into_iter().map(Self::add_local_binding).collect()
     }
     pub fn add_core_forms(&mut self) {
         self.add_core_form("lambda".into(), Self::core_form_lambda);
@@ -205,7 +203,7 @@ impl Expander {
         let ids = self.parse_and_flatten_formals(formals.clone(), sc.clone())?;
         check_no_duplicate_ids(ids.clone(), &s, make_check_no_duplicate_table())?;
         let variable = Ast::Symbol(self.variable.clone());
-        let keys = ids.into_iter().map(|id| Self::add_local_binding(id));
+        let keys = ids.into_iter().map(Self::add_local_binding);
         let mut body_ctx = ctx;
         body_ctx
             .env
@@ -388,8 +386,7 @@ impl Expander {
         // TODO: let m = matcher::match_syntax!( (set! id rhs))(s.clone(),)?;
         let m = matcher::match_syntax!( (set id rhs))(s.clone())?;
         let id = m.id;
-        let binding = self
-            .resolve(&id.clone().try_into()?, false)
+        let binding = Self::resolve(&id.clone().try_into()?, false)
             .inspect_err(|e| {
                 dbg!(format!("{e}"));
             })

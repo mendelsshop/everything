@@ -833,10 +833,10 @@ impl Expander {
 #[cfg(test)]
 mod tests {
 
+    use crate::ast::Ast;
     use crate::evaluator::{Evaluator, Values};
 
     use crate::expander::Expander;
-    use crate::Ast;
     use crate::{list, sexpr};
 
     use super::expand_context::ExpandContext;

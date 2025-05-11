@@ -5,6 +5,7 @@ use std::{
 };
 
 use itertools::Itertools;
+use matcher::match_syntax;
 
 use crate::{
     ast::{
@@ -55,7 +56,7 @@ impl Expander {
         let Ast::Symbol(ref id) = id_syntax.0 else {
             unreachable!();
         };
-        let binding = self.resolve(&id_syntax.with_ref(id.clone()), false)
+        let binding = Self::resolve(&id_syntax.with_ref(id.clone()), false)
             // .inspect_err(|e| {
                     // dbg!(format!("{e} id"));
                 // })
@@ -72,7 +73,7 @@ impl Expander {
     fn expand_implicit(&mut self, sym: Symbol, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
         let scopes = s.scope_set();
         let id = sym.clone().datum_to_syntax(scopes, None, None);
-        let binding = self.resolve(&id, false).inspect_err(|e| {
+        let binding = Self::resolve(&id, false).inspect_err(|e| {
             dbg!(format!("{e}"));
         });
         let transformer = binding.and_then(|binding| self.lookup(&binding, &ctx, &sym))?;
@@ -101,23 +102,22 @@ impl Expander {
             .lookup(binding, &ctx.namespace, id, self.variable.clone())
     }
     pub(crate) fn apply_transformer(
-        &mut self,
         m: Function,
         s: Ast,
         ctx: &ExpandContext,
     ) -> Result<Ast, String> {
         let intro_scope = UniqueNumberManager::new_scope();
         let intro_s = s.add_scope(intro_scope.clone());
-        let uses_s = self.maybe_add_use_site_scope(intro_s, ctx);
+        let uses_s = Self::maybe_add_use_site_scope(intro_s, ctx);
         let transformed_s = m.apply_single(Ast::Pair(Box::new(Pair(uses_s, Ast::TheEmptyList))))?;
         if !matches!(transformed_s, Ast::Syntax(_)) {
             return Err(format!("transformer produced non syntax: {transformed_s}"));
         }
         let result_s = transformed_s.flip_scope(intro_scope);
-        Ok(self.maybe_add_post_site_scope(result_s, ctx))
+        Ok(Self::maybe_add_post_site_scope(result_s, ctx))
     }
 
-    fn maybe_add_use_site_scope(&mut self, s: Ast, ctx: &ExpandContext) -> Ast {
+    fn maybe_add_use_site_scope(s: Ast, ctx: &ExpandContext) -> Ast {
         match &ctx.use_site_scopes {
             Some(scopes) => {
                 let sc = UniqueNumberManager::new_scope();
@@ -128,7 +128,7 @@ impl Expander {
             None => s,
         }
     }
-    fn maybe_add_post_site_scope(&self, s: Ast, ctx: &ExpandContext) -> Ast {
+    fn maybe_add_post_site_scope(s: Ast, ctx: &ExpandContext) -> Ast {
         {
             match &ctx.post_expansion_scope {
                 Some(sc) => s.add_scope(sc.clone()),
@@ -145,7 +145,7 @@ impl Expander {
         match t {
             CompileTimeBinding::Regular(t) => match t {
                 Ast::Function(transfromer) => {
-                    let apply_transformer = self.apply_transformer(transfromer, s, &ctx)?;
+                    let apply_transformer = Self::apply_transformer(transfromer, s, &ctx)?;
                     self.expand(apply_transformer, ctx)
                 }
                 Ast::Symbol(variable) if variable == self.variable => Ok(s),
@@ -178,14 +178,13 @@ impl Expander {
             None => self.finish_expanding_body(body_ctx, done_bodys, val_binds, original_syntax),
             Some(body) => {
                 let exp_body = self.expand(body, body_ctx.clone())?;
-                if let Ok(pat) = self.core_form_symbol(exp_body.clone()) {
+                if let Ok(pat) = Self::core_form_symbol(exp_body.clone()) {
                     match pat.to_string().as_str() {
                         "begin" => {
-                            let m = match_syntax(
-                                exp_body,
-                                list!("begin".into(), "e".into(), "...".into()),
-                            )?;
-                            let e = m("e".into()).ok_or("internal error")?;
+                            let m = match_syntax!(
+                                (begin e ...)
+                            )(exp_body)?;
+                            let e = m.e;
                             let mut new_bodys = VecDeque::from(e.to_list_checked()?);
 
                             new_bodys.append(&mut bodys);
@@ -200,18 +199,14 @@ impl Expander {
                             )
                         }
                         "define-values" => {
-                            let m = match_syntax(
-                                exp_body.clone(),
-                                list!(
-                                    "define-values".into(),
-                                    list!("id".into(), "...".into()),
-                                    "rhs".into()
-                                ),
-                            )?;
-                            let ids = self.remove_use_site_scopes(
-                                m("id".into()).ok_or("internal error")?,
-                                &body_ctx,
-                            );
+                            let m = match_syntax!(
+                                (
+                                    define_values
+                                    (id ...)
+                                    rhs
+                                )
+                            )(exp_body.clone())?;
+                            let ids = Self::remove_use_site_scopes(m.id, &body_ctx);
                             let ids = to_id_list(ids)?;
                             let new_duplicates = duplicate_check::check_no_duplicate_ids(
                                 ids.clone(),
@@ -221,7 +216,7 @@ impl Expander {
                             let keys = ids
                                 .clone()
                                 .into_iter()
-                                .map(|id| Self::add_local_binding(id))
+                                .map(Self::add_local_binding)
                                 .collect_vec();
 
                             body_ctx.env.0.extend(
@@ -230,7 +225,7 @@ impl Expander {
                             );
 
                             val_binds.append(&mut self.no_binds(done_bodys));
-                            val_binds.push((ids, m("rhs".into()).ok_or("internal error")?));
+                            val_binds.push((ids, m.rhs));
                             self.expand_body_loop(
                                 body_ctx,
                                 ctx,
@@ -242,18 +237,12 @@ impl Expander {
                             )
                         }
                         "define-syntaxes" => {
-                            let m = match_syntax(
-                                exp_body.clone(),
-                                list!(
-                                    "define-syntaxes".into(),
-                                    list!("id".into(), "...".into()),
-                                    "rhs".into()
-                                ),
-                            )?;
-                            let ids = self.remove_use_site_scopes(
-                                m("id".into()).ok_or("internal error")?,
-                                &body_ctx,
-                            );
+                            let m = match_syntax!((
+                                define_syntaxes
+                                (id ...)
+                                rhs
+                            ))(exp_body.clone())?;
+                            let ids = Self::remove_use_site_scopes(m.id, &body_ctx);
                             let ids = ids.to_list_checked()?;
 
                             let id_count = ids.len();
@@ -266,15 +255,9 @@ impl Expander {
                                 &exp_body,
                                 duplicate,
                             )?;
-                            let keys = ids
-                                .into_iter()
-                                .map(|id| Self::add_local_binding(id))
-                                .collect_vec();
-                            let vals = self.eval_for_syntaxes_binding(
-                                m("rhs".into()).ok_or("internal error")?,
-                                id_count,
-                                ctx.clone(),
-                            )?;
+                            let keys = ids.into_iter().map(Self::add_local_binding).collect_vec();
+                            let vals =
+                                self.eval_for_syntaxes_binding(m.rhs, id_count, ctx.clone())?;
                             body_ctx.env.0.extend(keys.into_iter().zip(vals));
                             self.expand_body_loop(
                                 body_ctx,
@@ -321,7 +304,7 @@ impl Expander {
             Some(self.core_syntax.3.clone()),
         )
     }
-    fn remove_use_site_scopes(&self, syntax: Ast, ctx: &ExpandContext) -> Ast {
+    fn remove_use_site_scopes(syntax: Ast, ctx: &ExpandContext) -> Ast {
         if let Some(scopes) = &ctx.use_site_scopes {
             syntax.remove_scopes(scopes.borrow().clone())
         } else {
@@ -469,13 +452,13 @@ impl Expander {
                     Values::Many(vec) => vec,
                     Values::Single(ast) => vec![ast],
                 };
-                if id_count != list.len() {
+                if id_count == list.len() {
+                    Ok(list)
+                } else {
                     Err(format!(
                         "wrong number of results ({} vs {id_count}) from {exp_rhs}",
                         list.len()
                     ))
-                } else {
-                    Ok(list)
                 }
             })
     }
@@ -497,7 +480,7 @@ impl Expander {
         s: Syntax<Symbol>,
         ctx: ExpandContext,
     ) -> Result<Ast, String> {
-        let binding = self.resolve(&s, false);
+        let binding = Self::resolve(&s, false);
         let id = s.0.clone();
         let s = Ast::Syntax(Box::new(s.with(Ast::Symbol(id.clone()))));
         match binding {

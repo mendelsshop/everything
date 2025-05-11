@@ -356,13 +356,13 @@ impl Ast {
     pub fn foldl<A>(self, mut f: impl FnMut(Self, A) -> A, init: A) -> Result<A, String> {
         self.foldl_pair(
             |term, base, init: Result<A, String>| {
-                if !base {
-                    init.map(|init| f(term, init))
-                } else {
+                if base {
                     match term {
                         Self::TheEmptyList => init,
                         _other => Err(String::new()),
                     }
+                } else {
+                    init.map(|init| f(term, init))
                 }
             },
             Ok(init),
@@ -384,13 +384,18 @@ impl Ast {
     }
     pub fn map_to_list_checked<T>(
         self,
-        mut f: impl FnMut(Ast) -> Result<T, String>,
+        mut f: impl FnMut(Self) -> Result<T, String>,
     ) -> Result<Vec<T>, Option<String>> {
         {
             let init = Vec::new();
             self.foldl_pair(
                 |term, base, init: Result<Vec<T>, Option<String>>| {
-                    if !base {
+                    if base {
+                        match term {
+                            Self::TheEmptyList => init,
+                            _other => Err(None),
+                        }
+                    } else {
                         init.and_then(|mut init| {
                             f(term)
                                 .map(|x| {
@@ -399,11 +404,6 @@ impl Ast {
                                 })
                                 .map_err(Some)
                         })
-                    } else {
-                        match term {
-                            Self::TheEmptyList => init,
-                            _other => Err(None),
-                        }
                     }
                 },
                 Ok(init),
@@ -507,7 +507,7 @@ impl Ast {
     }
     pub fn map_to_syntax_list<E>(
         self,
-        mut f: impl FnMut(Self) -> Result<Ast, E>,
+        mut f: impl FnMut(Self) -> Result<Self, E>,
     ) -> Result<Self, E> {
         match self {
             Self::Pair(l) => Ok(Self::Pair(Box::new(Pair(

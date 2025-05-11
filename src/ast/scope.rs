@@ -146,8 +146,8 @@ impl Expander {
         Self::add_binding_in_scope(id.1, id.0, binding)
     }
     /// exactly by default should be false
-    pub fn resolve(&self, id: &Syntax<Symbol>, exactly: bool) -> Result<Binding, String> {
-        let candidate_ids = self.find_all_matching_bindings(id, &id.1);
+    pub fn resolve(id: &Syntax<Symbol>, exactly: bool) -> Result<Binding, String> {
+        let candidate_ids = Self::find_all_matching_bindings(id, &id.1);
         let max_candidate = candidate_ids
             .clone()
             .max_by_key(|id| id.0.len())
@@ -163,7 +163,6 @@ impl Expander {
     }
 
     fn find_all_matching_bindings<'a>(
-        &'a self,
         id: &'a Syntax<Symbol>,
         scopes: &'a BTreeSet<Scope>,
     ) -> impl Iterator<Item = (BTreeSet<Scope>, Binding)> + Clone + 'a {
@@ -184,7 +183,7 @@ fn all_bindings<'a>(
 }
 // TODO: return error if ambiguous
 // or maybe return error in resolve, instead of option
-fn check_unambiguous<'a>(
+fn check_unambiguous(
     max_candidate: &(BTreeSet<Scope>, Binding),
     mut candidate_ids: impl Iterator<Item = (BTreeSet<Scope>, Binding)>,
 ) -> bool {

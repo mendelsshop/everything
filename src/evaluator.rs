@@ -320,7 +320,7 @@ impl Evaluator {
                         "error {letrec_values}: expected [(ids) value], it is unclosed, got {}",
                         value.1
                     ));
-                };
+                }
                 Ok((ids, value.0))
             })
             .try_collect()?;

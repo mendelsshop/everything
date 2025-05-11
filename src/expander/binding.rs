@@ -85,9 +85,9 @@ impl CompileTimeEnvoirnment {
     }
 }
 impl Expander {
-    pub fn free_identifier(&self, a: Syntax<Symbol>, b: Syntax<Symbol>) -> Result<bool, String> {
-        let ab = self.resolve(&a, false)?;
-        let bb = self.resolve(&b, false)?;
+    pub fn free_identifier(a: Syntax<Symbol>, b: Syntax<Symbol>) -> Result<bool, String> {
+        let ab = Self::resolve(&a, false)?;
+        let bb = Self::resolve(&b, false)?;
         Ok(ab == bb)
     }
     pub fn add_local_binding(id: Syntax<Symbol>) -> Symbol {

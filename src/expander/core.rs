@@ -1,8 +1,10 @@
 use std::{collections::BTreeSet, rc::Rc};
 
+use matcher::match_syntax;
+
 use crate::ast::{
     syntax::{Properties, SourceLocation, Syntax},
-    Ast, Pair, Symbol,
+    Ast, Symbol,
 };
 
 use super::{
@@ -12,7 +14,7 @@ use super::{
 };
 
 impl Expander {
-    fn add_core_binding(&mut self, sym: Symbol) -> Result<(), String> {
+    fn add_core_binding(&self, sym: Symbol) -> Result<(), String> {
         Self::add_binding(
             Syntax(
                 sym.clone(),
@@ -33,7 +35,7 @@ impl Expander {
         self.core_primitives.insert(sym, proc);
     }
 
-    pub fn declare_core_top_level(&mut self, ns: &mut NameSpace) {
+    pub fn declare_core_top_level(&self, ns: &mut NameSpace) {
         ns.transformers.extend(
             self.core_forms
                 .clone()
@@ -48,27 +50,18 @@ impl Expander {
         );
     }
 
-    pub fn core_form_symbol(&self, s: Ast) -> Result<Rc<str>, String> {
-        try_match_syntax(
-            s,
-            Ast::Pair(Box::new(Pair(
-                Ast::Symbol("id".into()),
-                Ast::Symbol("_".into()),
-            ))),
-        )
-        .and_then(|f| {
+    pub fn core_form_symbol(s: Ast) -> Result<Rc<str>, String> {
+        match_syntax!((id._id))(s).and_then(|f| {
             // could this also be a plain symbol?
-            let Some(Ast::Syntax(s)) = f("id".into()) else {
+            let Ast::Syntax(s) = f.id else {
                 return Err("no such pattern variable id".to_string());
             };
             let Ast::Symbol(ref sym) = s.0 else {
                 return Err("no such pattern variable id".to_string());
             };
-            let b = self
-                .resolve(&s.with_ref(sym.clone()), false)
-                .inspect_err(|e| {
-                    dbg!(format!("{e}"));
-                })?;
+            let b = Self::resolve(&s.with_ref(sym.clone()), false).inspect_err(|e| {
+                dbg!(format!("{e}"));
+            })?;
             match b {
                 Binding::Local(_) => Err(format!("{sym} is not a core form")),
                 Binding::TopLevel(s) => Ok(s),
