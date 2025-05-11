@@ -27,7 +27,8 @@ impl std::fmt::Debug for Scope {
 }
 
 impl Scope {
-    #[must_use] pub fn scope_greater_than(&self, other: &Self) -> bool {
+    #[must_use]
+    pub fn scope_greater_than(&self, other: &Self) -> bool {
         self > other
     }
 }

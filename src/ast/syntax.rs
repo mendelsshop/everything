@@ -137,7 +137,8 @@ impl Ast {
             _ => self,
         }
     }
-    #[must_use] pub const fn identifier(&self) -> bool {
+    #[must_use]
+    pub const fn identifier(&self) -> bool {
         matches!( self, Self::Syntax(s) if  matches!(**s,Syntax(Self::Symbol(_), ..)))
     }
 }

@@ -279,7 +279,8 @@ impl From<&str> for Symbol {
     }
 }
 
-#[must_use] pub fn bound_identifier(a: Ast, b: Ast) -> bool {
+#[must_use]
+pub fn bound_identifier(a: Ast, b: Ast) -> bool {
     matches!((a, b), (Ast::Syntax(a), Ast::Syntax(b)) if a == b)
 }
 
@@ -388,7 +389,8 @@ impl Ast {
         )
     }
     // TODO: have Vec<Ast> -> Ast
-    #[must_use] pub fn to_list(self) -> Vec<Self> {
+    #[must_use]
+    pub fn to_list(self) -> Vec<Self> {
         self.foldl_pair(
             |term, base, mut init| {
                 if base && term == Self::TheEmptyList {
@@ -439,7 +441,8 @@ impl Ast {
         )
     }
 
-    #[must_use] pub const fn is_keyword(&self) -> bool {
+    #[must_use]
+    pub const fn is_keyword(&self) -> bool {
         // https://docs.racket-lang.org/guide/keywords.html
         false
     }
@@ -499,7 +502,8 @@ impl TryFrom<Ast> for Symbol {
     }
 }
 impl Ast {
-    #[must_use] pub fn to_synax_list(self) -> Self {
+    #[must_use]
+    pub fn to_synax_list(self) -> Self {
         match self {
             Self::Pair(l) => Self::Pair(Box::new(Pair(l.0, l.1.to_synax_list()))),
             Self::Syntax(s) => s.0.to_synax_list(),
