@@ -149,17 +149,28 @@ macro_rules! sexpr {
 impl fmt::Display for Function {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Lambda(l) => write!(f, "(lambda {} {})", l.2, l.0),
+            Self::Lambda(l) => write!(f, "(lambda {} {})", l.arg, l.body),
             Self::Primitive(_) => write!(f, "(primitive-procedure)"),
         }
     }
 }
 
+// TODO: how does function application work if we are currying all the functions, espically for
+// apply transformer
+// from looking at compilation code:
+// primitives are fully applied
+// lambdas are curried
+// variadiacs are fully applied
 impl Function {
     pub(crate) fn apply(&self, args: Ast) -> Result<Values, String> {
         match self {
-            Self::Lambda(Lambda(body, env, params)) => {
-                let env = Env::extend_envoirnment(env.clone(), *params.clone(), args)?;
+            Self::Lambda(Lambda {
+                body,
+                env,
+                arg: params,
+            }) => {
+                // let env = Env::extend_envoirnment(env.clone(), *params.clone(), args)?;
+                let env = todo!();
                 Evaluator::eval_sequence(*body.clone(), env)
             }
             Self::Primitive(p) => p(args),
@@ -176,7 +187,11 @@ impl Function {
 }
 
 #[derive(Clone)]
-pub struct Lambda(pub Box<Ast>, pub EnvRef, pub Box<Ast>);
+pub struct Lambda {
+    pub body: Box<Ast>,
+    pub env: EnvRef,
+    pub arg: Arg,
+}
 
 impl PartialEq for Lambda {
     fn eq(&self, _other: &Self) -> bool {
@@ -187,7 +202,7 @@ impl Eq for Lambda {}
 
 impl fmt::Debug for Lambda {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "(lambda {} {}", self.2, self.0)
+        write!(f, "(lambda {} {}", self.arg, self.body)
     }
 }
 
@@ -479,7 +494,8 @@ impl Ast {
             _ => None,
         }
     }
-    #[must_use] pub fn append(self, list: Self) -> Self {
+    #[must_use]
+    pub fn append(self, list: Self) -> Self {
         fn inner(list1: Ast, list2: Ast, f: impl FnOnce(Ast) -> Ast) -> Ast {
             match list1 {
                 Ast::Pair(pair) => {
@@ -493,7 +509,8 @@ impl Ast {
         inner(self, list, |x| x)
     }
 
-    #[must_use] pub fn to_synax_list(self) -> Self {
+    #[must_use]
+    pub fn to_synax_list(self) -> Self {
         match self {
             Self::Pair(l) => Self::Pair(Box::new(Pair(l.0, l.1.to_synax_list()))),
             Self::Syntax(s) => s.0.to_synax_list(),
@@ -653,19 +670,40 @@ pub enum Varidiac {
     /// in form of tree (requires at least 0 args)
     AtLeast0,
 }
+#[macro_export]
+macro_rules! matches_to {
+    ($e:expr => $s:path) => {
+        match $e {
+            $s(e) => Some(e),
+            _ => None,
+        }
+    };
+    ($e:expr => $s:path | this) => {
+        match $e {
+            $s(v) => Ok(v),
+            e => Err(e),
+        }
+    };
+    ($e:expr => $s:path | $r:expr) => {
+        match $e {
+            $s(e) => Ok(e),
+            _ => Err($r),
+        }
+    };
+}
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub enum Arg {
     // All the variants besides Zero have a number, so even after auto currying the compiler still
     // knows the arguement index
     Zero,
-    One(usize),
+    One(Rc<str>),
     /// denotes that besides the usual arg count function will take extra args
     /// in form of tree (requires at least 1 arg)
-    AtLeast1(usize),
+    AtLeast1(Rc<str>),
     /// denotes that besides the usual arg count function will take extra args
     /// in form of tree (requires at least 0 args)
-    AtLeast0(usize),
+    AtLeast0(Rc<str>),
 }
 
 impl From<Arg> for usize {

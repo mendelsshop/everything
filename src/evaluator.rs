@@ -1,5 +1,6 @@
 use crate::{
-    ast::{Ast, Function, Lambda, Pair, Symbol},
+    ast::{Arg, Ast, Function, Lambda, Pair, Symbol},
+    matches_to,
     primitives::new_primitive_env,
 };
 
@@ -148,6 +149,33 @@ impl fmt::Display for Values {
         }
     }
 }
+fn parse_formals(value: &Ast) -> Result<Arg, String> {
+    match value {
+        Ast::TheEmptyList => Ok(Arg::Zero),
+        Ast::Pair(ref arg_list) => {
+            let Pair(ref argc, ref rest) = **arg_list;
+            let argc = matches_to!(argc => Ast::Symbol).ok_or("argc must be a number")?;
+            match rest {
+                Ast::TheEmptyList => Ok(Arg::One(argc.0.clone())),
+                Ast::Pair(ref varidiac) => match **varidiac {
+                    Pair(Ast::Symbol(ref variadic), Ast::TheEmptyList)
+                        if variadic.to_string() == "*" =>
+                    {
+                        Ok(Arg::AtLeast0(argc.0.clone()))
+                    }
+                    Pair(Ast::Symbol(ref variadic), Ast::TheEmptyList)
+                        if variadic.to_string() == "+" =>
+                    {
+                        Ok(Arg::AtLeast1(argc.0.clone()))
+                    }
+                    _ => Err(format!("parameter must be a list {value}")),
+                },
+                _ => Err(format!("parameter must be a list {value}")),
+            }
+        }
+        _ => Err(format!("parameter must be a list {value}")),
+    }
+}
 impl Evaluator {
     pub(crate) fn eval_single_value(expr: Ast, env: EnvRef) -> Result<Ast, String> {
         Self::eval(expr, env).and_then(|values| {
@@ -168,16 +196,12 @@ impl Evaluator {
                     };
 
                     // TODO: variadic function with dot notation
-                    let args = arg.clone().map_pair(|arg, base| match arg {
-                        Ast::Symbol(s) => Ok(Ast::Symbol(s)),
-                        Ast::TheEmptyList if base => Ok(Ast::TheEmptyList),
-                        _ => Err(format!("bad syntax {arg} is not a valid paramter")),
-                    })?;
-                    Ok(Values::Single(Ast::Function(Function::Lambda(Lambda(
-                        Box::new(Ast::Pair(body.clone())),
+                    let arg = parse_formals(arg)?;
+                    Ok(Values::Single(Ast::Function(Function::Lambda(Lambda {
+                        body: Box::new(Ast::Pair(body.clone())),
                         env,
-                        Box::new(args),
-                    )))))
+                        arg,
+                    }))))
                 }
                 Ast::Symbol(Symbol(quote)) if *quote == *"quote" => {
                     let Pair(_, Ast::Pair(datum)) = *list else {
@@ -254,7 +278,7 @@ impl Evaluator {
                         .1
                         .map(|arg| Self::eval_single_value(arg, env.clone()))?;
                     Self::execute_application(f, rest)
-                } //Ast::TheEmptyList => Err(format!("bad syntax {list:?}, empty application")),
+                }
             },
             Ast::Symbol(s) => env
                 .borrow()
