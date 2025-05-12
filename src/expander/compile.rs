@@ -135,7 +135,7 @@ impl Expander {
             // TODO: make sure variadic symbol is + or *
             let varidiac = m.variadic.unsyntax();
             Ok(sexpr!((#(Self::local_symbol(&id).map(Ast::Symbol)?) #(varidiac))))
-        } else if let Ok(m) = match_syntax!(())(formals.clone()) {
+        } else if match_syntax!(())(formals.clone()).is_ok() {
             Ok(formals)
         } else {
             Err("invalid lambda formals".to_string())

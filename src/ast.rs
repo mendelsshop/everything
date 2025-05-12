@@ -237,6 +237,16 @@ impl Symbol {
         )
     }
 }
+impl TryFrom<Ast> for Symbol {
+    type Error = String;
+
+    fn try_from(value: Ast) -> Result<Self, Self::Error> {
+        let Ast::Symbol(s) = value else {
+            return Err("not a symbol".to_string());
+        };
+        Ok(s)
+    }
+}
 impl From<&str> for Ast {
     fn from(value: &str) -> Self {
         Self::Symbol(value.into())
@@ -394,11 +404,10 @@ impl Ast {
         self.foldl_pair(
             |term, base, mut init| {
                 if base && term == Self::TheEmptyList {
-                    init
                 } else {
                     init.push(term);
-                    init
                 }
+                init
             },
             Vec::new(),
         )
@@ -443,17 +452,10 @@ impl Ast {
 
     #[must_use]
     pub const fn is_keyword(&self) -> bool {
-        // https://docs.racket-lang.org/guide/keywords.html
+        // TODO: https://docs.racket-lang.org/guide/keywords.html
         false
     }
 
-    // pub fn to_synax_list(self) -> Self {
-    //     match self {
-    //         Self::List(l) => Self::List(l.into_iter().map(Self::to_synax_list).collect()),
-    //         Self::Syntax(s) => s.0.to_synax_list(),
-    //         _ => self,
-    //     }
-    // }
     #[must_use]
     pub fn list(&self) -> bool {
         matches!(self,  Self::Pair(p) if p.list() ) || *self == Self::TheEmptyList
@@ -477,7 +479,7 @@ impl Ast {
             _ => None,
         }
     }
-    pub(crate) fn append(self, list: Self) -> Self {
+    #[must_use] pub fn append(self, list: Self) -> Self {
         fn inner(list1: Ast, list2: Ast, f: impl FnOnce(Ast) -> Ast) -> Ast {
             match list1 {
                 Ast::Pair(pair) => {
@@ -490,20 +492,8 @@ impl Ast {
         }
         inner(self, list, |x| x)
     }
-}
-impl TryFrom<Ast> for Symbol {
-    type Error = String;
 
-    fn try_from(value: Ast) -> Result<Self, Self::Error> {
-        let Ast::Symbol(s) = value else {
-            return Err("not a symbol".to_string());
-        };
-        Ok(s)
-    }
-}
-impl Ast {
-    #[must_use]
-    pub fn to_synax_list(self) -> Self {
+    #[must_use] pub fn to_synax_list(self) -> Self {
         match self {
             Self::Pair(l) => Self::Pair(Box::new(Pair(l.0, l.1.to_synax_list()))),
             Self::Syntax(s) => s.0.to_synax_list(),

@@ -550,6 +550,6 @@ impl Expander {
         let link = m.link;
         let dest = filter_label(m.dest_label)?;
         let src = m.src_labels.map(filter_label)?;
-        Ok(rebuild(s, sexpr!((link dest src))))
+        Ok(rebuild(s, sexpr!((#(link) #(dest) #(src)))))
     }
 }
