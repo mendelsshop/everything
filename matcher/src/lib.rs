@@ -5,6 +5,7 @@
     missing_debug_implementations,
     clippy::missing_panics_doc
 )]
+#![doc = include_str!("./../README.md")]
 use core::fmt;
 use std::collections::HashSet;
 

@@ -1,12 +1,17 @@
 [package]
-name = "matcher"
+name = "matcher-proc-macro"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
+repository = "https://github.com/mendelsshop/everything/tree/main/matcher"
+keywords = ["pattern-matching", "proc-macro"]
+categories = []
+description = "A proc macro to generate an SExpr pattern matcher - for everything(-lang) and macro-lang"
 
 [dependencies]
-proc-macro2 = "1.0.94"
+proc-macro2 = "1.0.95"
 quote = "1.0.40"
 rand = "0.9.1"
-syn = "2.0.100"
+syn = "2.0.101"
 [lib]
 proc-macro = true
