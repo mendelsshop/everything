@@ -15,7 +15,7 @@ use std::{
     rc::Rc,
 };
 
-use crate::evaluator::{Env, EnvRef, Evaluator, Values};
+use crate::evaluator::{EnvRef, Evaluator, Values};
 
 #[macro_export]
 macro_rules! list {

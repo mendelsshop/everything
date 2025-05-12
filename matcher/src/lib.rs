@@ -202,7 +202,7 @@ impl ToTokens for SExpr {
                             let mut this = Self::default();
                             #sexpr;
                             #(  current.#binders = crate::ast::Ast::Pair(Box::new(crate::ast::Pair(this.#binders, current.#binders))); )*
-                             Ok(current)
+                            Ok(current)
                         },
                         Self::default()
                     )?;
@@ -212,7 +212,6 @@ impl ToTokens for SExpr {
                 tokens.append_all(token);
             }
             Self::ManyOne(sexpr, match_struct) => {
-                // TODO: make sure at least one
                 let sexpr_string = format!("{sexpr}");
                 let binders = match_struct.binders.clone().into_iter();
                 let binders1 = match_struct.binders.clone().into_iter();
@@ -221,11 +220,11 @@ impl ToTokens for SExpr {
                     let error = format!("expected at least one of {sexpr} {s}");
                     let res = s.fold_to_syntax_list::<(usize, Self), String>(
                         &mut |s, (i, mut current)| {
-                            let next_i = if s == crate::ast::Ast::TheEmptyList { 0 } else  {1  } + i;
+                            let next_i = if s == crate::ast::Ast::TheEmptyList { 0 } else  { 1 } + i;
                             let mut this = Self::default();
                             #sexpr;
                             #(  current.#binders = crate::ast::Ast::Pair(Box::new(Pair(this.#binders, current.#binders))); )*
-                             Ok((next_i, current))
+                            Ok((next_i, current))
                         },
                         (0, Self::default())
                     )?;
@@ -248,7 +247,7 @@ impl ToTokens for SExpr {
                 let token = quote! {
                     let ident = #ident_string;
                     if !s.identifier() {
-                       return Err(format!("not an identifier {s} when matching identifier: {ident}"))
+                        return Err(format!("not an identifier {s} when matching identifier: {ident}"))
                     }
                     this.#ident = s;
                 };
@@ -256,9 +255,9 @@ impl ToTokens for SExpr {
             }
             Self::Empty => {
                 let token = quote! {
-                   let s = if let Ast::Syntax(s) = s { s.0} else { s};
+                    let s = if let Ast::Syntax(s) = s { s.0 } else { s };
                     if s != crate::ast::Ast::TheEmptyList {
-                       return Err(format!("bad syntax expected expected null {s}"))
+                        return Err(format!("bad syntax expected expected null {s}"))
                     }
                 };
                 tokens.append_all(token);
@@ -270,23 +269,21 @@ impl ToTokens for SExpr {
             } => {
                 let this_string = self.to_string();
                 let token = quote! {
-                   let s = if let Ast::Syntax(s) = s { s.0} else { s};
-                        let this_string = #this_string;
-                   if let crate::ast::Ast::Pair(p) = s {
+                    let s = if let Ast::Syntax(s) = s { s.0 } else { s };
+                    let this_string = #this_string;
+                    if let crate::ast::Ast::Pair(p) = s {
                         let crate::ast::Pair(car, cdr) = *p;
                         {
                             let s = car;
                             #car
                         }
                         {
-
                             let s = cdr;
-                           // let s = if let Ast::Syntax(s) = s { s.0} else { s};
                             #cdr
                         }
                     } else {
                         let this_string = #this_string;
-                       return Err(format!("not a pair {s} when matching pair: {this_string}"))
+                        return Err(format!("not a pair {s} when matching pair: {this_string}"))
                     }
                 };
                 tokens.append_all(token);
@@ -308,7 +305,7 @@ pub fn match_syntax_as(input: TokenStream) -> TokenStream {
         }
         impl Default for #name {
             fn default() -> Self {
-                 Self {
+                Self {
                     #(  #binders1: crate::ast::Ast::TheEmptyList, )*
                 }
             }
@@ -333,26 +330,26 @@ pub fn match_syntax(input: TokenStream) -> TokenStream {
     let name = syn::Ident::new(&format!("Matcher{}", random::<u64>()), input.span());
     quote! {
         {
-        #[derive(Clone)]
-        struct #name {
-            #(  #binders: crate::ast::Ast, )*
-        }
-        impl Default for #name {
-            fn default() -> Self {
-                 Self {
-                    #(  #binders1: crate::ast::Ast::TheEmptyList, )*
+            #[derive(Clone)]
+            struct #name {
+                #(  #binders: crate::ast::Ast, )*
+            }
+            impl Default for #name {
+                fn default() -> Self {
+                    Self {
+                        #(  #binders1: crate::ast::Ast::TheEmptyList, )*
+                    }
                 }
             }
-        }
-        impl #name {
-            fn matches(s: Ast) -> Result<Self, String> {
-                let mut this = Self::default();
-                #input
-                Ok(this)
+            impl #name {
+                fn matches(s: Ast) -> Result<Self, String> {
+                    let mut this = Self::default();
+                    #input
+                    Ok(this)
+                }
             }
-        }
-        // TODO: somehow just return the type (#name), but doesn't seem to be usable in a type context
-        (#name::matches)
+            // TODO: somehow just return the type (#name), but doesn't seem to be usable in a type context
+            (#name::matches)
         }
     }
     .into()
