@@ -1,6 +1,6 @@
 use std::{mem, rc::Rc};
 
-use matcher::match_syntax;
+use matcher_proc_macro::match_syntax;
 
 use crate::{
     ast::{syntax::Syntax, Ast, Pair, Symbol},

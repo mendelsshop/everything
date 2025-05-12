@@ -14,11 +14,11 @@ use crate::{
 };
 use crate::{sexpr, UniqueNumberManager};
 use itertools::Itertools;
-use matcher::match_syntax;
+use matcher_proc_macro::{match_syntax, match_syntax_as};
 
 use super::binding::CompileTimeBinding;
 use super::{expand::rebuild, expand_context::ExpandContext, Expander};
-matcher::match_syntax_as!(LetSyntaxMatcher as
+match_syntax_as!(LetSyntaxMatcher as
 
     (
         // TODO: letrec_syntaxes+values
@@ -28,7 +28,7 @@ matcher::match_syntax_as!(LetSyntaxMatcher as
         body ..+
     )
 );
-matcher::match_syntax_as!(
+match_syntax_as!(
 LetMatcher as
                 (
                     let_values
@@ -419,7 +419,7 @@ impl Expander {
 
     fn core_form_datum(&mut self, s: Ast, _ctx: ExpandContext) -> Result<Ast, String> {
         // TODO: let m = matcher::match_syntax!((#%datum  . datum))(s.clone())?;
-        let m = matcher::match_syntax!((_datum.datum))(s.clone())?;
+        let m = match_syntax!((_datum.datum))(s.clone())?;
         let datum = m.datum;
         if matches!(datum, Ast::Syntax(ref s) if s.0.is_keyword()) {
             return Err(format!("keyword misused as an expression: {datum}"));
@@ -430,7 +430,7 @@ impl Expander {
         ))
     }
     fn core_form_app(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
-        let m = matcher::match_syntax!(
+        let m = match_syntax!(
             //TODO: should app be a syntax object
             // TODO: (%app rator rand ...)
             (app rator rand ...)
@@ -446,13 +446,13 @@ impl Expander {
         ))
     }
     fn core_form_quote(&mut self, s: Ast, _ctx: ExpandContext) -> Result<Ast, String> {
-        matcher::match_syntax!( (quote datum))(s.clone()).map(|_| s)
+        match_syntax!( (quote datum))(s.clone()).map(|_| s)
     }
     fn core_form_quote_syntax(&mut self, s: Ast, _ctx: ExpandContext) -> Result<Ast, String> {
-        matcher::match_syntax!( (quote_syntax datum))(s.clone()).map(|_| s)
+        match_syntax!( (quote_syntax datum))(s.clone()).map(|_| s)
     }
     fn core_form_if(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
-        let m = matcher::match_syntax!(
+        let m = match_syntax!(
 
             (
                 r#if
@@ -476,7 +476,7 @@ impl Expander {
         s: Ast,
         ctx: ExpandContext,
     ) -> Result<Ast, String> {
-        let m = matcher::match_syntax!(
+        let m = match_syntax!(
             (
                 with_continuation_mark
                 key
@@ -510,7 +510,7 @@ impl Expander {
     }
     fn core_form_set(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
         // TODO: let m = matcher::match_syntax!( (set! id rhs))(s.clone(),)?;
-        let m = matcher::match_syntax!( (set id rhs))(s.clone())?;
+        let m = match_syntax!( (set id rhs))(s.clone())?;
         let id = m.id;
         let binding = Self::resolve(&id.clone().try_into()?, false)
             .inspect_err(|e| {

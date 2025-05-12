@@ -1,5 +1,5 @@
 use crate::{
-    ast::{Arg, Ast, Function, Lambda, Pair, Symbol},
+    ast::{Ast, Function, Lambda, Pair, Param, Symbol},
     matches_to,
     primitives::new_primitive_env,
 };
@@ -59,38 +59,43 @@ impl Env {
         Rc::new(RefCell::new(Self { scope, parent }))
     }
 
-    pub fn extend_envoirnment(env: EnvRef, params: Ast, args: Ast) -> Result<EnvRef, String> {
-        let new_envoirnment = Self::new_scope(env);
-        fn extend_envoirnment(env: Rc<RefCell<Env>>, params: Ast, args: Ast) -> Result<(), String> {
-            match (params, args) {
-                (Ast::Pair(param), Ast::Pair(arg)) => {
-                    let Ast::Symbol(p) = param.0 else {
-                        return Err(format!(
-                            "{} is not a symbol (cannot be function arguement)",
-                            param.1
-                        ));
-                    };
-                    env.borrow_mut().define(p, arg.0);
-                    extend_envoirnment(env, param.1, arg.1)
-                }
-                (Ast::Symbol(s), rest) => {
-                    env.borrow_mut().define(s, rest);
-                    Ok(())
-                }
-                (Ast::TheEmptyList, Ast::TheEmptyList) => Ok(()),
-                (Ast::TheEmptyList, rest) => Err(format!(
-                    "arity mismatch these arguments do not have any coresponding parameters {rest}"
-                )),
-                (rest, Ast::TheEmptyList) => Err(format!(
-                    "arity mismatch these parameters do not have any coresponding aruments {rest}"
-                )),
-                (arg, _) => Err(format!("bad argument expected symbol found: {arg}")),
-            }
-        }
-        extend_envoirnment(new_envoirnment.clone(), params.clone(), args.clone())
-            .map(|()| new_envoirnment)
-            .map_err(|e| format!("{e} {params} {args}"))
+    pub fn new_lambda_env(env: EnvRef, symbol: Symbol, expr: Ast) -> EnvRef {
+        let new_env = Self::new_scope(env);
+        new_env.borrow_mut().define(symbol, expr);
+        new_env
     }
+    // pub fn extend_envoirnment(env: EnvRef, params: Ast, args: Ast) -> Result<EnvRef, String> {
+    //     let new_envoirnment = Self::new_scope(env);
+    //     fn extend_envoirnment(env: Rc<RefCell<Env>>, params: Ast, args: Ast) -> Result<(), String> {
+    //         match (params, args) {
+    //             (Ast::Pair(param), Ast::Pair(arg)) => {
+    //                 let Ast::Symbol(p) = param.0 else {
+    //                     return Err(format!(
+    //                         "{} is not a symbol (cannot be function arguement)",
+    //                         param.1
+    //                     ));
+    //                 };
+    //                 env.borrow_mut().define(p, arg.0);
+    //                 extend_envoirnment(env, param.1, arg.1)
+    //             }
+    //             (Ast::Symbol(s), rest) => {
+    //                 env.borrow_mut().define(s, rest);
+    //                 Ok(())
+    //             }
+    //             (Ast::TheEmptyList, Ast::TheEmptyList) => Ok(()),
+    //             (Ast::TheEmptyList, rest) => Err(format!(
+    //                 "arity mismatch these arguments do not have any coresponding parameters {rest}"
+    //             )),
+    //             (rest, Ast::TheEmptyList) => Err(format!(
+    //                 "arity mismatch these parameters do not have any coresponding aruments {rest}"
+    //             )),
+    //             (arg, _) => Err(format!("bad argument expected symbol found: {arg}")),
+    //         }
+    //     }
+    //     extend_envoirnment(new_envoirnment.clone(), params.clone(), args.clone())
+    //         .map(|()| new_envoirnment)
+    //         .map_err(|e| format!("{e} {params} {args}"))
+    // }
 
     pub(crate) fn new() -> EnvRef {
         let scope = HashMap::new();
@@ -149,24 +154,24 @@ impl fmt::Display for Values {
         }
     }
 }
-fn parse_formals(value: &Ast) -> Result<Arg, String> {
+fn parse_formals(value: &Ast) -> Result<Param, String> {
     match value {
-        Ast::TheEmptyList => Ok(Arg::Zero),
+        Ast::TheEmptyList => Ok(Param::Zero),
         Ast::Pair(ref arg_list) => {
             let Pair(ref argc, ref rest) = **arg_list;
             let argc = matches_to!(argc => Ast::Symbol).ok_or("argc must be a number")?;
             match rest {
-                Ast::TheEmptyList => Ok(Arg::One(argc.0.clone())),
+                Ast::TheEmptyList => Ok(Param::One(argc.0.clone())),
                 Ast::Pair(ref varidiac) => match **varidiac {
                     Pair(Ast::Symbol(ref variadic), Ast::TheEmptyList)
                         if variadic.to_string() == "*" =>
                     {
-                        Ok(Arg::AtLeast0(argc.0.clone()))
+                        Ok(Param::AtLeast0(argc.0.clone()))
                     }
                     Pair(Ast::Symbol(ref variadic), Ast::TheEmptyList)
                         if variadic.to_string() == "+" =>
                     {
-                        Ok(Arg::AtLeast1(argc.0.clone()))
+                        Ok(Param::AtLeast1(argc.0.clone()))
                     }
                     _ => Err(format!("parameter must be a list {value}")),
                 },
@@ -200,7 +205,7 @@ impl Evaluator {
                     Ok(Values::Single(Ast::Function(Function::Lambda(Lambda {
                         body: Box::new(Ast::Pair(body.clone())),
                         env,
-                        arg,
+                        param: arg,
                     }))))
                 }
                 Ast::Symbol(Symbol(quote)) if *quote == *"quote" => {

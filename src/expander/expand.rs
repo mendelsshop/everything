@@ -5,7 +5,7 @@ use std::{
 };
 
 use itertools::Itertools;
-use matcher::match_syntax;
+use matcher_proc_macro::match_syntax;
 
 use crate::{
     ast::{

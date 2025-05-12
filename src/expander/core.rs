@@ -1,6 +1,5 @@
+use matcher_proc_macro::match_syntax;
 use std::{collections::BTreeSet, rc::Rc};
-
-use matcher::match_syntax;
 
 use crate::ast::{
     syntax::{Properties, SourceLocation, Syntax},

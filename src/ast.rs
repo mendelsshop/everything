@@ -15,8 +15,28 @@ use std::{
     rc::Rc,
 };
 
-use crate::evaluator::{EnvRef, Evaluator, Values};
-
+use crate::evaluator::{Env, EnvRef, Evaluator, Values};
+#[macro_export]
+macro_rules! matches_to {
+    ($e:expr => $s:path) => {
+        match $e {
+            $s(e) => Some(e),
+            _ => None,
+        }
+    };
+    ($e:expr => $s:path | this) => {
+        match $e {
+            $s(v) => Ok(v),
+            e => Err(e),
+        }
+    };
+    ($e:expr => $s:path | $r:expr) => {
+        match $e {
+            $s(e) => Ok(e),
+            _ => Err($r),
+        }
+    };
+}
 #[macro_export]
 macro_rules! list {
     () => {$crate::ast::Ast::TheEmptyList};
@@ -149,7 +169,7 @@ macro_rules! sexpr {
 impl fmt::Display for Function {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Lambda(l) => write!(f, "(lambda {} {})", l.arg, l.body),
+            Self::Lambda(l) => write!(f, "(lambda {} {})", l.param, l.body),
             Self::Primitive(_) => write!(f, "(primitive-procedure)"),
         }
     }
@@ -164,15 +184,47 @@ impl fmt::Display for Function {
 impl Function {
     pub(crate) fn apply(&self, args: Ast) -> Result<Values, String> {
         match self {
-            Self::Lambda(Lambda {
-                body,
-                env,
-                arg: params,
-            }) => {
-                // let env = Env::extend_envoirnment(env.clone(), *params.clone(), args)?;
-                let env = todo!();
-                Evaluator::eval_sequence(*body.clone(), env)
-            }
+            Self::Lambda(Lambda { body, env, param }) => match param {
+                Param::Zero => {
+                    if args == Ast::TheEmptyList {
+                        Evaluator::eval_sequence(*body.clone(), env.clone())
+                    } else {
+                        Err("empty lambda must be applied to no arguements".to_string())
+                    }
+                }
+                Param::One(n) => {
+                    let Pair(arg, args) =
+                        *matches_to!(args => Ast::Pair).ok_or("expected at least one arguement")?;
+                    let curried = Evaluator::eval_sequence(
+                        *body.clone(),
+                        Env::new_lambda_env(env.clone(), Symbol(n.clone()), arg),
+                    )?;
+                    if args == Ast::TheEmptyList {
+                        Ok(curried)
+                    } else {
+                        let curried = curried
+                            .into_single()
+                            .map_err(|_| "arity error expected one curried value".to_string())?;
+                        let curried = matches_to!(curried => Ast::Function)
+                            .ok_or("expected function to be curried")?;
+                        curried.apply(args)
+                    }
+                }
+                Param::AtLeast1(n) => {
+                    if args == Ast::TheEmptyList {
+                        Err("+ requires at least one argument".to_string())
+                    } else {
+                        Evaluator::eval_sequence(
+                            *body.clone(),
+                            Env::new_lambda_env(env.clone(), Symbol(n.clone()), args),
+                        )
+                    }
+                }
+                Param::AtLeast0(n) => Evaluator::eval_sequence(
+                    *body.clone(),
+                    Env::new_lambda_env(env.clone(), Symbol(n.clone()), args),
+                ),
+            },
             Self::Primitive(p) => p(args),
         }
     }
@@ -190,7 +242,7 @@ impl Function {
 pub struct Lambda {
     pub body: Box<Ast>,
     pub env: EnvRef,
-    pub arg: Arg,
+    pub param: Param,
 }
 
 impl PartialEq for Lambda {
@@ -202,7 +254,7 @@ impl Eq for Lambda {}
 
 impl fmt::Debug for Lambda {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "(lambda {} {}", self.arg, self.body)
+        write!(f, "(lambda {} {}", self.param, self.body)
     }
 }
 
@@ -670,30 +722,9 @@ pub enum Varidiac {
     /// in form of tree (requires at least 0 args)
     AtLeast0,
 }
-#[macro_export]
-macro_rules! matches_to {
-    ($e:expr => $s:path) => {
-        match $e {
-            $s(e) => Some(e),
-            _ => None,
-        }
-    };
-    ($e:expr => $s:path | this) => {
-        match $e {
-            $s(v) => Ok(v),
-            e => Err(e),
-        }
-    };
-    ($e:expr => $s:path | $r:expr) => {
-        match $e {
-            $s(e) => Ok(e),
-            _ => Err($r),
-        }
-    };
-}
 
 #[derive(Debug, Clone)]
-pub enum Arg {
+pub enum Param {
     // All the variants besides Zero have a number, so even after auto currying the compiler still
     // knows the arguement index
     Zero,
@@ -706,13 +737,13 @@ pub enum Arg {
     AtLeast0(Rc<str>),
 }
 
-impl From<Arg> for usize {
-    fn from(value: Arg) -> Self {
+impl From<Param> for usize {
+    fn from(value: Param) -> Self {
         match value {
-            Arg::Zero => ZERO_ARG,
-            Arg::One(_) => ONE_ARG,
-            Arg::AtLeast1(_) => ONE_VARIADIAC_ARG,
-            Arg::AtLeast0(_) => ZERO_VARIADIAC_ARG,
+            Param::Zero => ZERO_ARG,
+            Param::One(_) => ONE_ARG,
+            Param::AtLeast1(_) => ONE_VARIADIAC_ARG,
+            Param::AtLeast0(_) => ZERO_VARIADIAC_ARG,
         }
     }
 }
@@ -729,7 +760,7 @@ impl fmt::Display for Varidiac {
         )
     }
 }
-impl fmt::Display for Arg {
+impl fmt::Display for Param {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
