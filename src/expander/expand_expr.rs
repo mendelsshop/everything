@@ -224,7 +224,7 @@ impl Expander {
                 }
             })
     }
-    fn lambda_formals(formals: Ast) -> Result<(Syntax<usize>, Option<Varidiac>), String> {
+    fn lambda_formals(formals: &Ast) -> Result<(Syntax<usize>, Option<Varidiac>), String> {
         let check_variadic = |argc: Ast| {
             Self::get_syntax(argc)
                 .ok_or("formals must be number".to_string())
@@ -275,42 +275,8 @@ impl Expander {
             (lambda formals body..+)
         )(s.clone())?;
         let sc = UniqueNumberManager::new_scope();
-        let id = m.formals;
-        let (formals, variadiac) = Self::lambda_formals(id)?;
+        let (formals, variadiac) = Self::lambda_formals(&m.formals)?;
 
-        //let ids = m("id".into()).ok_or("internal error".to_string())?;
-        //let ids = ids.map_pair(|term, base| match term {
-        //    Ast::Syntax(id) => {
-        //        let id = id.add_scope(sc);
-        //        Ok(Ast::Syntax(Box::new(id)))
-        //    }
-        //    Ast::TheEmptyList if base => Ok(Ast::TheEmptyList),
-        //    _ => Err(format!(
-        //        "{term} is not a symbol so it cannot be a parameter"
-        //    )),
-        //})?;
-        //let body_env = ids.clone().foldl_pair(
-        //    |term, base, env: Result<CompileTimeEnvoirnment, String>| match term {
-        //        Ast::Syntax(ref id_syntax) => {
-        //            if let Ast::Symbol(id) = &id_syntax.0 {
-        //                let binding =
-        //                    self.add_local_binding(Syntax(id.clone(), id_syntax.1.clone()));
-        //                env.map(|env| {
-        //                    env.extend(binding.clone(), Ast::Symbol(self.variable.clone()))
-        //                })
-        //            } else {
-        //                Err(format!(
-        //                    "{term} is not a symbol so it cannot be a parameter"
-        //                ))
-        //            }
-        //        }
-        //        Ast::TheEmptyList if base => env,
-        //        _ => Err(format!(
-        //            "{term} is not a symbol so it cannot be a parameter"
-        //        )),
-        //    },
-        //    Ok(env),
-        //)?;
         let arg_count = variadiac.map_or(formals.0, |_| formals.0 + 1);
         let args = (0..arg_count).map(|i| {
             formals
@@ -318,50 +284,37 @@ impl Expander {
                 .with::<Symbol>(format!("{i:o}").into())
                 .add_scope(sc.clone())
         });
-        // let body_env = args
 
         let mut body_ctx = ctx;
-        body_ctx.env.0.extend(
-            args.clone().map(|i| {
-                (
-                    Self::add_local_binding(i),
-                    Ast::Symbol(self.variable.clone()),
-                )
-            }), // .fold(HashMap::new(), |env, i| {
-                //     env.extend(i.0, Ast::Symbol(i.1))
-                // }),
-        );
-        let exp_body = self.expand_body(m.body, sc.clone(),s.clone(), body_ctx)?;
-        let lambda = m.lambda;
-        let new_lambda = if formals.0 == 0 && variadiac.is_none() {
-            sexpr!( (#(lambda) #(exp_body)))
-        } else {
-            args.rfold(exp_body, |body, i| {
-                let i0 = &i.0;
-                list!(
-                    lambda.clone(),
-                    Ast::Syntax(Box::new(
-                        i.with_ref(Ast::Symbol(
-                            variadiac
-                                .and_then(|varidiac| {
-                                    if i0.0.to_string() == format!("{arg_count:o}") {
-                                        Some(Symbol(format!("{i0}{varidiac}").into()))
-                                    } else {
-                                        None
-                                    }
-                                })
-                                .unwrap_or(i0.clone()),
-                        ))
-                    )),
-                    body
-                )
-            })
-        };
+        body_ctx.env.0.extend(args.clone().map(|i| {
+            (
+                Self::add_local_binding(i),
+                Ast::Symbol(self.variable.clone()),
+            )
+        }));
         // (lambda (0 *) ..) becomes (lambda 0* ...)
         // (lambda (0 ) ..) becomes (lambda  ...)
         // o(N) = octal of n
         // (lambda (N ) ..) becomes (lambda 0 (.. (lambda o(N)  ...)))
         // (lambda (N +) ..) becomes (lambda 0 (.. (lambda o(N) lambda o(N + 1 )*  ...)))
+        let exp_body = self.expand_body(m.body, sc.clone(), s.clone(), body_ctx)?;
+        let lambda = m.lambda;
+        let new_lambda = if formals.0 == 0 && variadiac.is_none() {
+            sexpr!( (#(lambda) () #(exp_body)))
+        } else {
+            // TODO: do we really need to have the lambdas curried at this point?
+            let last = format!("{:o}", arg_count - 1);
+            args.rfold(exp_body, |body, i| {
+                let i0 = i.0.clone();
+                let id = Ast::Syntax(Box::new(i.with(Ast::Symbol(i0.clone()))));
+                if let Some(variadiac) = variadiac.filter(|_| i0.0.to_string() == last) {
+                    sexpr!((#(lambda.clone()) (#(id) #(variadiac.to_string().into())) #(body)))
+                } else {
+                    sexpr!((#(lambda.clone()) (#(id)) #(body)))
+                }
+            })
+        };
+
         Ok(rebuild(s, new_lambda))
     }
 
@@ -466,7 +419,7 @@ impl Expander {
 
     fn core_form_datum(&mut self, s: Ast, _ctx: ExpandContext) -> Result<Ast, String> {
         // TODO: let m = matcher::match_syntax!((#%datum  . datum))(s.clone())?;
-        let m = matcher::match_syntax!((_datum . datum))(s.clone())?;
+        let m = matcher::match_syntax!((_datum.datum))(s.clone())?;
         let datum = m.datum;
         if matches!(datum, Ast::Syntax(ref s) if s.0.is_keyword()) {
             return Err(format!("keyword misused as an expression: {datum}"));
@@ -483,7 +436,7 @@ impl Expander {
             (app rator rand ...)
         )(s.clone())?;
         let rator = self.expand(m.rator, ctx.clone())?;
-        let rand =m.rand.map(|s|self.expand(s, ctx.clone()))?;
+        let rand = m.rand.map(|s| self.expand(s, ctx.clone()))?;
         Ok(rebuild(
             s,
             Ast::Pair(Box::new(Pair(

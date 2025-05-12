@@ -539,6 +539,14 @@ impl Ast {
             _ => Ok(self),
         }
     }
+    // single level unsyntax object
+    #[must_use]
+    pub fn unsyntax(self) -> Self {
+        match self {
+            Self::Syntax(s) => s.0,
+            s => s,
+        }
+    }
 }
 use std::fmt::Display;
 use std::usize;

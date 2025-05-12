@@ -25,13 +25,11 @@ impl Expander {
                     "lambda" => {
                         // TODO: 0 arg lambda is currently (lambda expr) after expander
                         let m = match_syntax!(
-                            (lambda id body)
+                            (lambda formals body)
                         )(s)?;
-                        let id = m.id.try_into()?;
-                        Ok(
-                            // do we need local to symbol if its (lambda n ...) where n is a number
-                            sexpr!((lambda #(Self::local_symbol(&id).map(Ast::Symbol)?) #(compile(m.body)?))),
-                        )
+                        let formals = self.process_formals(m.formals)?;
+
+                        Ok(sexpr!((lambda #(formals) #(compile(m.body)?))))
                     }
                     // "case-lambda" => {
                     //     let m = match_syntax!( (case_lambda (formals body) ...))(s)?;
@@ -126,6 +124,21 @@ impl Expander {
                 }
             }
             _ => Err(format!("bad syntax after expansion {s} compile")),
+        }
+    }
+    fn process_formals(&self, formals: Ast) -> Result<Ast, String> {
+        if let Ok(m) = match_syntax!((id))(formals.clone()) {
+            let id = m.id.try_into()?;
+            Ok(sexpr!((#(Self::local_symbol(&id).map(Ast::Symbol)?))))
+        } else if let Ok(m) = match_syntax!((id variadic))(formals.clone()) {
+            let id = m.id.try_into()?;
+            // TODO: make sure variadic symbol is + or *
+            let varidiac = m.variadic.unsyntax();
+            Ok(sexpr!((#(Self::local_symbol(&id).map(Ast::Symbol)?) #(varidiac))))
+        } else if let Ok(m) = match_syntax!(())(formals.clone()) {
+            Ok(formals)
+        } else {
+            Err("invalid lambda formals".to_string())
         }
     }
     fn loop_formals(&self, formals: Ast) -> Result<Ast, String> {
