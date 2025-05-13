@@ -1,6 +1,7 @@
 use inkwell::values::{BasicValueEnum, PhiValue, StructValue};
 
-use crate::{ast::ast1::Ast1, interior_mut::RC};
+use crate::{interior_mut::RC};
+use crate::ast::ast1::Ast1;
 
 use super::{Compiler, EvalType, TyprIndex};
 

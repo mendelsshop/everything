@@ -7,7 +7,7 @@ use itertools::Itertools;
 use log::info;
 
 use crate::{
-    ast::{ast4::Ast4, Arg},
+    ast::{ast4::Ast4, Param},
     interior_mut::RC,
 };
 
@@ -720,7 +720,7 @@ fn tack_on_instruction_seq(
     )
 }
 
-fn compile_lambda(lambda: (Arg, Ast4), target: Register, linkage: Linkage) -> InstructionSequnce {
+fn compile_lambda(lambda: (Param, Ast4), target: Register, linkage: Linkage) -> InstructionSequnce {
     info!(
         "generating ir for lambda with parameter {} and body {:?}, with register {target}, with linkage {linkage:?}",
         lambda.0, lambda.1
@@ -747,7 +747,7 @@ fn compile_lambda(lambda: (Arg, Ast4), target: Register, linkage: Linkage) -> In
                                 Expr::Label(proc_entry.clone()),
                                 Expr::Register(Register::Env),
                                 Expr::Const(Const::Number(
-                                    <Arg as Into<usize>>::into(lambda.0) as f64
+                                    <&Param as Into<usize>>::into(&lambda.0) as f64
                                 )),
                             ],
                         }),
@@ -761,13 +761,13 @@ fn compile_lambda(lambda: (Arg, Ast4), target: Register, linkage: Linkage) -> In
 }
 
 fn compile_lambda_body(
-    lambda: (Arg, Ast4),
+    lambda: (Param, Ast4),
     proc_entry: String,
     lambda_linkage: Linkage,
 ) -> InstructionSequnce {
     // TODO: do aritty checks by either going through argl and getting the length, having a register that contains the length of the arguments, or combine the 2 together and argl could be a pair of the length of the arguements and the arguements
     append_instruction_sequnce(
-        if let Arg::One(i) | Arg::AtLeast0(i) | Arg::AtLeast1(i) = lambda.0 {
+        if let Param::One(i) | Param::AtLeast0(i) | Param::AtLeast1(i) = lambda.0 {
             InstructionSequnce::new(
                 hashset!(Register::Env, Register::Proc, Register::Argl),
                 hashset!(Register::Env),

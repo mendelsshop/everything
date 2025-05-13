@@ -3,7 +3,7 @@ use crate::{
     interior_mut::RC,
 };
 
-use super::{Arg, AstTransformFrom, Boolean, ModuleType};
+use super::{Param, AstTransformFrom, Boolean, ModuleType};
 
 #[derive(Debug, Clone)]
 pub enum Ast4 {
@@ -20,7 +20,7 @@ pub enum Ast4 {
     Goto(RC<str>),
     If(Box<Ast4>, Box<Ast4>, Box<Ast4>),
     Define(RC<str>, Box<Ast4>),
-    Lambda(Arg, Box<Ast4>),
+    Lambda(Param, Box<Ast4>),
     Begin(Vec<Ast4>),
     Set(RC<str>, Box<Ast4>),
     Quote(Box<Ast4>),
@@ -64,13 +64,13 @@ impl From<Ast3> for Ast4 {
                 if argc == 0 {
                     let body = map_into(body);
                     match varidiac {
-                        Some(Varidiac::AtLeast0) => Ast4::Lambda(Arg::AtLeast0(arg_count), body),
-                        Some(Varidiac::AtLeast1) => Ast4::Lambda(Arg::AtLeast1(arg_count), body),
+                        Some(Varidiac::AtLeast0) => Ast4::Lambda(Param::AtLeast0(arg_count), body),
+                        Some(Varidiac::AtLeast1) => Ast4::Lambda(Param::AtLeast1(arg_count), body),
                         None => *body,
                     }
                 } else {
                     Ast4::Lambda(
-                        Arg::One(arg_count),
+                        Param::One(arg_count),
                         Box::new(inner(argc - 1, varidiac, body, arg_count + 1)),
                     )
                 }
@@ -91,7 +91,7 @@ impl From<Ast3> for Ast4 {
             Ast3::Define(s, exp) => Self::Define(s, map_into(exp)),
             Ast3::Lambda(argc, varidiac, body) => {
                 if argc == 0 && varidiac.is_none() {
-                    Self::Lambda(Arg::Zero, map_into(body))
+                    Self::Lambda(Param::Zero, map_into(body))
                 } else {
                     curryify(argc, varidiac, body)
                 }

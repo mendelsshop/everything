@@ -1,6 +1,6 @@
 use crate::interior_mut::RC;
 
-use super::{Boolean, ModuleType, Varidiac};
+use super::{Boolean, ModuleType, Param, Varidiac};
 
 #[derive(Debug, Clone)]
 pub enum Ast3 {
@@ -17,7 +17,7 @@ pub enum Ast3 {
     Goto(RC<str>),
     If(Box<Ast3>, Box<Ast3>, Box<Ast3>),
     Define(RC<str>, Box<Ast3>),
-    Lambda(usize, Option<Varidiac>, Box<Ast3>),
+    Lambda(Param, Box<Ast3>),
     Begin(Vec<Ast3>),
     Set(RC<str>, Box<Ast3>),
     Quote(Box<Ast3>),
@@ -29,10 +29,10 @@ pub enum Ast3 {
 mod impl_transformer {
     fn quote(exp: Ast2) -> Ast3 {
         match exp {
-            Ast2::Bool(t) => Ast3::Bool(t),
+            Ast2::Boolean(t) => Ast3::Bool(t),
             Ast2::Number(t) => Ast3::Number(t),
             Ast2::String(t) => Ast3::String(t),
-            Ast2::Ident(t) => Ast3::Ident(t),
+            Ast2::Symbol(t) => Ast3::Ident(t),
             Ast2::Application(t) => Ast3::Application(t.into_iter().map(quote).collect()),
             Ast2::Label(t) => Ast3::Label(t),
             Ast2::FnParam(t) => Ast3::FnParam(t),
@@ -58,11 +58,11 @@ mod impl_transformer {
                 (|expr| Self::transform(expr, state))(*expr).map(|(e, s)| (Box::new(e), s))
             };
             match value {
-                Ast2::Bool(t) => Ok((Self::Bool(t), state)),
+                Ast2::Boolean(t) => Ok((Self::Bool(t), state)),
                 Ast2::Module(name, kind) => Ok((Self::Module(name, kind), state)),
                 Ast2::Number(t) => Ok((Self::Number(t), state)),
                 Ast2::String(t) => Ok((Self::String(t), state)),
-                Ast2::Ident(t) => Ok((Self::Ident(t), state)),
+                Ast2::Symbol(t) => Ok((Self::Ident(t), state)),
                 Ast2::FnParam(t) => Ok((Self::FnParam(t), state)),
                 Ast2::Quote(q) => Ok((Self::Quote(map_box(q, quote)), state)),
                 Ast2::Application(exprs) => exprs
