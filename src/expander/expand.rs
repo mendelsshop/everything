@@ -446,7 +446,7 @@ impl Expander {
         namespace: NameSpace,
     ) -> Result<Vec<Ast>, String> {
         let compiled = self.compile(exp_rhs.clone(), &namespace)?;
-        self.expand_time_eval(list!("#%expression".into(), compiled))
+        self.expand_time_eval(Ast1::Expression(Box::new(compiled)))
             .and_then(|values| {
                 let list = match values {
                     Values::Many(vec) => vec,

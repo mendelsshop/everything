@@ -1,5 +1,6 @@
 pub mod scope;
 pub mod syntax;
+use ast1::Ast1;
 use scope::Scope;
 use syntax::{Properties, SourceLocation, Syntax};
 
@@ -186,7 +187,7 @@ impl Function {
             Self::Lambda(Lambda { body, env, param }) => match param {
                 Param::Zero => {
                     if args == Ast::TheEmptyList {
-                        Evaluator::eval_sequence(*body.clone(), env.clone())
+                        Evaluator::eval(*body.clone(), env.clone())
                     } else {
                         Err("empty lambda must be applied to no arguements".to_string())
                     }
@@ -194,7 +195,7 @@ impl Function {
                 Param::One(n) => {
                     let Pair(arg, args) =
                         *matches_to!(args => Ast::Pair).ok_or("expected at least one arguement")?;
-                    let curried = Evaluator::eval_sequence(
+                    let curried = Evaluator::eval(
                         *body.clone(),
                         Env::new_lambda_env(env.clone(), Symbol(n.clone()), arg),
                     )?;
@@ -213,13 +214,13 @@ impl Function {
                     if args == Ast::TheEmptyList {
                         Err("+ requires at least one argument".to_string())
                     } else {
-                        Evaluator::eval_sequence(
+                        Evaluator::eval(
                             *body.clone(),
                             Env::new_lambda_env(env.clone(), Symbol(n.clone()), args),
                         )
                     }
                 }
-                Param::AtLeast0(n) => Evaluator::eval_sequence(
+                Param::AtLeast0(n) => Evaluator::eval(
                     *body.clone(),
                     Env::new_lambda_env(env.clone(), Symbol(n.clone()), args),
                 ),
@@ -239,7 +240,7 @@ impl Function {
 
 #[derive(Clone)]
 pub struct Lambda {
-    pub body: Box<Ast>,
+    pub body: Box<Ast1>,
     pub env: EnvRef,
     pub param: Param,
 }
@@ -394,6 +395,31 @@ impl Ast {
             Self::Pair(p) => p.size(),
             _ => 0,
         }
+    }
+    pub fn map2_to_list<A>(
+        a: Self,
+        b: Self,
+        f: impl FnMut(Self, Self) -> Result<A, String>,
+    ) -> Result<Vec<A>, String> {
+        pub fn map2_to_list<A>(
+            a: Ast,
+            b: Ast,
+            v: &mut Vec<A>,
+            mut f: impl FnMut(Ast, Ast) -> Result<A, String>,
+        ) -> Result<(), String> {
+            match (a, b) {
+                (Ast::Pair(p), Ast::Pair(p1)) => {
+                    let car = f(p.0.clone(), p1.0.clone())?;
+                    v.push(car);
+                    map2_to_list(p.1, p1.1, v, f)?;
+                    Ok(())
+                }
+                (Ast::TheEmptyList, Ast::TheEmptyList) => Ok(()),
+                bad => Err(format!("cannot map {} and {}", bad.0, bad.1)),
+            }
+        }
+        let mut v = vec![];
+        map2_to_list(a, b, &mut v, f).map(|()| v)
     }
     pub fn map2(
         a: Self,

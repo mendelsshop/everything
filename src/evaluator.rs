@@ -1,9 +1,11 @@
 use crate::{
-    ast::{Ast, Function, Lambda, Pair, Param, Symbol},
+    ast::{ast1::Ast1, Ast, Function, Lambda, Pair, Param, Symbol},
+    expander::expand_expr::list_to_cons,
     matches_to,
     primitives::new_primitive_env,
 };
 
+use clap::error::Result;
 use itertools::Itertools;
 
 use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
@@ -182,115 +184,86 @@ fn parse_formals(value: &Ast) -> Result<Param, String> {
     }
 }
 impl Evaluator {
-    pub(crate) fn eval_single_value(expr: Ast, env: EnvRef) -> Result<Ast, String> {
+    pub(crate) fn eval_single_value(expr: Ast1, env: EnvRef) -> Result<Ast, String> {
         Self::eval(expr, env).and_then(|values| {
             values
                 .into_single()
                 .map_err(|_| "arity error expected one value".to_string())
         })
     }
-    pub(crate) fn eval(expr: Ast, env: EnvRef) -> Result<Values, String> {
+    pub(crate) fn eval(expr: Ast1, env: EnvRef) -> Result<Values, String> {
         match expr {
-            Ast::Pair(list) => match list.0 {
-                Ast::Symbol(Symbol(ref lambda)) if **lambda == *"lambda" => {
-                    let Pair(ref lambda_id, Ast::Pair(ref inner)) = *list else {
-                        Err(format!("invalid syntax {list:?} bad lambda"))?
-                    };
-                    let Pair(ref arg, Ast::Pair(ref body)) = **inner else {
-                        Err(format!("invalid syntax {list:?}, bad argument for lambda"))?
-                    };
+            Ast1::Lambda(param, body) => {
+                Ok(Values::Single(Ast::Function(Function::Lambda(Lambda {
+                    body,
+                    env,
+                    param,
+                }))))
+            }
+            Ast1::Quote(datum) => Ok(Values::Single(datum)),
+            Ast1::Begin(b) => Self::eval_sequence(b, env),
+            Ast1::LetRecValues(v, b) => {
+                v.into_iter().try_for_each(|(mut ids, value)| {
+                                        let value = Self::eval(value, Rc::clone(&env))?;
+                                        match value {
+                                            Values::Many(vec) if vec.len() == ids.len() => {
+                                                env.borrow_mut().define_values(ids.into_iter().map(Symbol), vec);
+                                                Ok(())
+                                            },
+                                            Values::Single(ast) if ids.len() == 1 => {
+                                                env.borrow_mut().define(Symbol(ids.remove(0)), ast);
+                                                Ok(())
+                                            },
+                                            _ => Err("let-values error: number of values is not the same as the number of ids".to_string()),
+                                        }
+                                    })?;
+                Self::eval(*b, env)
+            }
+            Ast1::LetRecValues(v, b) => {
+                let values = v.into_iter().map(|(mut ids, value)| {
+                                        let value = Self::eval(value, Rc::clone(&env))?;
+                                        match value {
+                                            Values::Many(vec) if vec.len() == ids.len() => {
+                                                Ok(ids.into_iter().map(Symbol).zip(vec).collect_vec())
+                                            },
+                                            Values::Single(ast) if ids.len() == 1 => Ok(vec![(Symbol(ids.remove(0)), ast)]),
+                                            _ => Err("let-values error: number of values is not the same as the number of ids".to_string()),
+                                        }
+                                    }).try_collect::<_, Vec<_>, _>()?.concat();
+                let env = Rc::new(RefCell::new(Env {
+                    scope: HashMap::from_iter(values),
+                    parent: Some(env),
+                }));
+                Self::eval(*b, env)
+            }
+            Ast1::Application(f, args) => {
+                let f: Ast = Self::eval_single_value(*f, env.clone())?;
+                let rest = list_to_cons(
+                    args.into_iter()
+                        .map(|arg| Self::eval_single_value(arg, env.clone()))
+                        .collect::<Result<Vec<_>, _>>()?
+                        .into_iter(),
+                    |x| x,
+                );
 
-                    // TODO: variadic function with dot notation
-                    let arg = parse_formals(arg)?;
-                    Ok(Values::Single(Ast::Function(Function::Lambda(Lambda {
-                        body: Box::new(Ast::Pair(body.clone())),
-                        env,
-                        param: arg,
-                    }))))
-                }
-                Ast::Symbol(Symbol(quote)) if *quote == *"quote" => {
-                    let Pair(_, Ast::Pair(datum)) = *list else {
-                        Err("bad syntax, quote requires one expression")?
-                    };
-                    let Pair(datum, Ast::TheEmptyList) = *datum else {
-                        Err("bad syntax, quote requires one expression")?
-                    };
-                    Ok(Values::Single(datum))
-                }
-                Ast::Symbol(Symbol(begin)) if *begin == *"begin" => {
-                    Self::eval_sequence(list.1, env)
-                }
-                Ast::Symbol(Symbol(begin)) if *begin == *"begin0" => {
-                    let vec = list.1.to_list_checked()?;
-                    if vec.is_empty() {
-                        return Err("expected at least one expression in begin".to_string());
-                    }
-                    let mut results: Vec<Values> = vec
-                        .into_iter()
-                        .map(|e| Self::eval(e, Rc::clone(&env)))
-                        .try_collect()?;
-                    Ok(results.remove(0))
-                }
-                Ast::Symbol(Symbol(expression)) if *expression == *"#%expression" => {
-                    let Pair(_, Ast::Pair(datum)) = *list else {
-                        Err("bad syntax, #%expression requires one expression")?
-                    };
-                    let Pair(datum, Ast::TheEmptyList) = *datum else {
-                        Err("bad syntax, #%expression requires one expression")?
-                    };
-                    Self::eval(datum, env)
-                }
-                Ast::Symbol(Symbol(letrec_values)) if &*letrec_values == "letrec-values" => {
-                    let (values, bodies) = Self::check_let(&letrec_values, list.1)?;
-                    let env = Env::new_scope(env);
-                    values.into_iter().try_for_each(|(mut ids, value)| {
-                        let value = Self::eval(value, Rc::clone(&env))?;
-                        match value {
-                            Values::Many(vec) if vec.len() == ids.len() => {
-                                env.borrow_mut().define_values(ids, vec);
-                                Ok(())
-                            },
-                            Values::Single(ast) if ids.len() == 1 => {
-                                env.borrow_mut().define(ids.remove(0), ast);
-                                Ok(())
-                            },
-                            _ => Err("let-values error: number of values is not the same as the number of ids".to_string()),
-                        }
-                    })?;
-                    Self::eval(bodies, env)
-                }
-                Ast::Symbol(Symbol(let_values)) if &*let_values == "let-values" => {
-                    let (values, bodies) = Self::check_let(&let_values, list.1)?;
-                    let values = values.into_iter().map(|(mut ids, value)| {
-                        let value = Self::eval(value, Rc::clone(&env))?;
-                        match value {
-                            Values::Many(vec) if vec.len() == ids.len() => {
-                                Ok(ids.into_iter().zip(vec).collect_vec())
-                            },
-                            Values::Single(ast) if ids.len() == 1 => Ok(vec![(ids.remove(0), ast)]),
-                            _ => Err("let-values error: number of values is not the same as the number of ids".to_string()),
-                        }
-                    }).try_collect::<_, Vec<_>, _>()?.concat();
-                    let env = Rc::new(RefCell::new(Env {
-                        scope: HashMap::from_iter(values),
-                        parent: Some(env),
-                    }));
-                    Self::eval(bodies, env)
-                }
-                f => {
-                    let f: Ast = Self::eval_single_value(f, env.clone())?;
-                    let rest = list
-                        .1
-                        .map(|arg| Self::eval_single_value(arg, env.clone()))?;
-                    Self::execute_application(f, rest)
-                }
-            },
-            Ast::Symbol(s) => env
+                Self::execute_application(f, rest)
+            }
+            Ast1::Basic(Ast::Symbol(s)) => env
                 .borrow()
                 .lookup(&s)
                 .map(Values::Single)
                 .ok_or(format!("free variable {s} eval")),
-            _ => Ok(Values::Single(expr.clone())),
+            Ast1::Basic(expr) => Ok(Values::Single(expr)),
+            Ast1::If(ast1, ast2, ast3) => todo!(),
+            Ast1::DefineValues(items, ast1) => todo!(),
+            Ast1::LetValues(items, ast1) => todo!(),
+            Ast1::Set(_, ast1) => todo!(),
+            Ast1::Stop(ast1) => todo!(),
+            Ast1::Skip => todo!(),
+            Ast1::Loop(ast1) => todo!(),
+            Ast1::Module(_, module_type) => todo!(),
+            Ast1::Link(label, labels) => todo!(),
+            Ast1::Expression(ast1) => todo!(),
         }
     }
 
@@ -304,16 +277,11 @@ impl Evaluator {
         }
     }
 
-    pub(crate) fn eval_sequence(body: Ast, env: Rc<RefCell<Env>>) -> Result<Values, String> {
-        let Ast::Pair(pair) = body else {
-            return Err(format!("not a sequence {body}"));
-        };
-        if pair.1 == Ast::TheEmptyList {
-            Self::eval(pair.0, env)
-        } else {
-            Self::eval(pair.0, env.clone())?;
-            Self::eval_sequence(pair.1, env)
-        }
+    pub(crate) fn eval_sequence(body: Vec<Ast1>, env: Rc<RefCell<Env>>) -> Result<Values, String> {
+        body.into_iter()
+            .map(|v| Self::eval(v, env.clone()))
+            .next_back()
+            .ok_or("empty begin".to_string())?
     }
     pub fn to_id_list(ids: Ast) -> Result<Vec<Symbol>, String> {
         let ids = ids.to_list_checked()?;

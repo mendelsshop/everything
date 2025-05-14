@@ -150,7 +150,7 @@ fn compile(file: &str, out: &str) {
     //let (ast, _): (Vec<_>, _) = program
     //    .0
     //    .into_iter()
-    //    .transform::<Ast2>((vec![], 0, HashMap::new()))
+    //    .transform::<Ast1::>((vec![], 0, HashMap::new()))
     //    .transform_all()
     //    .unwrap();
     //let (ast, _): (Vec<_>, _) = ast

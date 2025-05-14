@@ -1,3 +1,4 @@
+use crate::ast::{ast1::Ast1, Param};
 use std::{mem, rc::Rc};
 
 use matcher_proc_macro::match_syntax;
@@ -5,14 +6,14 @@ use matcher_proc_macro::match_syntax;
 use crate::{
     ast::{syntax::Syntax, Ast, Pair, Symbol},
     evaluator::{Evaluator, Values},
-    list, sexpr,
 };
 
 use super::{binding::Binding, namespace::NameSpace, Expander};
 
 impl Expander {
     // self is only used for envoirment
-    pub fn compile(&self, s: Ast, ns: &NameSpace) -> Result<Ast, String> {
+
+    pub fn compile(&self, s: Ast, ns: &NameSpace) -> Result<Ast1, String> {
         let compile = |s| self.compile(s, ns);
         let Ast::Syntax(syntax) = s.clone() else {
             panic!()
@@ -29,7 +30,7 @@ impl Expander {
                         )(s)?;
                         let formals = self.process_formals(m.formals)?;
 
-                        Ok(sexpr!((lambda #(formals) #(compile(m.body)?))))
+                        Ok(Ast1::Lambda(formals, Box::new(compile(m.body)?)))
                     }
                     // "case-lambda" => {
                     //     let m = match_syntax!( (case_lambda (formals body) ...))(s)?;
@@ -40,17 +41,24 @@ impl Expander {
                     // }
                     "#%app" => {
                         let m = match_syntax!((app.rest))(s)?;
-                        m.rest.map(compile)
+                        if let Ast::Pair(p) = m.rest {
+                            let func = compile(p.0)?;
+                            let app =
+                                p.1.map_to_list_checked(compile)
+                                    .map_err(|e| e.unwrap_or("not a list".to_string()))?;
+                            Ok(Ast1::Application(Box::new(func), app))
+                        } else {
+                            Err(format!("bad syntax after expansion compile: expexted at least one thing in an app"))
+                        }
                     }
                     "if" => {
                         let m = match_syntax!(
                             (r#if test then r#else)
                         )(s)?;
-                        Ok(list!(
-                            "if".into(),
-                            compile(m.test)?,
-                            compile(m.then)?,
-                            compile(m.r#else)?,
+                        Ok(Ast1::If(
+                            Box::new(compile(m.test)?),
+                            Box::new(compile(m.then)?),
+                            Box::new(compile(m.r#else)?),
                         ))
                     }
 
@@ -69,23 +77,28 @@ impl Expander {
                     // maybe begin0 is if its gen-symed (at a sybmol level)
                     "begin" | "begin0" => {
                         let m = match_syntax!( (begin e ..+))(s)?;
-                        m.e.map(compile)
-                            .map(|e| list!(Ast::Symbol(core_sym.into()); e ))
+                        let stmts =
+                            m.e.map_to_list_checked(compile)
+                                .map_err(|e| e.unwrap_or("not a list".to_string()))?;
+                        Ok(Ast1::Begin(stmts))
                     }
                     "set!" => {
                         // TODO: match_syntax!( (set! id value))
                         let m = match_syntax!( (set id value))(s)?;
-                        Ok(list!("set!".into(), compile(m.id)?, compile(m.value)?,))
+                        todo!()
+                        // Ok(Ast1::Set((), ()))
+                        // Ok(list!("set!".into(), compile(m.id)?, compile(m.value)?,))
                     }
                     "let-values" | "letrec-values" => self.compile_let(core_sym, s, ns),
                     "quote" => {
                         let m = match_syntax!( (quote datum))(s)?;
-                        Ok(list!("quote".into(), m.datum.syntax_to_datum()))
+                        Ok(Ast1::Quote(m.datum.syntax_to_datum()))
                     }
                     "quote-syntax" => {
                         let m = match_syntax!((quote_syntax datum))(s)?;
-                        Ok(sexpr!((quote #(m.datum))))
+                        Ok(Ast1::Quote(m.datum))
                     }
+                    // TODO: will links be eliminated
                     "link" => {
                         // TODO: verify that dest/src label(s) are actually labels (requires updating ast with
                         // everything features)
@@ -100,10 +113,12 @@ impl Expander {
                         )(s)?;
                         let dest = m.dest_label;
                         let src = m.src_labels;
-                        Ok(Ast::Pair(Box::new(Pair(
-                            "link".into(),
-                            Ast::Pair(Box::new(Pair(dest, src))),
-                        ))))
+                        todo!()
+                        // Ok(Ast1::Link())
+                        // Ok(Ast::Pair(Box::new(Pair(
+                        //     "link".into(),
+                        //     Ast::Pair(Box::new(Pair(dest, src))),
+                        // ))))
                     }
                     "stop" | "skip" | "loop" => todo!(),
                     _ => Err(format!("unrecognized core form {core_sym}")),
@@ -115,28 +130,39 @@ impl Expander {
                     dbg!(format!("{e}"));
                 })?;
                 match b {
-                    Binding::Local(b) => Ok(Ast::Symbol(key_to_symbol(b))),
+                    Binding::Local(b) => Ok(Ast1::Basic(Ast::Symbol(key_to_symbol(b)))),
                     Binding::TopLevel(s) => ns
                         .variables
                         .get(&s.clone().into())
                         .ok_or(format!("missing core bindig for primitive {s}"))
-                        .cloned(),
+                        .cloned()
+                        .map(Ast1::Basic),
                 }
             }
             _ => Err(format!("bad syntax after expansion {s} compile")),
         }
     }
-    fn process_formals(&self, formals: Ast) -> Result<Ast, String> {
+
+    fn process_formals(&self, formals: Ast) -> Result<Param, String> {
         if let Ok(m) = match_syntax!((id))(formals.clone()) {
             let id = m.id.try_into()?;
-            Ok(sexpr!((#(Self::local_symbol(&id).map(Ast::Symbol)?))))
+            Ok(Param::One(Self::local_symbol(&id)?.0))
         } else if let Ok(m) = match_syntax!((id variadic))(formals.clone()) {
             let id = m.id.try_into()?;
             // TODO: make sure variadic symbol is + or *
             let varidiac = m.variadic.unsyntax();
-            Ok(sexpr!((#(Self::local_symbol(&id).map(Ast::Symbol)?) #(varidiac))))
-        } else if match_syntax!(())(formals.clone()).is_ok() {
-            Ok(formals)
+            let Ast::Symbol(varidiac) = varidiac else {
+                Err(format!("invalid lambda formals variadiac {varidiac}"))?
+            };
+            let symbol = Self::local_symbol(&id)?.0;
+            match varidiac.0.to_string().as_str() {
+                "*" => Ok(Param::AtLeast0(symbol)),
+
+                "+" => Ok(Param::AtLeast1(symbol)),
+                _ => Err(format!("invalid lambda formals variadiac {varidiac}")),
+            }
+        } else if match_syntax!(())(formals).is_ok() {
+            Ok(Param::Zero)
         } else {
             Err("invalid lambda formals".to_string())
         }
@@ -160,11 +186,11 @@ impl Expander {
             _ => Err(format!("bad parameter: {formals}")),
         }
     }
-    fn compile_lambda(&self, formals: Ast, body: Ast, ns: &NameSpace) -> Result<Ast, String> {
-        Ok(list!(self.loop_formals(formals)?, self.compile(body, ns)?))
-    }
+    // fn compile_lambda(&self, formals: Ast, body: Ast, ns: &NameSpace) -> Result<Ast, String> {
+    //     Ok(list!(self.loop_formals(formals)?, self.compile(body, ns)?))
+    // }
 
-    fn compile_let(&self, core_sym: Rc<str>, s: Ast, ns: &NameSpace) -> Result<Ast, String> {
+    fn compile_let(&self, core_sym: Rc<str>, s: Ast, ns: &NameSpace) -> Result<Ast1, String> {
         let rec = &*core_sym == "letrec-values";
         let m = match_syntax!(
             (
@@ -176,13 +202,14 @@ impl Expander {
             )
         )(s)?;
         let idss = m.id;
-        Ast::map2(idss, m.rhs, |ids, rhs| {
-            ids.map(|id| Self::local_symbol(&id.try_into()?).map(Ast::Symbol))
-                .and_then(|ids| self.compile(rhs.clone(), ns).map(|rhs| list!(ids, rhs)))
+        Ast::map2_to_list(idss, m.rhs, |ids, rhs| {
+            ids.map_to_list_checked(|id| Self::local_symbol(&id.try_into()?).map(|i| i.0))
+                .map_err(|e| e.unwrap_or("not a list".to_string()))
+                .and_then(|ids| self.compile(rhs.clone(), ns).map(|rhs| (ids, rhs)))
         })
         .and_then(|signature| {
             self.compile(m.body, ns)
-                .map(|body| list!(Ast::Symbol(core_sym.into()), signature, body))
+                .map(|body| Ast1::LetValues(signature, Box::new(body)))
         })
     }
     fn local_symbol(id: &Syntax<Symbol>) -> Result<Symbol, String> {
@@ -195,16 +222,16 @@ impl Expander {
         Ok(key_to_symbol(s))
     }
 
-    pub fn expand_time_eval(&self, compiled: Ast) -> Result<Values, String> {
+    pub fn expand_time_eval(&self, compiled: Ast1) -> Result<Values, String> {
         Evaluator::eval(compiled, self.expand_time_env.clone())
     }
-    pub fn run_time_eval(&self, compiled: Ast) -> Result<Values, String> {
+    pub fn run_time_eval(&self, compiled: Ast1) -> Result<Values, String> {
         Evaluator::eval(compiled, self.run_time_env.clone())
     }
-    pub fn expand_time_eval_single(&self, compiled: Ast) -> Result<Ast, String> {
+    pub fn expand_time_eval_single(&self, compiled: Ast1) -> Result<Ast, String> {
         Evaluator::eval_single_value(compiled, self.expand_time_env.clone())
     }
-    pub fn run_time_eval_single(&self, compiled: Ast) -> Result<Ast, String> {
+    pub fn run_time_eval_single(&self, compiled: Ast1) -> Result<Ast, String> {
         Evaluator::eval_single_value(compiled, self.run_time_env.clone())
     }
 }

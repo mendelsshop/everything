@@ -4,7 +4,7 @@ use itertools::Itertools;
 
 use crate::interior_mut::{MUTEX, RC};
 
-use super::{syntax::Syntax, Boolean, ModuleType, Param, Symbol};
+use super::{Ast, ModuleType, Param};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Tree {
@@ -64,21 +64,20 @@ pub struct Tree {
 // so functions would still take produce Ast but evaluator would reduce Ast1 -> Ast as evaling b/c
 // pair and syntax would still be Ast and theoritcally and of the other constants (number,strings,
 // ....) only special forms cannot be Ast
-#[derive(Clone, Debug, PartialEq)]
-pub struct Pair(pub Ast1, pub Ast1);
 #[derive(Debug, Clone, PartialEq)]
 // TODO: #%expression form, begin0
 pub enum Ast1 {
     // Maybe all not speical forms should be just Be
-    // Basic(Ast)
-    Boolean(Boolean),
-    Number(f64),
-    String(RC<str>),
-    Symbol(Symbol),
-    Label(RC<str>),
-    Pair(Box<Pair>),           // this could really be regular ast
-    Syntax(Box<Syntax<Ast1>>), // this could really be regular ast
-    TheEmptyList,              // this could really be regular ast
+    // coreesponds to data
+    Basic(Ast),
+    // Boolean(Boolean),
+    // Number(f64),
+    // String(RC<str>),
+    // Symbol(Symbol),
+    // Label(RC<str>),
+    // Pair(Box<Pair>),           // this could really be regular ast
+    // Syntax(Box<Syntax<Ast1>>), // this could really be regular ast
+    // TheEmptyList,              // this could really be regular ast
     // should simlify to ident or the like ...
     // FnParam(usize),
 
@@ -89,42 +88,28 @@ pub enum Ast1 {
     LetRecValues(Vec<(Vec<RC<str>>, Ast1)>, Box<Ast1>),
     Lambda(Param, Box<Ast1>),
     Application(Box<Ast1>, Vec<Ast1>),
+    // TODO: begin0
+    Expression(Box<Ast1>),
     Begin(Vec<Ast1>),
     Set(RC<str>, Box<Ast1>),
-    Quote(Box<Ast1>),
-    QuoteSyntax(Box<Ast1>),
+    Quote(Ast),
     Stop(Option<Box<Ast1>>),
     Skip,
     Loop(Box<Ast1>),
     Module(RC<str>, ModuleType),
+    Link(Label, Vec<Label>),
 }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Label(RC<str>);
 
 impl fmt::Display for Ast1 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             // TODO: maybe datum to syntax it
-            Self::Syntax(s) => write!(f, "#'{}", s.0),
-            Self::Pair(pair) => {
-                let mut string = pair.0.to_string();
-                let mut second = pair.1.clone();
-                while let Self::Pair(pair) = second {
-                    string = format!("{string} {}", pair.0);
-                    second = pair.1;
-                }
-                if second != Self::TheEmptyList {
-                    string = format!("{string} . {second}");
-                }
-                write!(f, "({string})")
-            }
-            Self::TheEmptyList => write!(f, "()"),
-            Self::Boolean(f0) => write!(f, "{f0}"),
-            Self::Number(f0) => write!(f, "{f0}"),
-            Self::String(f0) => write!(f, "{f0}"),
-            Self::Symbol(f0) => write!(f, "{f0}"),
+            Self::Basic(s) => write!(f, "{s}"),
             Self::Application(f0, a0) => {
                 write!(f, "({f0} {})", a0.iter().map(ToString::to_string).join(" "))
             }
-            Self::Label(f0) => write!(f, "@{f0}"),
 
             Self::If(cond, cons, alt) => write!(f, "(if {cond} {cons} {alt})"),
             Self::DefineValues(v, val) => todo!(),
@@ -133,7 +118,6 @@ impl fmt::Display for Ast1 {
             Self::Begin(b) => write!(f, "(begin {})", b.iter().map(ToString::to_string).join(" ")),
             Self::Set(v, val) => write!(f, "(set! {v} {val})"),
             Self::Quote(q) => write!(f, ";{q}"),
-            Self::QuoteSyntax(q) => write!(f, ";#{q}"),
             Self::Loop(l) => write!(f, "(loop {l}"),
             Self::Stop(s) => write!(
                 f,
@@ -142,7 +126,9 @@ impl fmt::Display for Ast1 {
             ),
             Self::Skip => write!(f, "skip"),
             Self::LetRecValues(_, _) => todo!(),
+            Self::Expression(_) => todo!(),
             Self::LetValues(_, _) => todo!(),
+            Self::Link(_, _) => todo!(),
             Self::Module(name, _type) => write!(f, "(module {name})"),
         }
     }
@@ -163,9 +149,7 @@ mod impl_transformer {
 
     use matcher_proc_macro::match_syntax;
 
-    use crate::ast::{self, ast1::Ast1, syntax::Syntax, Ast};
-
-    use super::Pair;
+    use crate::ast::{self, ast1::Ast1, Ast};
 
     type Error = String;
 
@@ -177,21 +161,14 @@ mod impl_transformer {
 
         fn try_from(value: Ast) -> Result<Self, Self::Error> {
             match value {
-                Ast::Boolean(b) => Ok(Self::Boolean(b)),
-                Ast::Number(n) => Ok(Self::Number(n)),
-                Ast::String(s) => Ok(Self::String(s)),
-                Ast::Symbol(i) => Ok(Self::Symbol(i)),
-                Ast::Label(l) => Ok(Self::Label(l)),
+                Ast::Boolean(_)
+                | Ast::Number(_)
+                | Ast::String(_)
+                | Ast::Symbol(_)
+                | Ast::Label(_)
+                | Ast::Syntax(_)
+                | Ast::TheEmptyList => Ok(Self::Basic(value)),
                 Ast::Pair(pair) => convert_pair(*pair),
-                Ast::TheEmptyList => Ok(Self::TheEmptyList),
-                Ast::Syntax(syntax) => Ok(Self::Syntax({
-                    Box::new(Syntax(
-                        simple_convert(syntax.0)?,
-                        syntax.1,
-                        syntax.2,
-                        syntax.3,
-                    ))
-                })),
                 Ast::Function(function) => Err(format!("cannot have function, found {function}")),
             }
         }
@@ -259,29 +236,7 @@ mod impl_transformer {
                     .map(|f| Ast1::Application(Box::new(f), args))
             })
     }
-    fn simple_convert(value: Ast) -> Result<Ast1, String> {
-        match value {
-            Ast::Function(function) => Err(format!("cannot have function, found {function}")),
-            Ast::Boolean(b) => Ok(Ast1::Boolean(b)),
-            Ast::Number(n) => Ok(Ast1::Number(n)),
-            Ast::String(s) => Ok(Ast1::String(s)),
-            Ast::Symbol(i) => Ok(Ast1::Symbol(i)),
-            Ast::Label(l) => Ok(Ast1::Label(l)),
-            Ast::Pair(pair) => Ok(Ast1::Pair(Box::new(Pair(
-                simple_convert(pair.0)?,
-                simple_convert(pair.1)?,
-            )))),
-            Ast::TheEmptyList => Ok(Ast1::TheEmptyList),
-            Ast::Syntax(syntax) => Ok(Ast1::Syntax({
-                Box::new(Syntax(
-                    simple_convert(syntax.0)?,
-                    syntax.1,
-                    syntax.2,
-                    syntax.3,
-                ))
-            })),
-        }
-    }
+
     // fn extend_if_found(name: impl fmt::Display, env: State) -> State {
     //     if let Some(i) = SPECIAL_FORMS.iter().position(|&x| x == name.to_string()) {
     //         {

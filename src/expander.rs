@@ -26,7 +26,7 @@ mod core;
 mod duplicate_check;
 pub mod expand;
 pub mod expand_context;
-mod expand_expr;
+pub mod expand_expr;
 mod expand_top_level;
 mod namespace;
 pub struct Expander {
@@ -98,6 +98,7 @@ impl Expander {
 #[cfg(test)]
 mod tests {
 
+    use crate::ast::ast1::Ast1;
     use crate::ast::Ast;
     use crate::evaluator::{Evaluator, Values};
 
@@ -115,7 +116,7 @@ mod tests {
             )
         }
 
-        fn compile_eval_expression(&mut self, e: Ast) -> (Ast, Values) {
+        fn compile_eval_expression(&mut self, e: Ast) -> (Ast1, Values) {
             let c = self
                 .expand_expression(e)
                 .and_then(|e| {

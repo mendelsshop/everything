@@ -161,7 +161,10 @@ macro_rules! make_let_values_form {
         }
     };
 }
-fn list_to_cons<T>(list: impl DoubleEndedIterator<Item = T>, mut f: impl FnMut(T) -> Ast) -> Ast {
+pub fn list_to_cons<T>(
+    list: impl DoubleEndedIterator<Item = T>,
+    mut f: impl FnMut(T) -> Ast,
+) -> Ast {
     list.into_iter()
         .rfold(Ast::TheEmptyList, |rest, current| list!(f(current); rest))
 }
