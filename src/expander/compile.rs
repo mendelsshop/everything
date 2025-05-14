@@ -75,19 +75,30 @@ impl Expander {
                     //     ))
                     // }
                     // maybe begin0 is if its gen-symed (at a sybmol level)
-                    "begin" | "begin0" => {
+                    "begin" => {
                         let m = match_syntax!( (begin e ..+))(s)?;
                         let stmts =
                             m.e.map_to_list_checked(compile)
                                 .map_err(|e| e.unwrap_or("not a list".to_string()))?;
                         Ok(Ast1::Begin(stmts))
                     }
+                    "begin0" => todo!(),
+                    "#%expression" => {
+                        // let m = match_syntax!( (#%expression value))(s)?;
+                        let m = match_syntax!( (expression value))(s)?;
+                        Ok(Ast1::Expression(Box::new(compile(m.value)?)))
+                    }
                     "set!" => {
                         // TODO: match_syntax!( (set! id value))
                         let m = match_syntax!( (set id value))(s)?;
-                        todo!()
-                        // Ok(Ast1::Set((), ()))
-                        // Ok(list!("set!".into(), compile(m.id)?, compile(m.value)?,))
+                        if let Ast1::Basic(Ast::Symbol(id)) =
+                            // maybe just use compile_identeifier
+                            compile(m.id)?
+                        {
+                            Ok(Ast1::Set(id.0, Box::new(compile(m.value)?)))
+                        } else {
+                            Err(String::new())
+                        }
                     }
                     "let-values" | "letrec-values" => self.compile_let(core_sym, s, ns),
                     "quote" => {
@@ -120,25 +131,14 @@ impl Expander {
                         //     Ast::Pair(Box::new(Pair(dest, src))),
                         // ))))
                     }
-                    "stop" | "skip" | "loop" => todo!(),
+                    "module" => todo!(),
+                    "stop" => todo!(),
+                    "skip" => todo!(),
+                    "loop" => todo!(),
                     _ => Err(format!("unrecognized core form {core_sym}")),
                 }
             }
-            Ast::Symbol(ref s1) => {
-                let with = syntax.with_ref(s1.clone());
-                let b = Self::resolve(&with, false).inspect_err(|e| {
-                    dbg!(format!("{e}"));
-                })?;
-                match b {
-                    Binding::Local(b) => Ok(Ast1::Basic(Ast::Symbol(key_to_symbol(b)))),
-                    Binding::TopLevel(s) => ns
-                        .variables
-                        .get(&s.clone().into())
-                        .ok_or(format!("missing core bindig for primitive {s}"))
-                        .cloned()
-                        .map(Ast1::Basic),
-                }
-            }
+            Ast::Symbol(ref s1) => Self::compile_identifier(&syntax.with_ref(s1.clone()), ns),
             _ => Err(format!("bad syntax after expansion {s} compile")),
         }
     }
@@ -202,6 +202,11 @@ impl Expander {
             )
         )(s)?;
         let idss = m.id;
+        let ctor = if rec {
+            Ast1::LetRecValues
+        } else {
+            Ast1::LetValues
+        };
         Ast::map2_to_list(idss, m.rhs, |ids, rhs| {
             ids.map_to_list_checked(|id| Self::local_symbol(&id.try_into()?).map(|i| i.0))
                 .map_err(|e| e.unwrap_or("not a list".to_string()))
@@ -209,7 +214,7 @@ impl Expander {
         })
         .and_then(|signature| {
             self.compile(m.body, ns)
-                .map(|body| Ast1::LetValues(signature, Box::new(body)))
+                .map(|body| ctor(signature, Box::new(body)))
         })
     }
     fn local_symbol(id: &Syntax<Symbol>) -> Result<Symbol, String> {
@@ -233,6 +238,21 @@ impl Expander {
     }
     pub fn run_time_eval_single(&self, compiled: Ast1) -> Result<Ast, String> {
         Evaluator::eval_single_value(compiled, self.run_time_env.clone())
+    }
+    fn compile_identifier(s: &Syntax<Symbol>, ns: &NameSpace) -> Result<Ast1, String> {
+        let with = s;
+        let b = Self::resolve(with, false).inspect_err(|e| {
+            dbg!(format!("{e}"));
+        })?;
+        match b {
+            Binding::Local(b) => Ok(Ast1::Basic(Ast::Symbol(key_to_symbol(b)))),
+            Binding::TopLevel(s) => ns
+                .variables
+                .get(&s.clone().into())
+                .ok_or(format!("missing core bindig for primitive {s}"))
+                .cloned()
+                .map(Ast1::Basic),
+        }
     }
 }
 

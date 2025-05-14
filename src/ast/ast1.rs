@@ -91,6 +91,7 @@ pub enum Ast1 {
     // TODO: begin0
     Expression(Box<Ast1>),
     Begin(Vec<Ast1>),
+    Begin0(Vec<Ast1>),
     Set(RC<str>, Box<Ast1>),
     Quote(Ast),
     Stop(Option<Box<Ast1>>),
@@ -116,6 +117,11 @@ impl fmt::Display for Ast1 {
             // write!(f, "(define {v} {val})"),
             Self::Lambda(param, body) => write!(f, "(lambda ({param} {body})",),
             Self::Begin(b) => write!(f, "(begin {})", b.iter().map(ToString::to_string).join(" ")),
+            Self::Begin0(b) => write!(
+                f,
+                "(begin0 {})",
+                b.iter().map(ToString::to_string).join(" ")
+            ),
             Self::Set(v, val) => write!(f, "(set! {v} {val})"),
             Self::Quote(q) => write!(f, ";{q}"),
             Self::Loop(l) => write!(f, "(loop {l}"),

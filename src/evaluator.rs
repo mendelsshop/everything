@@ -202,6 +202,7 @@ impl Evaluator {
             }
             Ast1::Quote(datum) => Ok(Values::Single(datum)),
             Ast1::Begin(b) => Self::eval_sequence(b, env),
+            Ast1::Begin0(b) => todo!(),
             Ast1::LetRecValues(v, b) => {
                 v.into_iter().try_for_each(|(mut ids, value)| {
                                         let value = Self::eval(value, Rc::clone(&env))?;
