@@ -10,7 +10,7 @@ use core::fmt;
 use std::collections::HashSet;
 
 use crate::custom::DotDotPlus;
-use custom::id;
+use custom::{id, sym};
 use proc_macro::TokenStream;
 use quote::{ToTokens, TokenStreamExt, quote};
 use rand::random;
@@ -27,6 +27,7 @@ mod custom {
 
     custom_punctuation!(DotDotPlus, ..+);
     custom_keyword!(id);
+    custom_keyword!(sym);
 }
 struct NameAsSExpr(Ident, SExpr);
 impl Parse for NameAsSExpr {
@@ -41,9 +42,10 @@ impl Parse for NameAsSExpr {
 enum SExpr {
     Many(Box<Self>, MatchStruct),
     ManyOne(Box<Self>, MatchStruct),
-    Symbol(Ident),
+    Any(Ident),
     // only matches identifiers
     Identifier(Ident),
+    Symbol(Ident),
     Empty,
     Pair {
         car: Box<Self>,
@@ -56,6 +58,7 @@ impl fmt::Display for SExpr {
         match self {
             Self::Many(sexpr, _) => write!(f, "{sexpr} ..."),
             Self::ManyOne(sexpr, _) => write!(f, "{sexpr} ..+"),
+            Self::Any(ident) => write!(f, "{ident}"),
             Self::Symbol(ident) => write!(f, "{ident}"),
             Self::Identifier(ident) => write!(f, "{ident}:id"),
             Self::Empty => write!(f, "()"),
@@ -87,7 +90,7 @@ impl SExpr {
     fn binders(&self) -> MatchStruct {
         match self {
             Self::Many(_, match_struct) | Self::ManyOne(_, match_struct) => match_struct.clone(),
-            Self::Symbol(ident) | Self::Identifier(ident) => MatchStruct {
+            Self::Any(ident) | Self::Identifier(ident) | Self::Symbol(ident) => MatchStruct {
                 binders: HashSet::from([ident.clone()]),
             },
             Self::Empty => MatchStruct {
@@ -111,13 +114,17 @@ impl Parse for SExpr {
                     input.parse::<id>()?;
                     let ident = Ident::new(&(ident.to_string() + "_id"), ident.span());
                     Self::Identifier(ident)
+                } else if input.peek(sym) {
+                    input.parse::<sym>()?;
+                    let ident = Ident::new(&(ident.to_string() + "_sym"), ident.span());
+                    Self::Symbol(ident)
                 } else {
-                    return Err(input.error("unkown syntax expected `id` after `:`"));
+                    return Err(input.error("unkown syntax expected `id` or `sym` after `:`"));
                 }
             } else if ident == "id" {
                 Self::Identifier(ident)
             } else {
-                Self::Symbol(ident)
+                Self::Any(ident)
             }
         } else {
             let paren_input;
@@ -145,7 +152,7 @@ fn parse_paren(input: &syn::parse::ParseBuffer<'_>) -> syn::Result<SExpr> {
     } else {
         let current = input
             .parse::<SExpr>()
-            .map_err(|_| input.error("unterminated sexpr pair"))?;
+            .map_err(|e| input.error(format!("unterminated sexpr pair {e}")))?;
         let mut current_binders = current.binders();
         if input.peek(Token![.]) && !(input.peek(Token![...]) || input.peek(DotDotPlus)) {
             input.parse::<Token![.]>()?;
@@ -237,8 +244,19 @@ impl ToTokens for SExpr {
                 };
                 tokens.append_all(token);
             }
-            Self::Symbol(ident) => {
+            Self::Any(ident) => {
                 let token = quote! {
+                    this.#ident = s;
+                };
+                tokens.append_all(token);
+            }
+            Self::Symbol(ident) => {
+                let ident_string = ident.to_string();
+                let token = quote! {
+                    let ident = #ident_string;
+                    if !matches!(s, crate::ast::Ast::Symbol(_)) {
+                        return Err(format!("not an symbol {s} when matching symbol: {ident}"))
+                    }
                     this.#ident = s;
                 };
                 tokens.append_all(token);

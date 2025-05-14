@@ -3,10 +3,9 @@ pub mod syntax;
 use scope::Scope;
 use syntax::{Properties, SourceLocation, Syntax};
 
-//pub mod ast1;
-//pub mod ast2;
-//pub mod ast3;
-//pub mod ast4;
+pub mod ast1;
+// pub mod ast3;
+// pub mod ast4;
 
 use std::{
     collections::BTreeSet,
@@ -723,7 +722,7 @@ pub enum Varidiac {
     AtLeast0,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Param {
     // All the variants besides Zero have a number, so even after auto currying the compiler still
     // knows the arguement index
@@ -737,8 +736,8 @@ pub enum Param {
     AtLeast0(Rc<str>),
 }
 
-impl From<Param> for usize {
-    fn from(value: Param) -> Self {
+impl From<&Param> for usize {
+    fn from(value: &Param) -> Self {
         match value {
             Param::Zero => ZERO_ARG,
             Param::One(_) => ONE_ARG,
