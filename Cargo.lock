@@ -211,6 +211,7 @@ dependencies = [
  "log",
  "matcher-proc-macro",
  "parse_int",
+ "rand",
  "simple_file_logger",
  "trace",
  "unic-emoji-char",

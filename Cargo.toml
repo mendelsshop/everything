@@ -22,3 +22,4 @@ simple_file_logger = { version = "0.4.1", features = ["clap"] }
 itertools = "0.14.0"
 matcher-proc-macro = { version = "0.1.0", path = "matcher" }
 trace = { git = "https://github.com/gsingh93/trace", version = "0.1.7" }
+rand = "0.9.1"

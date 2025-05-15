@@ -1,5 +1,5 @@
 use crate::{
-    ast::{ast1::Ast1, Ast, Function, Lambda, Pair, Param, Symbol},
+    ast::{ast1::Ast1, Ast, Boolean, Function, Lambda, Pair, Param, Symbol},
     expander::expand_expr::list_to_cons,
     matches_to,
     primitives::new_primitive_env,
@@ -7,6 +7,7 @@ use crate::{
 
 use clap::error::Result;
 use itertools::Itertools;
+use rand::random;
 
 use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
 
@@ -220,7 +221,7 @@ impl Evaluator {
                                     })?;
                 Self::eval(*b, env)
             }
-            Ast1::LetRecValues(v, b) => {
+            Ast1::LetValues(v, b) => {
                 let values = v.into_iter().map(|(mut ids, value)| {
                                         let value = Self::eval(value, Rc::clone(&env))?;
                                         match value {
@@ -255,10 +256,37 @@ impl Evaluator {
                 .map(Values::Single)
                 .ok_or(format!("free variable {s} eval")),
             Ast1::Basic(expr) => Ok(Values::Single(expr)),
-            Ast1::If(ast1, ast2, ast3) => todo!(),
-            Ast1::DefineValues(items, ast1) => todo!(),
-            Ast1::LetValues(items, ast1) => todo!(),
-            Ast1::Set(_, ast1) => todo!(),
+            Ast1::If(ast1, ast2, ast3) => {
+                let cond = Self::eval_single_value(*ast1, env.clone())?;
+                let cond = matches!(cond, Ast::Boolean(Boolean::False | Boolean::Maybe) if random::<u8>() % 2 == 0);
+                if cond {
+                    Self::eval(*ast2, env)
+                } else {
+                    Self::eval(*ast3, env)
+                }
+            }
+            Ast1::DefineValues(mut ids, value) => {
+                let value = Self::eval(*value, env.clone())?;
+                match value {
+                    Values::Many(vec) if vec.len() == ids.len() => {
+                        env.borrow_mut().define_values(ids.into_iter().map(Symbol), vec);
+                        Ok(Values::Many(vec![]))
+                    }
+                    Values::Single(ast) if ids.len() == 1 => {
+                        env.borrow_mut().define(Symbol(ids.remove(0)),  ast);
+                        Ok(Values::Many(vec![]))
+                    },
+                    _ => Err(
+                        "define-values error: number of values is not the same as the number of ids"
+                            .to_string(),
+                    ),
+                }
+            }
+            Ast1::Set(s, ast1) => {
+                let value = Self::eval_single_value(*ast1, env.clone())?;
+                env.borrow_mut().set(Symbol(s), value);
+                Ok(Values::Many(vec![]))
+            }
             Ast1::Stop(ast1) => todo!(),
             Ast1::Skip => todo!(),
             Ast1::Loop(ast1) => todo!(),
@@ -279,6 +307,7 @@ impl Evaluator {
     }
 
     pub(crate) fn eval_sequence(body: Vec<Ast1>, env: Rc<RefCell<Env>>) -> Result<Values, String> {
+        // this might not fail if anything but last one doesn't fail
         body.into_iter()
             .map(|v| Self::eval(v, env.clone()))
             .next_back()

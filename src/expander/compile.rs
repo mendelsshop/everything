@@ -82,7 +82,13 @@ impl Expander {
                                 .map_err(|e| e.unwrap_or("not a list".to_string()))?;
                         Ok(Ast1::Begin(stmts))
                     }
-                    "begin0" => todo!(),
+                    "begin0" => {
+                        let m = match_syntax!( (begin0 e ..+))(s)?;
+                        let stmts =
+                            m.e.map_to_list_checked(compile)
+                                .map_err(|e| e.unwrap_or("not a list".to_string()))?;
+                        Ok(Ast1::Begin0(stmts))
+                    }
                     "#%expression" => {
                         // let m = match_syntax!( (#%expression value))(s)?;
                         let m = match_syntax!( (expression value))(s)?;
@@ -113,6 +119,9 @@ impl Expander {
                     "link" => {
                         // TODO: verify that dest/src label(s) are actually labels (requires updating ast with
                         // everything features)
+                        // how to get labels out if they are going to be quoted, unless we make the
+                        // expander not auto quote labels, but there are probably a lot of edge
+                        // cases if dont quote them
                         let m = match_syntax!(
 
                             (
