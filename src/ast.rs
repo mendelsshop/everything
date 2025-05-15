@@ -170,7 +170,7 @@ impl fmt::Display for Function {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Lambda(l) => write!(f, "(lambda {} {})", l.param, l.body),
-            Self::Primitive(_) => write!(f, "(primitive-procedure)"),
+            Self::Primitive(p) => write!(f, "<primitive-procedure-{}>", p.name),
         }
     }
 }
@@ -225,7 +225,7 @@ impl Function {
                     Env::new_lambda_env(env.clone(), Symbol(n.clone()), args),
                 ),
             },
-            Self::Primitive(p) => p(args),
+            Self::Primitive(p) => (p.operation)(args),
         }
     }
 
@@ -258,7 +258,11 @@ impl fmt::Debug for Lambda {
     }
 }
 
-pub type Primitive = fn(Ast) -> Result<Values, String>;
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Primitive {
+    pub operation: fn(Ast) -> Result<Values, String>,
+    pub name: &'static str,
+}
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct Pair(pub Ast, pub Ast);
@@ -789,12 +793,12 @@ impl fmt::Display for Param {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "{}",
+            "({})",
             match self {
-                Self::AtLeast1(_) => "+",
-                Self::AtLeast0(_) => "*",
-                Self::Zero => "0",
-                Self::One(_) => "1",
+                Self::AtLeast1(n) => n.to_string() + "+",
+                Self::AtLeast0(n) => n.to_string() + "*",
+                Self::Zero => String::new(),
+                Self::One(n) => n.to_string(),
             }
         )
     }

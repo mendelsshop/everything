@@ -141,7 +141,7 @@ mod tests {
     fn add_let(e: Ast) -> Ast {
         sexpr!(
             ("letrec-syntaxes+values" ([ (let) (lambda (stx)
-                       ("datum->syntax"
+                       ("datum-to-syntax"
                         ("quote-syntax" here)
                         (cons
                          (list ("quote-syntax" lambda)
@@ -208,7 +208,7 @@ mod tests {
         let expr = add_let(sexpr!(
                     (let (( x (quote "x-1") ))
             ("letrec-syntaxes+values" ([ (m) (lambda (stx)
-                              ("datum->syntax"
+                              ("datum-to-syntax"
         ("quote-syntax" here)
                                (list ("quote-syntax" let)
                                      (list (list ("quote-syntax" x)
@@ -225,7 +225,7 @@ mod tests {
         let mut expander = Expander::new();
         let expr = add_let(sexpr!(
             ("letrec-syntaxes+values" ([ (gen2) (lambda (stx)
-                        ("datum->syntax"
+                        ("datum-to-syntax"
 ("quote-syntax" here)
                          (list ("quote-syntax" let)
                                (list (list (car (cdr (cdr ("syntax-e" stx))))
@@ -236,7 +236,7 @@ mod tests {
                                      (car (cdr (cdr ("syntax-e" stx))))
                                      (car (cdr (cdr (cdr ("syntax-e" stx))))))))) ]) ()
     ("letrec-syntaxes+values" ([ (gen1) (lambda ( stx)
-                         ("datum->syntax"
+                         ("datum-to-syntax"
 ("quote-syntax" here)
                           (cons (car (cdr ("syntax-e" stx)))
                                 (cons ("quote-syntax" gen2)

@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use crate::{
-    ast::{Ast, Boolean, Function, Pair},
+    ast::{Ast, Boolean, Function, Pair, Primitive},
     evaluator::Values,
 };
 
@@ -158,43 +158,73 @@ impl Ast {
 pub fn new_primitive_env(mut adder: impl FnMut(Rc<str>, Ast)) {
     // add code here
     adder(
-        "datum->syntax".into(),
-        Ast::Function(Function::Primitive(Ast::primitive_datum_to_syntax)),
+        "datum-to-syntax".into(),
+        Ast::Function(Function::Primitive(Primitive {
+            name: "datum-to-syntax",
+            operation: Ast::primitive_datum_to_syntax,
+        })),
     );
     adder(
-        "syntax->datum".into(),
-        Ast::Function(Function::Primitive(Ast::primitive_syntax_to_datum)),
+        "syntax-to-datum".into(),
+        Ast::Function(Function::Primitive(Primitive {
+            name: "syntax-to-datum",
+            operation: Ast::primitive_syntax_to_datum,
+        })),
     );
     adder(
         "syntax-e".into(),
-        Ast::Function(Function::Primitive(Ast::primitive_syntax_e)),
+        Ast::Function(Function::Primitive(Primitive {
+            name: "syntax-e",
+            operation: Ast::primitive_syntax_e,
+        })),
     );
     adder(
         "cons".into(),
-        Ast::Function(Function::Primitive(Ast::primitive_cons)),
+        Ast::Function(Function::Primitive(Primitive {
+            name: "cons",
+            operation: Ast::primitive_cons,
+        })),
     );
     adder(
         "car".into(),
-        Ast::Function(Function::Primitive(Ast::primitive_car)),
+        Ast::Function(Function::Primitive(Primitive {
+            name: "car",
+            operation: Ast::primitive_car,
+        })),
     );
     adder(
         "cdr".into(),
-        Ast::Function(Function::Primitive(Ast::primitive_cdr)),
+        Ast::Function(Function::Primitive(Primitive {
+            name: "cdr",
+            operation: Ast::primitive_cdr,
+        })),
     );
     adder(
         "list".into(),
-        Ast::Function(Function::Primitive(Ast::primitive_list)),
+        Ast::Function(Function::Primitive(Primitive {
+            name: "list",
+            operation: Ast::primitive_list,
+        })),
     );
     adder(
         "map".into(),
-        Ast::Function(Function::Primitive(Ast::primitive_map)),
+        Ast::Function(Function::Primitive(Primitive {
+            name: "map",
+            operation: Ast::primitive_map,
+        })),
     );
     adder(
         "null?".into(),
-        Ast::Function(Function::Primitive(Ast::primitive_null)),
+        Ast::Function(Function::Primitive(Primitive {
+            name: "null?",
+            operation: Ast::primitive_null,
+        })),
     );
     adder(
         "values".into(),
-        Ast::Function(Function::Primitive(Ast::primitive_values)),
+        Ast::Function(Function::Primitive(Primitive {
+            name: "values",
+            operation: Ast::primitive_values,
+        })),
     );
 }

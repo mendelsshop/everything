@@ -131,9 +131,9 @@ impl fmt::Display for Ast1 {
                 s.as_ref().map_or_else(String::new, |s| format!(" {s}"))
             ),
             Self::Skip => write!(f, "skip"),
-            Self::LetRecValues(_, _) => todo!(),
-            Self::Expression(_) => todo!(),
-            Self::LetValues(_, _) => todo!(),
+            Self::LetRecValues(r, b) => write!(f, "(letrec-values (...) {b})"),
+            Self::LetValues(r, b) => write!(f, "(let-values (...) {b})"),
+            Self::Expression(e) => write!(f, "(#%expression {e})"),
             Self::Link(_, _) => todo!(),
             Self::Module(name, _type) => write!(f, "(module {name})"),
         }

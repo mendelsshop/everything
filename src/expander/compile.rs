@@ -103,7 +103,7 @@ impl Expander {
                         {
                             Ok(Ast1::Set(id.0, Box::new(compile(m.value)?)))
                         } else {
-                            Err(String::new())
+                            Err("set requires an identifier".to_string())
                         }
                     }
                     "let-values" | "letrec-values" => self.compile_let(core_sym, s, ns),

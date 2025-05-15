@@ -28,7 +28,7 @@ use simple_file_logger::LogLevel;
 use clap::{arg, Parser, Subcommand};
 
 pub mod ast;
-//mod codegen;
+// mod codegen;
 
 mod evaluator;
 mod expander;
@@ -140,12 +140,20 @@ fn compile(file: &str, out: &str) {
     let ns = expander.namespace();
     let ctx = ExpandContext::new(ns.clone());
     for ele in lexer::everything_parse(&contents).unwrap() {
+        println!("new ele");
+        println!("{ele}");
         let ele = expander.namespace_syntax_introduce(ele.datum_to_syntax(None, None, None));
         let ele = expander.expand(ele, ctx.clone()).unwrap();
+        println!("done expanding");
+        println!("{ele}");
         let ele = expander.compile(ele, &ns).unwrap();
+        println!("done compiling");
+        println!("{ele}");
+        let ele = expander.run_time_eval(ele).unwrap();
+        println!("done evaluation");
         println!("{ele}");
     }
-    //let program = parse_and_expand(&contents).unwrap();
+    // let program = parse_and_expand(&contents).unwrap();
     //let links = MultiMap::from(program.1.into_iter().map(|(k, ks)| (ks, k.clone(), k)));
     //let (ast, _): (Vec<_>, _) = program
     //    .0
