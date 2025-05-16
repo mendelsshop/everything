@@ -1,4 +1,10 @@
-use crate::ast::{ast1::Ast1, Param};
+use crate::{
+    ast::{
+        ast1::{Ast1, Label},
+        Param,
+    },
+    matches_to,
+};
 use std::{mem, rc::Rc};
 
 use matcher_proc_macro::match_syntax;
@@ -119,11 +125,8 @@ impl Expander {
                     "link" => {
                         // TODO: verify that dest/src label(s) are actually labels (requires updating ast with
                         // everything features)
-                        // how to get labels out if they are going to be quoted, unless we make the
-                        // expander not auto quote labels, but there are probably a lot of edge
                         // cases if dont quote them
                         let m = match_syntax!(
-
                             (
                                 link
                                 dest_label
@@ -131,14 +134,15 @@ impl Expander {
                                 ...
                             )
                         )(s)?;
-                        let dest = m.dest_label;
-                        let src = m.src_labels;
-                        todo!()
-                        // Ok(Ast1::Link())
-                        // Ok(Ast::Pair(Box::new(Pair(
-                        //     "link".into(),
-                        //     Ast::Pair(Box::new(Pair(dest, src))),
-                        // ))))
+                        let filter_label = |l| {
+                            matches_to!(l => Ast::Label |format!("not a label: {l}") ).map(Label)
+                        };
+                        let dest = m
+                            .dest_label
+                            .map_to_list_checked(filter_label)
+                            .map_err(|e| e.unwrap_or("not a list of labels".to_string()))?;
+                        let src = filter_label(m.src_labels)?;
+                        Ok(Ast1::Link(src, dest))
                     }
                     "module" => todo!(),
                     "stop" => todo!(),

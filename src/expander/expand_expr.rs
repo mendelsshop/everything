@@ -10,7 +10,7 @@ use crate::{
         duplicate_check::{check_no_duplicate_ids, make_check_no_duplicate_table},
         expand,
     },
-    list,
+    list, matches_to,
 };
 use crate::{sexpr, UniqueNumberManager};
 use itertools::Itertools;
@@ -528,10 +528,11 @@ impl Expander {
         }
         let set = m.set;
         let rhs = m.rhs;
+        let rhs = self.expand(rhs, ctx)?;
         Ok(expand::rebuild(s, list!(set, id, rhs)))
     }
 
-    fn core_form_link(&mut self, s: Ast, env: ExpandContext) -> Result<Ast, String> {
+    fn core_form_link(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
         // TODO: verify that dest/src label(s) are actually labels (requires updating ast with
         // everything features)
         // TODO: expand recursivly?
@@ -543,16 +544,18 @@ impl Expander {
                 ...
             )
         )(s.clone())?;
-        let filter_label = |label| {
-            if matches!(label, Ast::Label(_)) {
-                Ok(label)
-            } else {
-                Err("not a label".to_string())
-            }
+        // little hacky: we have to unwrap any syntax object/quoting done as the labels might be
+        // result of expansion from macro
+        let filter_label = |label: Ast| {
+            let label = label.syntax_to_datum().unquote();
+            matches_to!(label => Ast::Label | format!("not a label: {label}")).map(Ast::Label)
         };
-        let link = m.link;
-        let dest = filter_label(m.dest_label)?;
-        let src = m.src_labels.map(filter_label)?;
-        Ok(rebuild(s, sexpr!((#(link) #(dest) #(src)))))
+
+        let dest = self.expand(m.dest_label, ctx.clone())?;
+        let dest = filter_label(dest)?;
+        let src = m
+            .src_labels
+            .map(|l| self.expand(l, ctx.clone()).and_then(filter_label))?;
+        Ok(rebuild(s, sexpr!((#(m.link) #(dest) #(src)))))
     }
 }

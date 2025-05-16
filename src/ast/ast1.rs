@@ -101,7 +101,7 @@ pub enum Ast1 {
     Link(Label, Vec<Label>),
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Label(RC<str>);
+pub struct Label(pub RC<str>);
 
 impl fmt::Display for Ast1 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

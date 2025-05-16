@@ -12,6 +12,7 @@ use std::{
     collections::BTreeSet,
     fmt::{self, Debug},
     iter,
+    mem::swap,
     rc::Rc,
 };
 
@@ -633,6 +634,20 @@ impl Ast {
         match self {
             Self::Syntax(s) => s.0,
             s => s,
+        }
+    }
+    #[must_use] pub fn unquote(mut self) -> Self {
+        match self {
+            Self::Pair(ref mut p) if matches!(&p.0, Self::Symbol(s) if s.to_string() == "quote") => {
+                if let Self::Pair(ref mut p) = p.1 {
+                    let mut dummy = Self::TheEmptyList;
+                    swap(&mut dummy, &mut p.0);
+                    dummy
+                } else {
+                    self
+                }
+            }
+            _ => self,
         }
     }
 }
