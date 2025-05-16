@@ -30,6 +30,7 @@ use clap::{arg, Parser, Subcommand};
 pub mod ast;
 // mod codegen;
 
+mod error;
 mod evaluator;
 mod expander;
 pub mod lexer;

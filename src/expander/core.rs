@@ -1,9 +1,12 @@
 use matcher_proc_macro::match_syntax;
 use std::{collections::BTreeSet, rc::Rc};
 
-use crate::ast::{
-    syntax::{Properties, SourceLocation, Syntax},
-    Ast, Symbol,
+use crate::{
+    ast::{
+        syntax::{Properties, SourceLocation, Syntax},
+        Ast, Symbol,
+    },
+    error::Error,
 };
 
 use super::{
@@ -13,7 +16,7 @@ use super::{
 };
 
 impl Expander {
-    fn add_core_binding(&self, sym: Symbol) -> Result<(), String> {
+    fn add_core_binding(&self, sym: Symbol) -> Result<(), Error> {
         Self::add_binding(
             Syntax(
                 sym.clone(),
@@ -49,7 +52,7 @@ impl Expander {
         );
     }
 
-    pub fn core_form_symbol(s: Ast) -> Result<Rc<str>, String> {
+    pub fn core_form_symbol(s: Ast) -> Result<Rc<str>, Error> {
         match_syntax!((id._id))(s).and_then(|f| {
             // could this also be a plain symbol?
             let Ast::Syntax(s) = f.id else {
@@ -58,9 +61,7 @@ impl Expander {
             let Ast::Symbol(ref sym) = s.0 else {
                 return Err("no such pattern variable id".to_string());
             };
-            let b = Self::resolve(&s.with_ref(sym.clone()), false).inspect_err(|e| {
-                dbg!(format!("{e}"));
-            })?;
+            let b = Self::resolve(&s.with_ref(sym.clone()), false)?;
             match b {
                 Binding::Local(_) => Err(format!("{sym} is not a core form")),
                 Binding::TopLevel(s) => Ok(s),

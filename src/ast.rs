@@ -16,7 +16,10 @@ use std::{
     rc::Rc,
 };
 
-use crate::evaluator::{Env, EnvRef, Evaluator, Values};
+use crate::{
+    error::{Error, EvaluatorError, ExpectedSingleValue},
+    evaluator::{Env, EnvRef, Evaluator, Values},
+};
 #[macro_export]
 macro_rules! matches_to {
     ($e:expr => $s:path) => {
@@ -183,19 +186,23 @@ impl fmt::Display for Function {
 // lambdas are curried
 // variadiacs are fully applied
 impl Function {
-    pub(crate) fn apply(&self, args: Ast) -> Result<Values, String> {
+    pub(crate) fn apply(&self, args: Ast) -> Result<Values, Error> {
         match self {
             Self::Lambda(Lambda { body, env, param }) => match param {
                 Param::Zero => {
                     if args == Ast::TheEmptyList {
                         Evaluator::eval(*body.clone(), env.clone())
                     } else {
-                        Err("empty lambda must be applied to no arguements".to_string())
+                        Err(Error::Evaluator(EvaluatorError::Other(
+                            "empty lambda must be applied to no arguements".to_string(),
+                        )))
                     }
                 }
                 Param::One(n) => {
                     let Pair(arg, args) =
-                        *matches_to!(args => Ast::Pair).ok_or("expected at least one arguement")?;
+                        *matches_to!(args => Ast::Pair).ok_or(Error::Evaluator(
+                            EvaluatorError::Other("expected at least one arguement".to_string()),
+                        ))?;
                     let curried = Evaluator::eval(
                         *body.clone(),
                         Env::new_lambda_env(env.clone(), Symbol(n.clone()), arg),
@@ -203,17 +210,24 @@ impl Function {
                     if args == Ast::TheEmptyList {
                         Ok(curried)
                     } else {
-                        let curried = curried
-                            .into_single()
-                            .map_err(|_| "arity error expected one curried value".to_string())?;
-                        let curried = matches_to!(curried => Ast::Function)
-                            .ok_or("expected function to be curried")?;
+                        let curried = curried.into_single().map_err(|_| {
+                            Error::Evaluator(EvaluatorError::Other(
+                                "arity error expected one curried value".to_string(),
+                            ))
+                        })?;
+                        let curried = matches_to!(curried => Ast::Function).ok_or(
+                            Error::Evaluator(EvaluatorError::Other(
+                                "expected function to be curried".to_string(),
+                            )),
+                        )?;
                         curried.apply(args)
                     }
                 }
                 Param::AtLeast1(n) => {
                     if args == Ast::TheEmptyList {
-                        Err("+ requires at least one argument".to_string())
+                        Err(Error::Evaluator(EvaluatorError::Other(
+                            "+ requires at least one argument".to_string(),
+                        )))
                     } else {
                         Evaluator::eval(
                             *body.clone(),
@@ -230,11 +244,11 @@ impl Function {
         }
     }
 
-    pub fn apply_single(&self, args: Ast) -> Result<Ast, String> {
+    pub fn apply_single(&self, args: Ast) -> Result<Ast, Error> {
         self.apply(args).and_then(|values| {
-            values
-                .into_single()
-                .map_err(|_| "arity error expected one value".to_string())
+            values.into_single().map_err(|_| {
+                Error::Evaluator(EvaluatorError::ExpectedSingleValue(ExpectedSingleValue()))
+            })
         })
     }
 }
@@ -261,7 +275,7 @@ impl fmt::Debug for Lambda {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Primitive {
-    pub operation: fn(Ast) -> Result<Values, String>,
+    pub operation: fn(Ast) -> Result<Values, Error>,
     pub name: &'static str,
 }
 
@@ -636,7 +650,8 @@ impl Ast {
             s => s,
         }
     }
-    #[must_use] pub fn unquote(mut self) -> Self {
+    #[must_use]
+    pub fn unquote(mut self) -> Self {
         match self {
             Self::Pair(ref mut p) if matches!(&p.0, Self::Symbol(s) if s.to_string() == "quote") => {
                 if let Self::Pair(ref mut p) = p.1 {

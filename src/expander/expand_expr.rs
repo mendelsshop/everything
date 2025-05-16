@@ -6,6 +6,7 @@ use crate::{
         syntax::Syntax,
         Ast, Pair, Symbol, Varidiac,
     },
+    error::Error,
     expander::{
         duplicate_check::{check_no_duplicate_ids, make_check_no_duplicate_table},
         expand,
@@ -81,14 +82,14 @@ macro_rules! make_let_values_form {
         make_let_values_form!(
             $id,
             |s: Ast| LetMatcher::matches(s.clone()),
-            |_, _| -> Result<_, String> { Ok(vec![]) },
-            |_, _, _: &mut Expander, _, _| -> Result<_, String> { Ok(vec![]) },
+            |_, _| -> Result<_, Error> { Ok(vec![]) },
+            |_, _, _: &mut Expander, _, _| -> Result<_, Error> { Ok(vec![]) },
             |m: &LetMatcher, _: &mut Expander| m.let_values.clone(),
             $rec
         );
     };
     ($id:ident, $m:expr, $trans_idss:expr, $trans_valss:expr, $letrecvalues:expr, $rec:literal) => {
-        fn $id(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
+        fn $id(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, Error> {
             let variable = Ast::Symbol(self.variable.clone());
             //TODO: compile time matcher for this would have 2 different types
             let m = ($m)(s.clone())?;
@@ -216,7 +217,7 @@ impl Expander {
             None
         }
     }
-    fn to_number(argc: Ast) -> Result<Syntax<usize>, String> {
+    fn to_number(argc: Ast) -> Result<Syntax<usize>, Error> {
         Self::get_syntax(argc)
             .ok_or("formals must be number".to_string())
             .and_then(|argc_syntax| {
@@ -227,7 +228,7 @@ impl Expander {
                 }
             })
     }
-    fn lambda_formals(formals: &Ast) -> Result<(Syntax<usize>, Option<Varidiac>), String> {
+    fn lambda_formals(formals: &Ast) -> Result<(Syntax<usize>, Option<Varidiac>), Error> {
         let check_variadic = |argc: Ast| {
             Self::get_syntax(argc)
                 .ok_or("formals must be number".to_string())
@@ -258,7 +259,7 @@ impl Expander {
                     .map(|m| Self::to_number(m.argc).map(|n| (n, None)))
             })?
     }
-    fn core_form_param(&mut self, s: Ast, env: ExpandContext) -> Result<Ast, String> {
+    fn core_form_param(&mut self, s: Ast, env: ExpandContext) -> Result<Ast, Error> {
         let _ = env;
         match_syntax!((param index))(s.clone()).and_then(|m| {
             Self::to_number(m.index).map(|n| {
@@ -273,7 +274,7 @@ impl Expander {
         })
     }
     //#[trace]
-    fn core_form_lambda(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
+    fn core_form_lambda(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, Error> {
         let m = match_syntax!(
             (lambda formals body..+)
         )(s.clone())?;
@@ -327,7 +328,7 @@ impl Expander {
     //     formals: Ast,
     //     bodys: Ast,
     //     ctx: ExpandContext,
-    // ) -> Result<(Ast, Ast), String> {
+    // ) -> Result<(Ast, Ast), Error> {
     //     let sc = UniqueNumberManager::new_scope();
     //     let ids = self.parse_and_flatten_formals(formals.clone(), sc.clone())?;
     //     check_no_duplicate_ids(ids.clone(), &s, make_check_no_duplicate_table())?;
@@ -341,7 +342,7 @@ impl Expander {
     //     let exp_body = self.expand_body(bodys, sc.clone(), s, body_ctx)?;
     //     Ok((formals.add_scope(sc), exp_body))
     // }
-    // fn core_form_lambda(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
+    // fn core_form_lambda(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, Error> {
     //     let m = matcher::match_syntax!(
     //         (
     //             lambda
@@ -353,7 +354,7 @@ impl Expander {
     //     let (formals, body) = self.make_lambda_expander(s.clone(), m.formal, m.body, ctx)?;
     //     Ok(rebuild(s, list!(m.lambda, formals, body)))
     // }
-    // fn core_form_case_lambda(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
+    // fn core_form_case_lambda(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, Error> {
     //     let m = matcher::match_syntax!((
     //         case_lambda
     //         (formals body ..+)
@@ -379,13 +380,13 @@ impl Expander {
     //     &self,
     //     formals: Ast,
     //     sc: Scope,
-    // ) -> Result<Vec<Syntax<Symbol>>, String> {
+    // ) -> Result<Vec<Syntax<Symbol>>, Error> {
     //     fn parse_and_flatten_formals_loop(
     //         formals: Ast,
     //         all_formals: Ast,
     //         sc: Scope,
     //         formals_list: &mut Vec<Syntax<Symbol>>,
-    //     ) -> Result<(), String> {
+    //     ) -> Result<(), Error> {
     //         match formals {
     //             Ast::Syntax(s) => match s.0 {
     //                 Ast::Symbol(ref sym) => {
@@ -420,7 +421,7 @@ impl Expander {
     make_let_values_form!(core_form_letrec_values, true);
     make_let_values_form!(syntax core_form_letrec_syntaxes_and_values, true);
 
-    fn core_form_datum(&mut self, s: Ast, _ctx: ExpandContext) -> Result<Ast, String> {
+    fn core_form_datum(&mut self, s: Ast, _ctx: ExpandContext) -> Result<Ast, Error> {
         // TODO: let m = matcher::match_syntax!((#%datum  . datum))(s.clone())?;
         let m = match_syntax!((_datum.datum))(s.clone())?;
         let datum = m.datum;
@@ -432,7 +433,7 @@ impl Expander {
             list!(self.core_datum_to_syntax("quote".into()), datum),
         ))
     }
-    fn core_form_app(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
+    fn core_form_app(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, Error> {
         let m = match_syntax!(
             //TODO: should app be a syntax object
             // TODO: (%app rator rand ...)
@@ -448,13 +449,13 @@ impl Expander {
             ))),
         ))
     }
-    fn core_form_quote(&mut self, s: Ast, _ctx: ExpandContext) -> Result<Ast, String> {
+    fn core_form_quote(&mut self, s: Ast, _ctx: ExpandContext) -> Result<Ast, Error> {
         match_syntax!( (quote datum))(s.clone()).map(|_| s)
     }
-    fn core_form_quote_syntax(&mut self, s: Ast, _ctx: ExpandContext) -> Result<Ast, String> {
+    fn core_form_quote_syntax(&mut self, s: Ast, _ctx: ExpandContext) -> Result<Ast, Error> {
         match_syntax!( (quote_syntax datum))(s.clone()).map(|_| s)
     }
-    fn core_form_if(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
+    fn core_form_if(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, Error> {
         let m = match_syntax!(
 
             (
@@ -478,7 +479,7 @@ impl Expander {
         &mut self,
         s: Ast,
         ctx: ExpandContext,
-    ) -> Result<Ast, String> {
+    ) -> Result<Ast, Error> {
         let m = match_syntax!(
             (
                 with_continuation_mark
@@ -497,7 +498,7 @@ impl Expander {
             ),
         ))
     }
-    fn make_begin(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
+    fn make_begin(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, Error> {
         let m = match_syntax!( (begin e ..+))(s.clone())?;
 
         Ok(rebuild(
@@ -505,13 +506,13 @@ impl Expander {
             list!(m.begin; m.e.map(|e|self.expand(e, ctx.clone()))?),
         ))
     }
-    fn core_form_begin(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
+    fn core_form_begin(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, Error> {
         self.make_begin(s, ctx)
     }
-    fn core_form_begin0(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
+    fn core_form_begin0(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, Error> {
         self.make_begin(s, ctx)
     }
-    fn core_form_set(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
+    fn core_form_set(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, Error> {
         // TODO: let m = matcher::match_syntax!( (set! id rhs))(s.clone(),)?;
         let m = match_syntax!( (set id rhs))(s.clone())?;
         let id = m.id;
@@ -532,7 +533,7 @@ impl Expander {
         Ok(expand::rebuild(s, list!(set, id, rhs)))
     }
 
-    fn core_form_link(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
+    fn core_form_link(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, Error> {
         // TODO: verify that dest/src label(s) are actually labels (requires updating ast with
         // everything features)
         // TODO: expand recursivly?

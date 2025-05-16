@@ -3,6 +3,7 @@ use crate::{
         ast1::{Ast1, Label},
         Param,
     },
+    error::Error,
     matches_to,
 };
 use std::{mem, rc::Rc};
@@ -19,7 +20,7 @@ use super::{binding::Binding, namespace::NameSpace, Expander};
 impl Expander {
     // self is only used for envoirment
 
-    pub fn compile(&self, s: Ast, ns: &NameSpace) -> Result<Ast1, String> {
+    pub fn compile(&self, s: Ast, ns: &NameSpace) -> Result<Ast1, Error> {
         let compile = |s| self.compile(s, ns);
         let Ast::Syntax(syntax) = s.clone() else {
             panic!()
@@ -156,7 +157,7 @@ impl Expander {
         }
     }
 
-    fn process_formals(&self, formals: Ast) -> Result<Param, String> {
+    fn process_formals(&self, formals: Ast) -> Result<Param, Error> {
         if let Ok(m) = match_syntax!((id))(formals.clone()) {
             let id = m.id.try_into()?;
             Ok(Param::One(Self::local_symbol(&id)?.0))
@@ -180,7 +181,7 @@ impl Expander {
             Err("invalid lambda formals".to_string())
         }
     }
-    fn loop_formals(&self, formals: Ast) -> Result<Ast, String> {
+    fn loop_formals(&self, formals: Ast) -> Result<Ast, Error> {
         match formals {
             Ast::Syntax(mut s) => {
                 let mut a = Ast::TheEmptyList;
@@ -199,11 +200,11 @@ impl Expander {
             _ => Err(format!("bad parameter: {formals}")),
         }
     }
-    // fn compile_lambda(&self, formals: Ast, body: Ast, ns: &NameSpace) -> Result<Ast, String> {
+    // fn compile_lambda(&self, formals: Ast, body: Ast, ns: &NameSpace) -> Result<Ast, Error> {
     //     Ok(list!(self.loop_formals(formals)?, self.compile(body, ns)?))
     // }
 
-    fn compile_let(&self, core_sym: Rc<str>, s: Ast, ns: &NameSpace) -> Result<Ast1, String> {
+    fn compile_let(&self, core_sym: Rc<str>, s: Ast, ns: &NameSpace) -> Result<Ast1, Error> {
         let rec = &*core_sym == "letrec-values";
         let m = match_syntax!(
             (
@@ -230,7 +231,7 @@ impl Expander {
                 .map(|body| ctor(signature, Box::new(body)))
         })
     }
-    fn local_symbol(id: &Syntax<Symbol>) -> Result<Symbol, String> {
+    fn local_symbol(id: &Syntax<Symbol>) -> Result<Symbol, Error> {
         let b = Self::resolve(id, false).inspect_err(|e| {
             dbg!(format!("{e}"));
         })?;
@@ -240,19 +241,19 @@ impl Expander {
         Ok(key_to_symbol(s))
     }
 
-    pub fn expand_time_eval(&self, compiled: Ast1) -> Result<Values, String> {
+    pub fn expand_time_eval(&self, compiled: Ast1) -> Result<Values, Error> {
         Evaluator::eval(compiled, self.expand_time_env.clone())
     }
-    pub fn run_time_eval(&self, compiled: Ast1) -> Result<Values, String> {
+    pub fn run_time_eval(&self, compiled: Ast1) -> Result<Values, Error> {
         Evaluator::eval(compiled, self.run_time_env.clone())
     }
-    pub fn expand_time_eval_single(&self, compiled: Ast1) -> Result<Ast, String> {
+    pub fn expand_time_eval_single(&self, compiled: Ast1) -> Result<Ast, Error> {
         Evaluator::eval_single_value(compiled, self.expand_time_env.clone())
     }
-    pub fn run_time_eval_single(&self, compiled: Ast1) -> Result<Ast, String> {
+    pub fn run_time_eval_single(&self, compiled: Ast1) -> Result<Ast, Error> {
         Evaluator::eval_single_value(compiled, self.run_time_env.clone())
     }
-    fn compile_identifier(s: &Syntax<Symbol>, ns: &NameSpace) -> Result<Ast1, String> {
+    fn compile_identifier(s: &Syntax<Symbol>, ns: &NameSpace) -> Result<Ast1, Error> {
         let with = s;
         let b = Self::resolve(with, false).inspect_err(|e| {
             dbg!(format!("{e}"));

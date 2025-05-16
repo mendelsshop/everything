@@ -1,4 +1,7 @@
-use crate::ast::ast1::Ast1;
+use crate::{
+    ast::ast1::Ast1,
+    error::{Error, ExpandError, MissingTransformer},
+};
 use std::{
     cell::RefCell,
     collections::{BTreeSet, VecDeque},
@@ -30,7 +33,7 @@ impl Expander {
     pub fn namespace_syntax_introduce<T: AdjustScope>(&self, s: T) -> T {
         s.add_scope(self.core_scope.clone())
     }
-    pub fn expand(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
+    pub fn expand(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, Error> {
         match s.clone() {
             Ast::Syntax(syntax) => match syntax.0 {
                 Ast::Symbol(ref symbol) => {
@@ -50,7 +53,7 @@ impl Expander {
         p: Pair,
         s: Ast,
         ctx: ExpandContext,
-    ) -> Result<Ast, String> {
+    ) -> Result<Ast, Error> {
         let Ast::Syntax(ref id_syntax) = p.0 else {
             unreachable!()
         };
@@ -71,12 +74,10 @@ impl Expander {
         }
     }
 
-    fn expand_implicit(&mut self, sym: Symbol, s: Ast, ctx: ExpandContext) -> Result<Ast, String> {
+    fn expand_implicit(&mut self, sym: Symbol, s: Ast, ctx: ExpandContext) -> Result<Ast, Error> {
         let scopes = s.scope_set();
         let id = sym.clone().datum_to_syntax(scopes, None, None);
-        let binding = Self::resolve(&id, false).inspect_err(|e| {
-            dbg!(format!("{e}"));
-        });
+        let binding = Self::resolve(&id, false);
         let transformer = binding.and_then(|binding| self.lookup(&binding, &ctx, &sym))?;
         match transformer {
             CompileTimeBinding::CoreForm(_) if ctx.only_immediate => Ok(s),
@@ -89,7 +90,9 @@ impl Expander {
                     ctx,
                 )
             }
-            _ => Err(format!("no tranformer binding for {sym}")),
+            _ => Err(Error::Expand(ExpandError::MissingTransformer(
+                MissingTransformer(sym),
+            ))),
         }
     }
 
@@ -98,15 +101,16 @@ impl Expander {
         binding: &Binding,
         ctx: &ExpandContext,
         id: &Symbol,
-    ) -> Result<CompileTimeBinding, String> {
+    ) -> Result<CompileTimeBinding, Error> {
         ctx.env
             .lookup(binding, &ctx.namespace, id, self.variable.clone())
+            .map_err(|e| Error::Expand(ExpandError::OutOfContext(e)))
     }
     pub(crate) fn apply_transformer(
         m: Function,
         s: Ast,
         ctx: &ExpandContext,
-    ) -> Result<Ast, String> {
+    ) -> Result<Ast, Error> {
         let intro_scope = UniqueNumberManager::new_scope();
         let intro_s = s.add_scope(intro_scope.clone());
         let uses_s = Self::maybe_add_use_site_scope(intro_s, ctx);
@@ -142,7 +146,7 @@ impl Expander {
         t: CompileTimeBinding,
         s: Ast,
         ctx: ExpandContext,
-    ) -> Result<Ast, String> {
+    ) -> Result<Ast, Error> {
         match t {
             CompileTimeBinding::Regular(t) => match t {
                 Ast::Function(transfromer) => {
@@ -173,7 +177,7 @@ impl Expander {
         mut val_binds: Vec<(Vec<Syntax<Symbol>>, Ast)>,
         duplicate: DuplicateMap,
         original_syntax: Ast,
-    ) -> Result<Ast, String> {
+    ) -> Result<Ast, Error> {
         // let mut bodys = bodys.into_iter();
         match bodys.pop_front() {
             None => self.finish_expanding_body(body_ctx, done_bodys, val_binds, original_syntax),
@@ -318,7 +322,7 @@ impl Expander {
         mut done_bodys: Vec<Ast>,
         val_binds: Vec<(Vec<Syntax<Symbol>>, Ast)>,
         s: Ast,
-    ) -> Result<Ast, String> {
+    ) -> Result<Ast, Error> {
         if done_bodys.is_empty() {
             return Err(format!(
                 "begin (possibly implicit): the last form is not an expression {s}"
@@ -390,7 +394,7 @@ impl Expander {
         scope: Scope,
         original_syntax: Ast,
         context: ExpandContext,
-    ) -> Result<Ast, String> {
+    ) -> Result<Ast, Error> {
         let outside_scope = UniqueNumberManager::new_scope();
         let inside_scope = UniqueNumberManager::new_scope();
         let init_bodys = bodys
@@ -423,7 +427,7 @@ impl Expander {
         rhs: Ast,
         id_count: usize,
         ctx: ExpandContext,
-    ) -> Result<(Vec<Ast>, Ast), String> {
+    ) -> Result<(Vec<Ast>, Ast), Error> {
         let exp_rhs = self.expand_transformer(rhs, ctx.clone())?;
         Ok((
             self.eval_for_bindings(exp_rhs.clone(), id_count, ctx.namespace)?,
@@ -435,7 +439,7 @@ impl Expander {
         rhs: Ast,
         id_count: usize,
         ctx: ExpandContext,
-    ) -> Result<Vec<Ast>, String> {
+    ) -> Result<Vec<Ast>, Error> {
         self.exxpand_and_eval_for_syntaxes_binding(rhs, id_count, ctx)
             .map(|x| x.0)
     }
@@ -445,7 +449,7 @@ impl Expander {
         exp_rhs: Ast,
         id_count: usize,
         namespace: NameSpace,
-    ) -> Result<Vec<Ast>, String> {
+    ) -> Result<Vec<Ast>, Error> {
         let compiled = self.compile(exp_rhs.clone(), &namespace)?;
         self.expand_time_eval(Ast1::Expression(Box::new(compiled)))
             .and_then(|values| {
@@ -464,7 +468,7 @@ impl Expander {
             })
     }
 
-    fn expand_transformer(&mut self, rhs: Ast, ctx: ExpandContext) -> Result<Ast, String> {
+    fn expand_transformer(&mut self, rhs: Ast, ctx: ExpandContext) -> Result<Ast, Error> {
         self.expand(
             rhs,
             ExpandContext {
@@ -480,7 +484,7 @@ impl Expander {
         &mut self,
         s: Syntax<Symbol>,
         ctx: ExpandContext,
-    ) -> Result<Ast, String> {
+    ) -> Result<Ast, Error> {
         let binding = Self::resolve(&s, false);
         let id = s.0.clone();
         let s = Ast::Syntax(Box::new(s.with(Ast::Symbol(id.clone()))));
@@ -491,7 +495,7 @@ impl Expander {
     }
 }
 
-pub fn to_id_list(ids: Ast) -> Result<Vec<Syntax<Symbol>>, String> {
+pub fn to_id_list(ids: Ast) -> Result<Vec<Syntax<Symbol>>, Error> {
     let ids = ids.to_list_checked()?;
     let ids = ids
         .into_iter()

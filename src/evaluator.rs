@@ -1,5 +1,6 @@
 use crate::{
     ast::{ast1::Ast1, Ast, Boolean, Function, Lambda, Pair, Param, Symbol},
+    error::{Error, EvaluatorError, ExpectedSingleValue},
     expander::expand_expr::list_to_cons,
     matches_to,
     primitives::new_primitive_env,
@@ -67,9 +68,9 @@ impl Env {
         new_env.borrow_mut().define(symbol, expr);
         new_env
     }
-    // pub fn extend_envoirnment(env: EnvRef, params: Ast, args: Ast) -> Result<EnvRef, String> {
+    // pub fn extend_envoirnment(env: EnvRef, params: Ast, args: Ast) -> Result<EnvRef, Error> {
     //     let new_envoirnment = Self::new_scope(env);
-    //     fn extend_envoirnment(env: Rc<RefCell<Env>>, params: Ast, args: Ast) -> Result<(), String> {
+    //     fn extend_envoirnment(env: Rc<RefCell<Env>>, params: Ast, args: Ast) -> Result<(), Error> {
     //         match (params, args) {
     //             (Ast::Pair(param), Ast::Pair(arg)) => {
     //                 let Ast::Symbol(p) = param.0 else {
@@ -157,7 +158,7 @@ impl fmt::Display for Values {
         }
     }
 }
-fn parse_formals(value: &Ast) -> Result<Param, String> {
+fn parse_formals(value: &Ast) -> Result<Param, Error> {
     match value {
         Ast::TheEmptyList => Ok(Param::Zero),
         Ast::Pair(ref arg_list) => {
@@ -185,14 +186,14 @@ fn parse_formals(value: &Ast) -> Result<Param, String> {
     }
 }
 impl Evaluator {
-    pub(crate) fn eval_single_value(expr: Ast1, env: EnvRef) -> Result<Ast, String> {
+    pub(crate) fn eval_single_value(expr: Ast1, env: EnvRef) -> Result<Ast, Error> {
         Self::eval(expr, env).and_then(|values| {
-            values
-                .into_single()
-                .map_err(|_| "arity error expected one value".to_string())
+            values.into_single().map_err(|_| {
+                Error::Evaluator(EvaluatorError::ExpectedSingleValue(ExpectedSingleValue()))
+            })
         })
     }
-    pub(crate) fn eval(expr: Ast1, env: EnvRef) -> Result<Values, String> {
+    pub(crate) fn eval(expr: Ast1, env: EnvRef) -> Result<Values, Error> {
         match expr {
             Ast1::Lambda(param, body) => {
                 Ok(Values::Single(Ast::Function(Function::Lambda(Lambda {
@@ -296,7 +297,7 @@ impl Evaluator {
         }
     }
 
-    pub(crate) fn execute_application(f: Ast, args: Ast) -> Result<Values, String> {
+    pub(crate) fn execute_application(f: Ast, args: Ast) -> Result<Values, Error> {
         if let Ast::Function(f) = f {
             f.apply(args)
         } else {
@@ -306,14 +307,14 @@ impl Evaluator {
         }
     }
 
-    pub(crate) fn eval_sequence(body: Vec<Ast1>, env: Rc<RefCell<Env>>) -> Result<Values, String> {
+    pub(crate) fn eval_sequence(body: Vec<Ast1>, env: Rc<RefCell<Env>>) -> Result<Values, Error> {
         // this might not fail if anything but last one doesn't fail
         body.into_iter()
             .map(|v| Self::eval(v, env.clone()))
             .next_back()
             .ok_or("empty begin".to_string())?
     }
-    pub fn to_id_list(ids: Ast) -> Result<Vec<Symbol>, String> {
+    pub fn to_id_list(ids: Ast) -> Result<Vec<Symbol>, Error> {
         let ids = ids.to_list_checked()?;
         let ids = ids
             .into_iter()
@@ -321,7 +322,7 @@ impl Evaluator {
             .collect::<Result<Vec<_>, _>>()?;
         Ok(ids)
     }
-    fn check_let(letrec_values: &str, list: Ast) -> Result<(Vec<(Vec<Symbol>, Ast)>, Ast), String> {
+    fn check_let(letrec_values: &str, list: Ast) -> Result<(Vec<(Vec<Symbol>, Ast)>, Ast), Error> {
         let Ast::Pair(pair) = list else {
             return Err(format!("error {letrec_values}: expected key values pairs"));
         };

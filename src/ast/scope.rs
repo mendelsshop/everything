@@ -6,7 +6,10 @@ use std::{
 
 use itertools::Itertools;
 
-use crate::expander::{binding::Binding, Expander};
+use crate::{
+    error::{AmbiguousBinding, Error, ExpandError, FreeVariable},
+    expander::{binding::Binding, Expander},
+};
 
 use super::{syntax::Syntax, Ast, Pair, Symbol};
 
@@ -128,7 +131,7 @@ impl Expander {
         scopes: BTreeSet<Scope>,
         sym: Symbol,
         binding: Binding,
-    ) -> Result<(), String> {
+    ) -> Result<(), Error> {
         scopes
             .clone()
             .into_iter()
@@ -143,11 +146,11 @@ impl Expander {
                     .insert(scopes, binding);
             })
     }
-    pub fn add_binding(id: Syntax<Symbol>, binding: Binding) -> Result<(), String> {
+    pub fn add_binding(id: Syntax<Symbol>, binding: Binding) -> Result<(), Error> {
         Self::add_binding_in_scope(id.1, id.0, binding)
     }
     /// exactly by default should be false
-    pub fn resolve(id: &Syntax<Symbol>, exactly: bool) -> Result<Binding, String> {
+    pub fn resolve(id: &Syntax<Symbol>, exactly: bool) -> Result<Binding, Error> {
         let candidate_ids = Self::find_all_matching_bindings(id, &id.1);
         let max_candidate = candidate_ids
             .clone()
@@ -155,11 +158,15 @@ impl Expander {
             .filter(|max_candidate: &(BTreeSet<Scope>, Binding)| {
                 !exactly || max_candidate.0.len() == id.1.len()
             })
-            .ok_or(format!("free variable {id:?}"))?;
+            .ok_or(Error::Expand(ExpandError::FreeVariable(FreeVariable(
+                id.clone(),
+            ))))?;
         if check_unambiguous(&max_candidate, candidate_ids) {
             Ok(max_candidate.1)
         } else {
-            Err(format!("ambiguous binding {id:?}"))
+            Err(Error::Expand(ExpandError::AmbiguousBinding(
+                AmbiguousBinding(id.clone()),
+            )))
         }
     }
 
