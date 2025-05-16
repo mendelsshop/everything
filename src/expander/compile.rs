@@ -135,14 +135,16 @@ impl Expander {
                                 ...
                             )
                         )(s)?;
-                        let filter_label = |l| {
+                        let filter_label = |l: Ast| {
+                            let l = l.unsyntax();
                             matches_to!(l => Ast::Label |format!("not a label: {l}") ).map(Label)
                         };
+                        let var_name = format!("not a list of labels {}", m.src_labels);
                         let dest = m
-                            .dest_label
+                            .src_labels
                             .map_to_list_checked(filter_label)
-                            .map_err(|e| e.unwrap_or("not a list of labels".to_string()))?;
-                        let src = filter_label(m.src_labels)?;
+                            .map_err(|e| e.unwrap_or(var_name))?;
+                        let src = filter_label(m.dest_label)?;
                         Ok(Ast1::Link(src, dest))
                     }
                     "module" => todo!(),

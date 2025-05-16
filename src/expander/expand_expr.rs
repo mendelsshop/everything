@@ -565,6 +565,6 @@ impl Expander {
         let src = m
             .src_labels
             .map(|l| self.expand(l, ctx.clone()).and_then(filter_label))?;
-        Ok(rebuild(s, sexpr!((#(m.link) #(dest) #(src)))))
+        Ok(rebuild(s, sexpr!((#(m.link) #(dest) . #(src)))))
     }
 }
