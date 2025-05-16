@@ -53,19 +53,21 @@ impl Expander {
     }
 
     pub fn core_form_symbol(s: Ast) -> Result<Rc<str>, Error> {
-        match_syntax!((id._id))(s).and_then(|f| {
-            // could this also be a plain symbol?
-            let Ast::Syntax(s) = f.id else {
-                return Err("no such pattern variable id".to_string());
-            };
-            let Ast::Symbol(ref sym) = s.0 else {
-                return Err("no such pattern variable id".to_string());
-            };
-            let b = Self::resolve(&s.with_ref(sym.clone()), false)?;
-            match b {
-                Binding::Local(_) => Err(format!("{sym} is not a core form")),
-                Binding::TopLevel(s) => Ok(s),
-            }
-        })
+        match_syntax!((id._id))(s)
+            .map_err(std::convert::Into::into)
+            .and_then(|f| {
+                // could this also be a plain symbol?
+                let Ast::Syntax(s) = f.id else {
+                    return Err("no such pattern variable id".into());
+                };
+                let Ast::Symbol(ref sym) = s.0 else {
+                    return Err("no such pattern variable id".into());
+                };
+                let b = Self::resolve(&s.with_ref(sym.clone()), false)?;
+                match b {
+                    Binding::Local(_) => Err(format!("{sym} is not a core form").into()),
+                    Binding::TopLevel(s) => Ok(s),
+                }
+            })
     }
 }

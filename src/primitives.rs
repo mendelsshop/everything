@@ -2,11 +2,12 @@ use std::rc::Rc;
 
 use crate::{
     ast::{Ast, Boolean, Function, Pair, Primitive},
+    error::Error,
     evaluator::Values,
 };
 
 impl Ast {
-    pub fn primitive_datum_to_syntax(self) -> Result<Values, String> {
+    pub fn primitive_datum_to_syntax(self) -> Result<Values, Error> {
         let arity = self.size();
         let Self::Pair(e) = self else {
             Err(format!("arity error: expected 2 argument, got {arity}",))?
@@ -24,7 +25,7 @@ impl Ast {
             None,
         )))
     }
-    pub fn primitive_syntax_to_datum(self) -> Result<Values, String> {
+    pub fn primitive_syntax_to_datum(self) -> Result<Values, Error> {
         let Self::Pair(e) = self else {
             Err(format!(
                 "arity error: expected 1 argument, got {}",
@@ -39,7 +40,7 @@ impl Ast {
         };
         Ok(Values::Single(e.syntax_to_datum()))
     }
-    pub fn primitive_syntax_e(self) -> Result<Values, String> {
+    pub fn primitive_syntax_e(self) -> Result<Values, Error> {
         let Self::Pair(e) = self else {
             Err(format!(
                 "arity error: expected 1 argument, got {}, syntax e",
@@ -54,7 +55,7 @@ impl Ast {
         };
         Ok(Values::Single(e.0))
     }
-    pub fn primitive_cons(self) -> Result<Values, String> {
+    pub fn primitive_cons(self) -> Result<Values, Error> {
         let Self::Pair(e) = self else {
             Err(format!(
                 "arity error: expected 2 argument, got {}",
@@ -78,7 +79,7 @@ impl Ast {
             snd.clone(),
         )))))
     }
-    pub fn primitive_car(self) -> Result<Values, String> {
+    pub fn primitive_car(self) -> Result<Values, Error> {
         let Self::Pair(e) = self else {
             Err(format!(
                 "arity error: expected 1 argument, got {}, car",
@@ -95,7 +96,7 @@ impl Ast {
         let Pair(fst, _) = *e;
         Ok(Values::Single(fst))
     }
-    pub fn primitive_cdr(self) -> Result<Values, String> {
+    pub fn primitive_cdr(self) -> Result<Values, Error> {
         let Self::Pair(e) = self else {
             Err(format!(
                 "arity error: expected 1 argument, got {}, cdr",
@@ -112,10 +113,10 @@ impl Ast {
         Ok(Values::Single(snd))
     }
 
-    pub const fn primitive_list(self) -> Result<Values, String> {
+    pub const fn primitive_list(self) -> Result<Values, Error> {
         Ok(Values::Single(self))
     }
-    pub fn primitive_map(self) -> Result<Values, String> {
+    pub fn primitive_map(self) -> Result<Values, Error> {
         let Self::Pair(e) = self else {
             Err(format!(
                 "arity error: expected 2 argument, got {}, map",
@@ -139,13 +140,13 @@ impl Ast {
         l.map(|a| f.apply_single(Self::Pair(Box::new(Pair(a, Self::TheEmptyList)))))
             .map(Values::Single)
     }
-    pub fn primitive_values(self) -> Result<Values, String> {
+    pub fn primitive_values(self) -> Result<Values, Error> {
         match self {
             Self::Pair(p) if p.1 == Self::TheEmptyList => Ok(Values::Single(p.0)),
             _ => self.to_list_checked().map(Values::Many),
         }
     }
-    pub fn primitive_null(self) -> Result<Values, String> {
+    pub fn primitive_null(self) -> Result<Values, Error> {
         match self {
             Self::Pair(p) if *p == Pair(Self::TheEmptyList, Self::TheEmptyList) => {
                 Ok(Values::Single(Self::Boolean(Boolean::True)))

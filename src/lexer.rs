@@ -488,8 +488,8 @@ fn fn_stmt() -> Box<Parser<Ast, Error>> {
                 list!(fn_ident, list![param_count]; to_list!( scope))
             };
             if let Some(name) = name {
-                let define_ident = "define".into();
-                list![define_ident, name, lambda]
+                let define_ident = "define-values".into();
+                list![define_ident, list!(name), lambda]
             } else {
                 lambda
             }

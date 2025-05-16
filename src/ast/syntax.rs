@@ -113,7 +113,7 @@ impl Ast {
         match self {
             Self::Syntax(_) => self,
             _ if self.list() => wrap(
-                self.map(|e| {
+                self.map::<String>(|e| {
                     Ok(e.datum_to_syntax(scopes.clone(), srcloc.clone(), properties.clone()))
                 })
                 .unwrap(),

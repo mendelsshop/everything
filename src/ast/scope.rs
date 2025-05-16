@@ -7,7 +7,7 @@ use std::{
 use itertools::Itertools;
 
 use crate::{
-    error::{AmbiguousBinding, Error, ExpandError, FreeVariable},
+    error::{AmbiguousBinding, BindInEmptyScopeSet, Error, FreeVariable},
     expander::{binding::Binding, Expander},
 };
 
@@ -136,7 +136,7 @@ impl Expander {
             .clone()
             .into_iter()
             .max()
-            .ok_or("cannot bind in empty scope set".to_string())
+            .ok_or_else(|| Error::BindInEmptyScopeSet(BindInEmptyScopeSet(sym.clone())))
             .map(|max_scope| {
                 let bindings = max_scope.1;
                 bindings
@@ -158,15 +158,11 @@ impl Expander {
             .filter(|max_candidate: &(BTreeSet<Scope>, Binding)| {
                 !exactly || max_candidate.0.len() == id.1.len()
             })
-            .ok_or(Error::Expand(ExpandError::FreeVariable(FreeVariable(
-                id.clone(),
-            ))))?;
+            .ok_or(Error::FreeVariable(FreeVariable(id.clone())))?;
         if check_unambiguous(&max_candidate, candidate_ids) {
             Ok(max_candidate.1)
         } else {
-            Err(Error::Expand(ExpandError::AmbiguousBinding(
-                AmbiguousBinding(id.clone()),
-            )))
+            Err(Error::AmbiguousBinding(AmbiguousBinding(id.clone())))
         }
     }
 

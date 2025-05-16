@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     ast::{syntax::Syntax, Ast, Symbol},
-    error::{DuplicateBinding, Error, ExpandError},
+    error::{DuplicateBinding, Error},
 };
 
 pub type DuplicateMap = HashMap<Symbol, Vec<Syntax<Symbol>>>;
@@ -17,9 +17,7 @@ pub fn check_no_duplicate_ids(
     ids.into_iter().try_fold(ht, |mut ht, id| {
         if let Some(ids) = ht.get_mut(&id.0) {
             if ids.iter().any(|id| id.bound_identifier(id)) {
-                Err(Error::Expand(ExpandError::DuplicateBinding(
-                    DuplicateBinding(id.clone()),
-                )))
+                Err(Error::DuplicateBinding(DuplicateBinding(id.clone())))
             } else {
                 ids.push(id);
                 Ok(ht)

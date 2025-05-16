@@ -17,7 +17,7 @@ use std::{
 };
 
 use crate::{
-    error::{Error, EvaluatorError, ExpectedSingleValue},
+    error::{Error, ExpectedSingleValue},
     evaluator::{Env, EnvRef, Evaluator, Values},
 };
 #[macro_export]
@@ -193,16 +193,12 @@ impl Function {
                     if args == Ast::TheEmptyList {
                         Evaluator::eval(*body.clone(), env.clone())
                     } else {
-                        Err(Error::Evaluator(EvaluatorError::Other(
-                            "empty lambda must be applied to no arguements".to_string(),
-                        )))
+                        Err("empty lambda must be applied to no arguements".into())
                     }
                 }
                 Param::One(n) => {
                     let Pair(arg, args) =
-                        *matches_to!(args => Ast::Pair).ok_or(Error::Evaluator(
-                            EvaluatorError::Other("expected at least one arguement".to_string()),
-                        ))?;
+                        *matches_to!(args => Ast::Pair | "expected at least one arguement")?;
                     let curried = Evaluator::eval(
                         *body.clone(),
                         Env::new_lambda_env(env.clone(), Symbol(n.clone()), arg),
@@ -211,23 +207,16 @@ impl Function {
                         Ok(curried)
                     } else {
                         let curried = curried.into_single().map_err(|_| {
-                            Error::Evaluator(EvaluatorError::Other(
-                                "arity error expected one curried value".to_string(),
-                            ))
+                            Error::Other("arity error expected one curried value".to_string())
                         })?;
-                        let curried = matches_to!(curried => Ast::Function).ok_or(
-                            Error::Evaluator(EvaluatorError::Other(
-                                "expected function to be curried".to_string(),
-                            )),
-                        )?;
+                        let curried = matches_to!(curried => Ast::Function)
+                            .ok_or(Error::Other("expected function to be curried".to_string()))?;
                         curried.apply(args)
                     }
                 }
                 Param::AtLeast1(n) => {
                     if args == Ast::TheEmptyList {
-                        Err(Error::Evaluator(EvaluatorError::Other(
-                            "+ requires at least one argument".to_string(),
-                        )))
+                        Err("+ requires at least one argument".into())
                     } else {
                         Evaluator::eval(
                             *body.clone(),
@@ -246,9 +235,9 @@ impl Function {
 
     pub fn apply_single(&self, args: Ast) -> Result<Ast, Error> {
         self.apply(args).and_then(|values| {
-            values.into_single().map_err(|_| {
-                Error::Evaluator(EvaluatorError::ExpectedSingleValue(ExpectedSingleValue()))
-            })
+            values
+                .into_single()
+                .map_err(|_| Error::ExpectedSingleValue(ExpectedSingleValue()))
         })
     }
 }
@@ -415,17 +404,19 @@ impl Ast {
             _ => 0,
         }
     }
-    pub fn map2_to_list<A>(
+    // TODO: hack requireing from string for error, maybe just have error continuation for when not
+    // list
+    pub fn map2_to_list<A, T: From<String>>(
         a: Self,
         b: Self,
-        f: impl FnMut(Self, Self) -> Result<A, String>,
-    ) -> Result<Vec<A>, String> {
-        pub fn map2_to_list<A>(
+        f: impl FnMut(Self, Self) -> Result<A, T>,
+    ) -> Result<Vec<A>, T> {
+        pub fn map2_to_list<A, T: From<String>>(
             a: Ast,
             b: Ast,
             v: &mut Vec<A>,
-            mut f: impl FnMut(Ast, Ast) -> Result<A, String>,
-        ) -> Result<(), String> {
+            mut f: impl FnMut(Ast, Ast) -> Result<A, T>,
+        ) -> Result<(), T> {
             match (a, b) {
                 (Ast::Pair(p), Ast::Pair(p1)) => {
                     let car = f(p.0.clone(), p1.0.clone())?;
@@ -434,17 +425,17 @@ impl Ast {
                     Ok(())
                 }
                 (Ast::TheEmptyList, Ast::TheEmptyList) => Ok(()),
-                bad => Err(format!("cannot map {} and {}", bad.0, bad.1)),
+                bad => Err(format!("cannot map {} and {}", bad.0, bad.1).into()),
             }
         }
         let mut v = vec![];
         map2_to_list(a, b, &mut v, f).map(|()| v)
     }
-    pub fn map2(
+    pub fn map2<E: From<String>>(
         a: Self,
         b: Self,
-        mut f: impl FnMut(Self, Self) -> Result<Self, String>,
-    ) -> Result<Self, String> {
+        mut f: impl FnMut(Self, Self) -> Result<Self, E>,
+    ) -> Result<Self, E> {
         match (a, b) {
             (Self::Pair(p), Self::Pair(p1)) => {
                 let car = f(p.0.clone(), p1.0.clone())?;
@@ -452,10 +443,10 @@ impl Ast {
                 Ok(Self::Pair(Box::new(Pair(car, cdr))))
             }
             (Self::TheEmptyList, Self::TheEmptyList) => Ok(Self::TheEmptyList),
-            bad => Err(format!("cannot map {} and {}", bad.0, bad.1)),
+            bad => Err(format!("cannot map {} and {}", bad.0, bad.1).into()),
         }
     }
-    pub fn map(&self, f: impl FnMut(Self) -> Result<Self, String>) -> Result<Self, String> {
+    pub fn map<E: From<String>>(&self, f: impl FnMut(Self) -> Result<Self, E>) -> Result<Self, E> {
         match self {
             Self::Pair(p) => {
                 let this = &p;
@@ -465,7 +456,7 @@ impl Ast {
                 Ok(Self::Pair(Box::new(Pair(car, cdr))))
             }
             Self::TheEmptyList => Ok(Self::TheEmptyList),
-            bad => Err(format!("cannot map {bad}")),
+            bad => Err(format!("cannot map {bad}").into()),
         }
     }
     pub fn map_pair<E>(self, mut f: impl FnMut(Self, bool) -> Result<Self, E>) -> Result<Self, E> {
@@ -494,13 +485,17 @@ impl Ast {
         }
     }
 
-    pub fn foldl<A>(self, mut f: impl FnMut(Self, A) -> A, init: A) -> Result<A, String> {
+    pub fn foldl<A, T: From<String>>(
+        self,
+        mut f: impl FnMut(Self, A) -> A,
+        init: A,
+    ) -> Result<A, T> {
         self.foldl_pair(
-            |term, base, init: Result<A, String>| {
+            |term, base, init: Result<A, T>| {
                 if base {
                     match term {
                         Self::TheEmptyList => init,
-                        _other => Err(String::new()),
+                        _other => Err(String::new().into()),
                     }
                 } else {
                     init.map(|init| f(term, init))
@@ -523,14 +518,14 @@ impl Ast {
             Vec::new(),
         )
     }
-    pub fn map_to_list_checked<T>(
+    pub fn map_to_list_checked<T, E>(
         self,
-        mut f: impl FnMut(Self) -> Result<T, String>,
-    ) -> Result<Vec<T>, Option<String>> {
+        mut f: impl FnMut(Self) -> Result<T, E>,
+    ) -> Result<Vec<T>, Option<E>> {
         {
             let init = Vec::new();
             self.foldl_pair(
-                |term, base, init: Result<Vec<T>, Option<String>>| {
+                |term, base, init: Result<Vec<T>, Option<E>>| {
                     if base {
                         match term {
                             Self::TheEmptyList => init,
@@ -551,7 +546,7 @@ impl Ast {
             )
         }
     }
-    pub fn to_list_checked(self) -> Result<Vec<Self>, String> {
+    pub fn to_list_checked<T: From<String>>(self) -> Result<Vec<Self>, T> {
         self.foldl(
             |term, mut init| {
                 init.push(term);

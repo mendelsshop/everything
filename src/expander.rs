@@ -7,7 +7,6 @@ use binding::CoreForm;
 use expand_context::ExpandContext;
 use namespace::NameSpace;
 
-use crate::ast::{scope::AdjustScope, Boolean};
 use crate::{
     ast::scope::Scope,
     ast::{syntax::Syntax, Ast, Symbol},
@@ -18,6 +17,10 @@ use crate::{
 use crate::{
     ast::syntax::{Properties, SourceLocation},
     evaluator::Values,
+};
+use crate::{
+    ast::{scope::AdjustScope, Boolean},
+    error::Error,
 };
 
 pub mod binding;
@@ -83,7 +86,7 @@ impl Expander {
     // TODO: mutability of ns/ctx how should/are changes to envoirnments preserved over multiple
     // expansions maybe have a namespace as part of the expander object
     // TODO: annonate fully expanded expressions so we don't have to reexpand them
-    pub fn eval(&mut self, s: Ast, ns: NameSpace) -> Result<Values, String> {
+    pub fn eval(&mut self, s: Ast, ns: NameSpace) -> Result<Values, Error> {
         let ctx = ExpandContext::new(ns.clone());
         let expanded = self.expand(
             self.namespace_syntax_introduce(s.datum_to_syntax(None, None, None)),
@@ -100,6 +103,7 @@ mod tests {
 
     use crate::ast::ast1::Ast1;
     use crate::ast::Ast;
+    use crate::error::Error;
     use crate::evaluator::{Evaluator, Values};
 
     use crate::expander::Expander;
@@ -108,7 +112,7 @@ mod tests {
     use super::expand_context::ExpandContext;
 
     impl Expander {
-        fn expand_expression(&mut self, e: Ast) -> Result<Ast, String> {
+        fn expand_expression(&mut self, e: Ast) -> Result<Ast, Error> {
             let ctx = ExpandContext::new(self.namespace());
             self.expand(
                 self.namespace_syntax_introduce(e.datum_to_syntax(None, None, None)),
@@ -128,7 +132,7 @@ mod tests {
                 });
             match c {
                 Ok(v) => v,
-                Err(e) => panic!("{}", e),
+                Err(e) => panic!("{e:?}"),
             }
         }
         fn eval_expression(&mut self, e: Ast, check: Option<Values>) -> Values {
@@ -261,6 +265,6 @@ mod tests {
                 expander.namespace_syntax_introduce(expr.datum_to_syntax(None, None, None)),
                 env
             )
-            .is_err_and(|e| e.contains("illegal use of syntax")));
+            .is_err_and(|e| matches!(e, Error::IllegalUseOfSyntax(_))));
     }
 }

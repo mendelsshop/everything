@@ -1,6 +1,8 @@
 use crate::{
     ast::ast1::Ast1,
-    error::{Error, ExpandError, MissingTransformer},
+    error::{
+        BeginNonExpression, Error, IllegalUseOfSyntax, MissingTransformer, NonSyntaxTransformer,
+    },
 };
 use std::{
     cell::RefCell,
@@ -60,11 +62,7 @@ impl Expander {
         let Ast::Symbol(ref id) = id_syntax.0 else {
             unreachable!();
         };
-        let binding = Self::resolve(&id_syntax.with_ref(id.clone()), false)
-            // .inspect_err(|e| {
-                    // dbg!(format!("{e} id"));
-                // })
-        ;
+        let binding = Self::resolve(&id_syntax.with_ref(id.clone()), false);
         let binding = binding.and_then(|binding| self.lookup(&binding, &ctx, id));
         match binding {
             Ok(binding) if !matches!(&binding, CompileTimeBinding::Regular(Ast::Symbol(sym)) if *sym == self.variable) => {
@@ -90,9 +88,7 @@ impl Expander {
                     ctx,
                 )
             }
-            _ => Err(Error::Expand(ExpandError::MissingTransformer(
-                MissingTransformer(sym),
-            ))),
+            _ => Err(Error::MissingTransformer(MissingTransformer(sym))),
         }
     }
 
@@ -104,7 +100,7 @@ impl Expander {
     ) -> Result<CompileTimeBinding, Error> {
         ctx.env
             .lookup(binding, &ctx.namespace, id, self.variable.clone())
-            .map_err(|e| Error::Expand(ExpandError::OutOfContext(e)))
+            .map_err(Error::OutOfContext)
     }
     pub(crate) fn apply_transformer(
         m: Function,
@@ -116,7 +112,7 @@ impl Expander {
         let uses_s = Self::maybe_add_use_site_scope(intro_s, ctx);
         let transformed_s = m.apply_single(Ast::Pair(Box::new(Pair(uses_s, Ast::TheEmptyList))))?;
         if !matches!(transformed_s, Ast::Syntax(_)) {
-            return Err(format!("transformer produced non syntax: {transformed_s}"));
+            return Err(NonSyntaxTransformer(transformed_s).into());
         }
         let result_s = transformed_s.flip_scope(intro_scope);
         Ok(Self::maybe_add_post_site_scope(result_s, ctx))
@@ -154,7 +150,7 @@ impl Expander {
                     self.expand(apply_transformer, ctx)
                 }
                 Ast::Symbol(variable) if variable == self.variable => Ok(s),
-                _ => Err(format!("illegal use of syntax: {t}")),
+                _ => Err(Error::IllegalUseOfSyntax(IllegalUseOfSyntax(t))),
             },
             CompileTimeBinding::CoreForm(form) => {
                 if ctx.only_immediate {
@@ -190,7 +186,7 @@ impl Expander {
                                 (begin e ...)
                             )(exp_body)?;
                             let e = m.e;
-                            let mut new_bodys = VecDeque::from(e.to_list_checked()?);
+                            let mut new_bodys = VecDeque::from(e.to_list_checked::<Error>()?);
 
                             new_bodys.append(&mut bodys);
                             self.expand_body_loop(
@@ -248,7 +244,7 @@ impl Expander {
                                 rhs
                             ))(exp_body.clone())?;
                             let ids = Self::remove_use_site_scopes(m.id, &body_ctx);
-                            let ids = ids.to_list_checked()?;
+                            let ids = ids.to_list_checked::<Error>()?;
 
                             let id_count = ids.len();
                             let ids = ids
@@ -324,9 +320,7 @@ impl Expander {
         s: Ast,
     ) -> Result<Ast, Error> {
         if done_bodys.is_empty() {
-            return Err(format!(
-                "begin (possibly implicit): the last form is not an expression {s}"
-            ));
+            return Err(Error::BeginNonExpression(BeginNonExpression(s)));
         }
         let finish_ctx = ExpandContext {
             use_site_scopes: None,
@@ -398,13 +392,13 @@ impl Expander {
         let outside_scope = UniqueNumberManager::new_scope();
         let inside_scope = UniqueNumberManager::new_scope();
         let init_bodys = bodys
-            .map(|body| {
+            .map(|body| -> Result<Ast, Error> {
                 Ok(body
                     .add_scope(scope.clone())
                     .add_scope(outside_scope.clone())
                     .add_scope(inside_scope.clone()))
             })?
-            .to_list_checked()?;
+            .to_list_checked::<Error>()?;
         let body_context = ExpandContext {
             use_site_scopes: Some(Rc::new(RefCell::new(BTreeSet::new()))),
             only_immediate: true,
@@ -463,7 +457,8 @@ impl Expander {
                     Err(format!(
                         "wrong number of results ({} vs {id_count}) from {exp_rhs}",
                         list.len()
-                    ))
+                    )
+                    .into())
                 }
             })
     }
@@ -496,7 +491,7 @@ impl Expander {
 }
 
 pub fn to_id_list(ids: Ast) -> Result<Vec<Syntax<Symbol>>, Error> {
-    let ids = ids.to_list_checked()?;
+    let ids = ids.to_list_checked::<Error>()?;
     let ids = ids
         .into_iter()
         .map(std::convert::TryInto::try_into)

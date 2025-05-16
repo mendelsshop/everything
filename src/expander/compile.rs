@@ -52,10 +52,10 @@ impl Expander {
                             let func = compile(p.0)?;
                             let app =
                                 p.1.map_to_list_checked(compile)
-                                    .map_err(|e| e.unwrap_or("not a list".to_string()))?;
+                                    .map_err(|e| e.unwrap_or("not a list".to_string().into()))?;
                             Ok(Ast1::Application(Box::new(func), app))
                         } else {
-                            Err(format!("bad syntax after expansion compile: expexted at least one thing in an app"))
+                            Err("bad syntax after expansion compile: expexted at least one thing in an app".to_string().into())
                         }
                     }
                     "if" => {
@@ -86,14 +86,14 @@ impl Expander {
                         let m = match_syntax!( (begin e ..+))(s)?;
                         let stmts =
                             m.e.map_to_list_checked(compile)
-                                .map_err(|e| e.unwrap_or("not a list".to_string()))?;
+                                .map_err(|e| e.unwrap_or("not a list".into()))?;
                         Ok(Ast1::Begin(stmts))
                     }
                     "begin0" => {
                         let m = match_syntax!( (begin0 e ..+))(s)?;
                         let stmts =
                             m.e.map_to_list_checked(compile)
-                                .map_err(|e| e.unwrap_or("not a list".to_string()))?;
+                                .map_err(|e| e.unwrap_or("not a list".into()))?;
                         Ok(Ast1::Begin0(stmts))
                     }
                     "#%expression" => {
@@ -110,7 +110,7 @@ impl Expander {
                         {
                             Ok(Ast1::Set(id.0, Box::new(compile(m.value)?)))
                         } else {
-                            Err("set requires an identifier".to_string())
+                            Err("set requires an identifier".into())
                         }
                     }
                     "let-values" | "letrec-values" => self.compile_let(core_sym, s, ns),
@@ -149,11 +149,11 @@ impl Expander {
                     "stop" => todo!(),
                     "skip" => todo!(),
                     "loop" => todo!(),
-                    _ => Err(format!("unrecognized core form {core_sym}")),
+                    _ => Err(format!("unrecognized core form {core_sym}").into()),
                 }
             }
             Ast::Symbol(ref s1) => Self::compile_identifier(&syntax.with_ref(s1.clone()), ns),
-            _ => Err(format!("bad syntax after expansion {s} compile")),
+            _ => Err(format!("bad syntax after expansion {s} compile").into()),
         }
     }
 
@@ -173,12 +173,12 @@ impl Expander {
                 "*" => Ok(Param::AtLeast0(symbol)),
 
                 "+" => Ok(Param::AtLeast1(symbol)),
-                _ => Err(format!("invalid lambda formals variadiac {varidiac}")),
+                _ => Err(format!("invalid lambda formals variadiac {varidiac}").into()),
             }
         } else if match_syntax!(())(formals).is_ok() {
             Ok(Param::Zero)
         } else {
-            Err("invalid lambda formals".to_string())
+            Err("invalid lambda formals".to_string().into())
         }
     }
     fn loop_formals(&self, formals: Ast) -> Result<Ast, Error> {
@@ -189,7 +189,7 @@ impl Expander {
                 match a {
                     Ast::Symbol(sym) => Self::local_symbol(&s.with(sym)).map(Ast::Symbol),
                     a @ (Ast::Pair(_) | Ast::TheEmptyList) => self.loop_formals(a),
-                    formals => Err(format!("bad parameter: {formals}")),
+                    formals => Err(format!("bad parameter: {formals}").into()),
                 }
             }
             Ast::Pair(p) => Ok(Ast::Pair(Box::new(Pair(
@@ -197,7 +197,7 @@ impl Expander {
                 self.loop_formals(p.1)?,
             )))),
             Ast::TheEmptyList => Ok(Ast::TheEmptyList),
-            _ => Err(format!("bad parameter: {formals}")),
+            _ => Err(format!("bad parameter: {formals}").into()),
         }
     }
     // fn compile_lambda(&self, formals: Ast, body: Ast, ns: &NameSpace) -> Result<Ast, Error> {
@@ -223,7 +223,7 @@ impl Expander {
         };
         Ast::map2_to_list(idss, m.rhs, |ids, rhs| {
             ids.map_to_list_checked(|id| Self::local_symbol(&id.try_into()?).map(|i| i.0))
-                .map_err(|e| e.unwrap_or("not a list".to_string()))
+                .map_err(|e| e.unwrap_or("not a list".into()))
                 .and_then(|ids| self.compile(rhs.clone(), ns).map(|rhs| (ids, rhs)))
         })
         .and_then(|signature| {
@@ -232,11 +232,9 @@ impl Expander {
         })
     }
     fn local_symbol(id: &Syntax<Symbol>) -> Result<Symbol, Error> {
-        let b = Self::resolve(id, false).inspect_err(|e| {
-            dbg!(format!("{e}"));
-        })?;
+        let b = Self::resolve(id, false)?;
         let Binding::Local(s) = b else {
-            return Err(format!("bad binding {b}"));
+            return Err(format!("bad binding {b}").into());
         };
         Ok(key_to_symbol(s))
     }
@@ -255,15 +253,13 @@ impl Expander {
     }
     fn compile_identifier(s: &Syntax<Symbol>, ns: &NameSpace) -> Result<Ast1, Error> {
         let with = s;
-        let b = Self::resolve(with, false).inspect_err(|e| {
-            dbg!(format!("{e}"));
-        })?;
+        let b = Self::resolve(with, false)?;
         match b {
             Binding::Local(b) => Ok(Ast1::Basic(Ast::Symbol(key_to_symbol(b)))),
             Binding::TopLevel(s) => ns
                 .variables
                 .get(&s.clone().into())
-                .ok_or(format!("missing core bindig for primitive {s}"))
+                .ok_or(format!("missing core bindig for primitive {s}").into())
                 .cloned()
                 .map(Ast1::Basic),
         }
