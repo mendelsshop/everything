@@ -8,15 +8,14 @@ use expand_context::ExpandContext;
 use namespace::NameSpace;
 
 use crate::{
-    ast::scope::Scope,
-    ast::{syntax::Syntax, Ast, Symbol},
+    ast::syntax::{Properties, SourceLocation},
+    evaluator::Values,
+};
+use crate::{
+    ast::{ast1::Label, scope::Scope, syntax::Syntax, Ast, Symbol},
     evaluator::{Env, EnvRef},
     primitives::new_primitive_env,
     UniqueNumberManager,
-};
-use crate::{
-    ast::syntax::{Properties, SourceLocation},
-    evaluator::Values,
 };
 use crate::{
     ast::{scope::AdjustScope, Boolean},
@@ -32,6 +31,7 @@ pub mod expand_context;
 pub mod expand_expr;
 mod expand_top_level;
 mod namespace;
+// TODO: maybe combine a bit with expand context
 pub struct Expander {
     core_forms: HashMap<Rc<str>, CoreForm>,
     core_primitives: HashMap<Rc<str>, Ast>,
@@ -40,6 +40,7 @@ pub struct Expander {
     run_time_env: EnvRef,
     core_syntax: Syntax<Ast>,
     pub(crate) variable: Symbol,
+    links: HashMap<Label, Vec<Label>>,
 }
 
 impl Default for Expander {
@@ -66,6 +67,7 @@ impl Expander {
             run_time_env: Env::new_env(),
             expand_time_env: Env::new_env(),
             variable,
+            links: HashMap::new(),
         };
         this.add_core_forms();
         new_primitive_env(|name, primitive| {

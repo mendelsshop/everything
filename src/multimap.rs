@@ -73,6 +73,7 @@ impl<T: IntoIterator<Item = (KS, K, V)>, K: Hash + Eq + Clone, V, KS: IntoIterat
     From<T> for MultiMap<K, V>
 {
     fn from(value: T) -> Self {
+        let f = 1;
         let (values, keys): (HashMap<K, _>, Vec<_>) = value
             .into_iter()
             .map(|(keys, key, value): (KS, K, V)| {

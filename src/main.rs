@@ -34,6 +34,7 @@ mod error;
 mod evaluator;
 mod expander;
 pub mod lexer;
+mod multimap;
 //mod macros;
 pub mod pc;
 mod primitives;

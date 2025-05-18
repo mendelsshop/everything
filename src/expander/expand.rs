@@ -416,7 +416,7 @@ impl Expander {
         )
     }
 
-    fn exxpand_and_eval_for_syntaxes_binding(
+    fn expand_and_eval_for_syntaxes_binding(
         &mut self,
         rhs: Ast,
         id_count: usize,
@@ -434,12 +434,12 @@ impl Expander {
         id_count: usize,
         ctx: ExpandContext,
     ) -> Result<Vec<Ast>, Error> {
-        self.exxpand_and_eval_for_syntaxes_binding(rhs, id_count, ctx)
+        self.expand_and_eval_for_syntaxes_binding(rhs, id_count, ctx)
             .map(|x| x.0)
     }
 
     fn eval_for_bindings(
-        &self,
+        &mut self,
         exp_rhs: Ast,
         id_count: usize,
         namespace: NameSpace,

@@ -20,8 +20,8 @@ use super::{binding::Binding, namespace::NameSpace, Expander};
 impl Expander {
     // self is only used for envoirment
 
-    pub fn compile(&self, s: Ast, ns: &NameSpace) -> Result<Ast1, Error> {
-        let compile = |s| self.compile(s, ns);
+    pub fn compile(&mut self, s: Ast, ns: &NameSpace) -> Result<Ast1, Error> {
+        let mut compile = |s| self.compile(s, ns);
         let Ast::Syntax(syntax) = s.clone() else {
             panic!()
         };
@@ -35,7 +35,7 @@ impl Expander {
                         let m = match_syntax!(
                             (lambda formals body)
                         )(s)?;
-                        let formals = self.process_formals(m.formals)?;
+                        let formals = Self::process_formals(m.formals)?;
 
                         Ok(Ast1::Lambda(formals, Box::new(compile(m.body)?)))
                     }
@@ -145,6 +145,7 @@ impl Expander {
                             .map_to_list_checked(filter_label)
                             .map_err(|e| e.unwrap_or(var_name))?;
                         let src = filter_label(m.dest_label)?;
+                        self.links.insert(src.clone(), dest.clone());
                         Ok(Ast1::Link(src, dest))
                     }
                     "module" => todo!(),
@@ -159,7 +160,7 @@ impl Expander {
         }
     }
 
-    fn process_formals(&self, formals: Ast) -> Result<Param, Error> {
+    fn process_formals(formals: Ast) -> Result<Param, Error> {
         if let Ok(m) = match_syntax!((id))(formals.clone()) {
             let id = m.id.try_into()?;
             Ok(Param::One(Self::local_symbol(&id)?.0))
@@ -206,7 +207,7 @@ impl Expander {
     //     Ok(list!(self.loop_formals(formals)?, self.compile(body, ns)?))
     // }
 
-    fn compile_let(&self, core_sym: Rc<str>, s: Ast, ns: &NameSpace) -> Result<Ast1, Error> {
+    fn compile_let(&mut self, core_sym: Rc<str>, s: Ast, ns: &NameSpace) -> Result<Ast1, Error> {
         let rec = &*core_sym == "letrec-values";
         let m = match_syntax!(
             (

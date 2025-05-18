@@ -100,7 +100,7 @@ pub enum Ast1 {
     Module(RC<str>, ModuleType),
     Link(Label, Vec<Label>),
 }
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Label(pub RC<str>);
 
 impl fmt::Display for Ast1 {
