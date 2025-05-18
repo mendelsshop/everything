@@ -11,18 +11,19 @@ use std::{
     cell::RefCell,
     collections::HashMap,
     error::Error,
-    fs,
+    fs, mem,
     rc::Rc,
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use ast::{scope::Scope, Ast, Symbol};
+use ast::{ast2::Ast2, scope::Scope, Ast, AstTransformFrom, Symbol};
 use expander::{expand_context::ExpandContext, Expander};
 //use codegen::{
 //    register_to_llvm::CodeGen,
 //    sicp::{Linkage, Register},
 //};
 use inkwell::passes::PassManager;
+use multimap::MultiMap;
 use simple_file_logger::LogLevel;
 
 use clap::{arg, Parser, Subcommand};
@@ -151,9 +152,15 @@ fn compile(file: &str, out: &str) {
         let ele = expander.compile(ele, &ns).unwrap();
         println!("done compiling");
         println!("{ele}");
-        let ele = expander.run_time_eval(ele).unwrap();
+        let ele_val = expander.run_time_eval(ele.clone()).unwrap();
         println!("done evaluation");
-        println!("{ele}");
+        println!("{ele_val}");
+        let links = MultiMap::from(
+            mem::take(&mut expander.links)
+                .into_iter()
+                .map(|(k, ks)| (ks, k.clone(), k)),
+        );
+        let (ele, _) = Ast2::transform(ele, links).unwrap();
     }
     // let program = parse_and_expand(&contents).unwrap();
     //let links = MultiMap::from(program.1.into_iter().map(|(k, ks)| (ks, k.clone(), k)));

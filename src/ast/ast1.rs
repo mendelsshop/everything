@@ -70,16 +70,6 @@ pub enum Ast1 {
     // Maybe all not speical forms should be just Be
     // coreesponds to data
     Basic(Ast),
-    // Boolean(Boolean),
-    // Number(f64),
-    // String(RC<str>),
-    // Symbol(Symbol),
-    // Label(RC<str>),
-    // Pair(Box<Pair>),           // this could really be regular ast
-    // Syntax(Box<Syntax<Ast1>>), // this could really be regular ast
-    // TheEmptyList,              // this could really be regular ast
-    // should simlify to ident or the like ...
-    // FnParam(usize),
 
     // special forms
     If(Box<Ast1>, Box<Ast1>, Box<Ast1>),
@@ -88,7 +78,6 @@ pub enum Ast1 {
     LetRecValues(Vec<(Vec<RC<str>>, Ast1)>, Box<Ast1>),
     Lambda(Param, Box<Ast1>),
     Application(Box<Ast1>, Vec<Ast1>),
-    // TODO: begin0
     Expression(Box<Ast1>),
     Begin(Vec<Ast1>),
     Begin0(Vec<Ast1>),
@@ -98,7 +87,6 @@ pub enum Ast1 {
     Skip,
     Loop(Box<Ast1>),
     Module(RC<str>, ModuleType),
-    Link(Label, Vec<Label>),
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Label(pub RC<str>);
@@ -134,7 +122,6 @@ impl fmt::Display for Ast1 {
             Self::LetRecValues(r, b) => write!(f, "(letrec-values (...) {b})"),
             Self::LetValues(r, b) => write!(f, "(let-values (...) {b})"),
             Self::Expression(e) => write!(f, "(#%expression {e})"),
-            Self::Link(_, _) => todo!(),
             Self::Module(name, _type) => write!(f, "(module {name})"),
         }
     }

@@ -292,7 +292,6 @@ impl Evaluator {
             Ast1::Skip => todo!(),
             Ast1::Loop(ast1) => todo!(),
             Ast1::Module(_, module_type) => todo!(),
-            Ast1::Link(label, labels) => todo!(),
             Ast1::Expression(ast1) => Self::eval(*ast1, env),
         }
     }

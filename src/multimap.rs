@@ -19,6 +19,12 @@ pub struct MultiMap<K: Hash + Eq, V> {
     pub(crate) values: HashMap<K, NonNull<V>>,
 }
 
+impl<K: Hash + Eq, V> Default for MultiMap<K, V> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<K: Hash + Eq, V> MultiMap<K, V> {
     pub fn new() -> Self {
         Self {

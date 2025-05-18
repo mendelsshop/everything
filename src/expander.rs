@@ -40,7 +40,7 @@ pub struct Expander {
     run_time_env: EnvRef,
     core_syntax: Syntax<Ast>,
     pub(crate) variable: Symbol,
-    links: HashMap<Label, Vec<Label>>,
+    pub links: HashMap<Label, Vec<Label>>,
 }
 
 impl Default for Expander {

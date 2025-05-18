@@ -145,8 +145,11 @@ impl Expander {
                             .map_to_list_checked(filter_label)
                             .map_err(|e| e.unwrap_or(var_name))?;
                         let src = filter_label(m.dest_label)?;
-                        self.links.insert(src.clone(), dest.clone());
-                        Ok(Ast1::Link(src, dest))
+                        self.links.insert(src, dest);
+                        Ok(Ast1::Application(
+                            Box::new(Ast1::Basic(Ast::Symbol("values".into()))),
+                            vec![],
+                        ))
                     }
                     "module" => todo!(),
                     "stop" => todo!(),

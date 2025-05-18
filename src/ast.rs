@@ -5,7 +5,7 @@ use scope::Scope;
 use syntax::{Properties, SourceLocation, Syntax};
 
 pub mod ast1;
-// pub mod ast3;
+pub mod ast2;
 // pub mod ast4;
 
 use std::{
@@ -665,7 +665,18 @@ use std::fmt::Display;
 use std::usize;
 
 use crate::interior_mut::RC;
+impl<T, U: AstTransformFrom<T>, V> AstTransformFrom<(V, T)> for (V, U) {
+    type Error = <U as AstTransformFrom<T>>::Error;
+    type State = <U as AstTransformFrom<T>>::State;
 
+    fn transform(
+        (items, ast1): (V, T),
+        state: Self::State,
+    ) -> Result<(Self, Self::State), Self::Error> {
+        let (value, state) = U::transform(ast1, state)?;
+        Ok(((items, value), state))
+    }
+}
 pub trait AstTransformFrom<T>: Sized {
     type Error;
     type State;
