@@ -29,7 +29,7 @@ use simple_file_logger::LogLevel;
 use clap::{arg, Parser, Subcommand};
 
 pub mod ast;
-// mod codegen;
+mod codegen;
 
 mod error;
 mod evaluator;

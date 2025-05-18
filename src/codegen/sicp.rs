@@ -1,19 +1,17 @@
 use std::{
     collections::HashSet,
     fmt::{self, Formatter},
+    rc::Rc,
 };
 
 use itertools::Itertools;
 use log::info;
 
-use crate::{
-    ast::{ast4::Ast4, Param},
-    interior_mut::RC,
-};
+use crate::ast::{ast2::Ast2, Ast, Param, Symbol};
 
 type Label = String;
 
-// https://gist.github.com/jonhoo/ec57882a976a2d2a92b3138ea25cd45a
+// https://gist.github.com/jonhoo/ec57882a976a2d2a92b3138ea25cd25a
 macro_rules! hashset {
     ($($element:expr),*) => {{
         // check that count is const
@@ -72,7 +70,6 @@ pub enum Operation {
     Cons,
     SetVariableValue,
     False,
-    RandomBool,
     MakeCompiledProcedure,
     PrimitiveProcedure,
     VariadiacProcedure,
@@ -99,45 +96,12 @@ impl fmt::Display for Register {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum Const {
-    Empty,
-    String(String),
-    Symbol(String),
-    Number(f64),
-    Boolean(bool),
-    List(Box<Expr>, Box<Expr>),
-}
-
-#[derive(Clone, Debug, PartialEq)]
 pub enum Expr {
-    Const(Const),
+    // techincally should be ast - function (and maybe - label)
+    Const(Ast),
     Label(Label),
     Register(Register),
     Op(Perform),
-}
-impl fmt::Display for Const {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::List(e1, e2) => {
-                let mut e2 = *e2.clone();
-                write!(f, "{e1}")?;
-                while let Expr::Const(Self::List(ne1, ne2)) = e2.clone() {
-                    write!(f, " {ne1}",)?;
-                    e2 = *ne2;
-                }
-                if e2 == Expr::Const(Self::Empty) {
-                    write!(f, ")")
-                } else {
-                    write!(f, " . {e2}")
-                }
-            }
-            Self::String(s) => write!(f, "{s}"),
-            Self::Symbol(s) => write!(f, "{s}"),
-            Self::Number(n) => write!(f, "{n}"),
-            Self::Empty => write!(f, "()"),
-            Self::Boolean(b) => write!(f, "{b}"),
-        }
-    }
 }
 
 impl fmt::Display for Expr {
@@ -271,37 +235,41 @@ impl InstructionSequnce {
 }
 
 pub fn compile(
-    exp: Ast4,
+    exp: Ast2,
     target: Register,
     linkage: Linkage,
     lambda_linkage: Linkage,
 ) -> InstructionSequnce {
     match exp {
-        Ast4::Ident(i) => compile_variable(i.to_string(), target, linkage),
-        Ast4::Application(a) => {
+        Ast2::Basic(Ast::Symbol(i)) => compile_variable(i, target, linkage),
+        Ast2::Application(f, a) => {
             let compile_application = compile_application(a, target, linkage, lambda_linkage);
             // eprintln!("{compile_application:#?}");
             compile_application
         }
-        Ast4::FnParam(i) => compile_variable(format!("'{i}'"), target, linkage),
-        Ast4::Begin(b) => compile_seq(b, target, linkage, lambda_linkage),
-        Ast4::Define(s, exp) => compile_defeninition((s, *exp), target, linkage, lambda_linkage),
-        Ast4::Set(s, exp) => compile_assignment((s, *exp), target, linkage, lambda_linkage),
-        Ast4::Lambda(arg, body) => compile_lambda((arg, *body), target, linkage),
-        Ast4::If(cond, cons, alt) => {
+        Ast2::Begin(b) => compile_seq(b, target, linkage, lambda_linkage),
+        Ast2::DefineValues(s, exp) => {
+            // compile_defeninition((s, *exp), target, linkage, lambda_linkage)
+            todo!()
+        }
+        Ast2::Set(s, exp) => compile_assignment((s, *exp), target, linkage, lambda_linkage),
+        Ast2::Lambda(arg, body) => compile_lambda((arg, *body), target, linkage),
+        Ast2::If(cond, cons, alt) => {
             compile_if((*cond, *cons, *alt), target, linkage, lambda_linkage)
         }
-        Ast4::Quote(q) => compile_quoted(*q, target, linkage),
-        Ast4::Label(l) => end_with_linkage(linkage, make_label_instruction(l.to_string())),
-        Ast4::Goto(l) => end_with_linkage(
+        Ast2::Quote(q) => compile_quoted(q, target, linkage),
+        Ast2::Basic(Ast::Label(l)) => {
+            end_with_linkage(linkage, make_label_instruction(l.to_string()))
+        }
+        Ast2::Goto(l) => end_with_linkage(
             linkage,
             make_intsruction_sequnce(
                 hashset!(),
                 hashset!(),
-                vec![Instruction::Goto(Goto::Label(l.to_string()))],
+                vec![Instruction::Goto(Goto::Label(l.0.to_string()))],
             ),
         ),
-        Ast4::Stop(s) => append_instruction_sequnce(
+        Ast2::Stop(s) => append_instruction_sequnce(
             make_intsruction_sequnce(
                 hashset!(),
                 hashset!(),
@@ -320,7 +288,7 @@ pub fn compile(
                         make_intsruction_sequnce(
                             hashset!(),
                             hashset!(target),
-                            vec![Instruction::Assign(target, Expr::Const(Const::Empty))],
+                            vec![Instruction::Assign(target, Expr::Const(Ast::TheEmptyList))],
                         )
                     },
                     |s| compile(*s, target, Linkage::Next, lambda_linkage),
@@ -328,14 +296,19 @@ pub fn compile(
                 compile_linkage(Linkage::Return),
             ),
         ),
-        Ast4::Loop(loop_function) => compile_loop(loop_function, target, linkage, lambda_linkage),
-        Ast4::Module(name, kind) => todo!("compile module refrence"),
-        exp => compile_self_evaluating(exp.into(), target, linkage),
+        Ast2::Loop(loop_function) => compile_loop(loop_function, target, linkage, lambda_linkage),
+        Ast2::Module(name, kind) => todo!("compile module refrence"),
+        Ast2::Basic(exp) => compile_self_evaluating(exp.into(), target, linkage),
+        Ast2::LetValues(items, ast2) => todo!(),
+        Ast2::LetRecValues(items, ast2) => todo!(),
+        Ast2::Expression(ast2) => todo!(),
+        Ast2::Begin0(ast2s) => todo!(),
+        Ast2::Skip => todo!(),
     }
 }
 
 fn compile_loop(
-    loop_function: Box<Ast4>,
+    loop_function: Box<Ast2>,
     target: Register,
     linkage: Linkage,
     lambda_linkage: Linkage,
@@ -512,7 +485,7 @@ fn compile_self_evaluating(exp: Expr, target: Register, linkage: Linkage) -> Ins
     )
 }
 
-fn compile_quoted(quoted: Ast4, target: Register, linkage: Linkage) -> InstructionSequnce {
+fn compile_quoted(quoted: Ast, target: Register, linkage: Linkage) -> InstructionSequnce {
     info!("generating ir for quoted expression {quoted:?}, with register {target}, with linkage {linkage:?}");
     end_with_linkage(
         linkage,
@@ -537,7 +510,7 @@ fn make_label_name(label: String) -> Label {
     format!("{}{}", label, label_counter())
 }
 
-fn compile_variable(exp: String, target: Register, linkage: Linkage) -> InstructionSequnce {
+fn compile_variable(exp: Symbol, target: Register, linkage: Linkage) -> InstructionSequnce {
     info!("generating ir for looking up variable {exp:?}, with register {target}, with linkage {linkage:?}");
     end_with_linkage(
         linkage,
@@ -548,10 +521,7 @@ fn compile_variable(exp: String, target: Register, linkage: Linkage) -> Instruct
                 target,
                 Expr::Op(Perform {
                     op: Operation::LookupVariableValue,
-                    args: vec![
-                        Expr::Const(Const::Symbol(exp)),
-                        Expr::Register(Register::Env),
-                    ],
+                    args: vec![Expr::Const(Ast::Symbol(exp)), Expr::Register(Register::Env)],
                 }),
             )],
         ),
@@ -559,7 +529,7 @@ fn compile_variable(exp: String, target: Register, linkage: Linkage) -> Instruct
 }
 
 fn compile_assignment(
-    exp: (RC<str>, Ast4),
+    exp: (Rc<str>, Ast2),
     target: Register,
     linkage: Linkage,
     lambda_linkage: Linkage,
@@ -568,7 +538,7 @@ fn compile_assignment(
         "generating ir for assigning {:?} to {}, with register {target}, with linkage {linkage:?}",
         exp.1, exp.0
     );
-    let var = exp.0.to_string();
+    let var = exp.0;
     let get_value_code = compile(exp.1, Register::Val, Linkage::Next, lambda_linkage);
 
     end_with_linkage(
@@ -583,12 +553,12 @@ fn compile_assignment(
                     Instruction::Perform(Perform {
                         op: Operation::SetVariableValue,
                         args: vec![
-                            Expr::Const(Const::Symbol(var)),
+                            Expr::Const(Ast::Symbol(Symbol(var))),
                             Expr::Register(Register::Val),
                             Expr::Register(Register::Env),
                         ],
                     }),
-                    Instruction::Assign(target, Expr::Const(Const::Symbol("ok".to_string()))),
+                    Instruction::Assign(target, Expr::Const(Ast::Symbol("ok".into()))),
                 ],
             ),
         ),
@@ -596,7 +566,7 @@ fn compile_assignment(
 }
 
 fn compile_defeninition(
-    exp: (RC<str>, Ast4),
+    exp: (Rc<str>, Ast2),
     target: Register,
     linkage: Linkage,
     lambda_linkage: Linkage,
@@ -605,7 +575,7 @@ fn compile_defeninition(
         "generating ir for assigning {:?} to {}, with register {target}, with linkage {linkage:?}",
         exp.1, exp.0
     );
-    let var = exp.0.to_string();
+    let var = exp.0;
     let val = compile(exp.1, Register::Val, Linkage::Next, lambda_linkage);
 
     end_with_linkage(
@@ -620,12 +590,12 @@ fn compile_defeninition(
                     Instruction::Perform(Perform {
                         op: Operation::DefineVariable,
                         args: vec![
-                            Expr::Const(Const::Symbol(var)),
+                            Expr::Const(Ast::Symbol(Symbol(var))),
                             Expr::Register(Register::Val),
                             Expr::Register(Register::Env),
                         ],
                     }),
-                    Instruction::Assign(target, Expr::Const(Const::Symbol("ok".to_string()))),
+                    Instruction::Assign(target, Expr::Const(Ast::Symbol("ok".into()))),
                 ],
             ),
         ),
@@ -633,7 +603,7 @@ fn compile_defeninition(
 }
 
 fn compile_if(
-    exp: (Ast4, Ast4, Ast4),
+    exp: (Ast2, Ast2, Ast2),
     target: Register,
     linkage: Linkage,
     lambda_linkage: Linkage,
@@ -683,7 +653,7 @@ fn compile_if(
 }
 
 fn compile_seq(
-    seq: Vec<Ast4>,
+    seq: Vec<Ast2>,
     target: Register,
     linkage: Linkage,
     lambda_linkage: Linkage,
@@ -720,7 +690,7 @@ fn tack_on_instruction_seq(
     )
 }
 
-fn compile_lambda(lambda: (Param, Ast4), target: Register, linkage: Linkage) -> InstructionSequnce {
+fn compile_lambda(lambda: (Param, Ast2), target: Register, linkage: Linkage) -> InstructionSequnce {
     info!(
         "generating ir for lambda with parameter {} and body {:?}, with register {target}, with linkage {linkage:?}",
         lambda.0, lambda.1
@@ -746,7 +716,9 @@ fn compile_lambda(lambda: (Param, Ast4), target: Register, linkage: Linkage) -> 
                             args: vec![
                                 Expr::Label(proc_entry.clone()),
                                 Expr::Register(Register::Env),
-                                Expr::Const(Const::Number(
+                                // TODO: update llvm generation code to use symbols as opposed to
+                                // numbers
+                                Expr::Const(Ast::Number(
                                     <&Param as Into<usize>>::into(&lambda.0) as f64
                                 )),
                             ],
@@ -761,7 +733,7 @@ fn compile_lambda(lambda: (Param, Ast4), target: Register, linkage: Linkage) -> 
 }
 
 fn compile_lambda_body(
-    lambda: (Param, Ast4),
+    lambda: (Param, Ast2),
     proc_entry: String,
     lambda_linkage: Linkage,
 ) -> InstructionSequnce {
@@ -785,7 +757,7 @@ fn compile_lambda_body(
                         Expr::Op(Perform {
                             op: Operation::ExtendEnvironment,
                             args: vec![
-                                Expr::Const(Const::Symbol(format!("'{i}'"))),
+                                Expr::Const(Ast::Symbol(Symbol(i))),
                                 Expr::Register(Register::Argl),
                                 Expr::Register(Register::Env),
                             ],
@@ -884,7 +856,7 @@ pub trait MapWithSelfExt: Iterator {
 impl<I: Iterator> MapWithSelfExt for I {}
 
 fn compile_application(
-    exp: Vec<Ast4>,
+    exp: Vec<Ast2>,
     target: Register,
     linkage: Linkage,
     lambda_linkage: Linkage,
@@ -1410,7 +1382,7 @@ fn add_to_argl(inst: InstructionSequnce) -> InstructionSequnce {
 #[cfg(feature = "lazy")]
 // #[cfg(not(feature = "lazy"))]
 fn force_it(
-    exp: Ast4,
+    exp: Ast2,
     target: Register,
     linkage: Linkage,
     lambda_linkage: Linkage,
@@ -1467,7 +1439,7 @@ fn force_it(
 #[cfg(feature = "lazy")]
 // #[cfg(not(feature = "lazy"))]
 fn delay_it(
-    exp: Ast4,
+    exp: Ast2,
     target: Register,
     linkage: Linkage,
     lambda_linkage: Linkage,
@@ -1512,7 +1484,7 @@ fn delay_it(
 
 #[cfg(feature = "lazy")]
 fn compile_thunk_body(
-    thunk: Ast4,
+    thunk: Ast2,
     thunk_entry: Label,
     lambda_linkage: Linkage,
 ) -> InstructionSequnce {
@@ -1537,7 +1509,7 @@ fn compile_thunk_body(
 // #[cfg(feature = "lazy")]
 #[cfg(not(feature = "lazy"))]
 fn delay_it(
-    exp: Ast4,
+    exp: Ast2,
     target: Register,
     linkage: Linkage,
     lambda_linkage: Linkage,
@@ -1548,7 +1520,7 @@ fn delay_it(
 // #[cfg(feature = "lazy")]
 #[cfg(not(feature = "lazy"))]
 fn force_it(
-    exp: Ast4,
+    exp: Ast2,
     target: Register,
     linkage: Linkage,
     lambda_linkage: Linkage,
@@ -1567,35 +1539,15 @@ fn construct_arg_list(operand_codes: Vec<InstructionSequnce>) -> InstructionSequ
                 hashset!(Register::Argl),
                 vec![Instruction::Assign(
                     Register::Argl,
-                    Expr::Const(Const::Empty),
+                    Expr::Const(Ast::TheEmptyList),
                 )],
             ),
             |a, b| preserving(hashset!(Register::Env), a, b),
         )
 }
 
-impl From<Ast4> for Expr {
-    fn from(value: Ast4) -> Self {
-        match value {
-            Ast4::Bool(b) => match b {
-                crate::ast::Boolean::False => Self::Const(Const::Boolean(false)),
-                crate::ast::Boolean::True => Self::Const(Const::Boolean(true)),
-                crate::ast::Boolean::Maybe => Self::Op(Perform {
-                    op: Operation::RandomBool,
-                    args: vec![],
-                }),
-            },
-            Ast4::Number(n) => Self::Const(Const::Number(n)),
-            Ast4::String(s) => Self::Const(Const::String(s.to_string())),
-            Ast4::Ident(i) => Self::Const(Const::Symbol(i.to_string())),
-            Ast4::Application(a) => a
-                .into_iter()
-                .map(Into::into)
-                .rfold(Self::Const(Const::Empty), |a, b| {
-                    Self::Const(Const::List(Box::new(b), Box::new(a)))
-                }),
-            Ast4::FnParam(i) => Self::Const(Const::Symbol(format!("'{i}'"))),
-            _ => unreachable!(),
-        }
+impl From<Ast> for Expr {
+    fn from(value: Ast) -> Self {
+        Expr::Const(value)
     }
 }

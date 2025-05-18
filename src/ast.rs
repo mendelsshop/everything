@@ -6,7 +6,6 @@ use syntax::{Properties, SourceLocation, Syntax};
 
 pub mod ast1;
 pub mod ast2;
-// pub mod ast4;
 
 use std::{
     collections::BTreeSet,
@@ -767,6 +766,15 @@ pub enum Boolean {
     True = 1,
     /// ?
     Maybe,
+}
+impl From<Boolean> for u64 {
+    fn from(value: Boolean) -> Self {
+        match value {
+            Boolean::False => 0,
+            Boolean::True => 1,
+            Boolean::Maybe => 2,
+        }
+    }
 }
 
 impl Display for Boolean {

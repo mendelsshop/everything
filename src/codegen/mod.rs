@@ -15,9 +15,9 @@ use inkwell::{
     AddressSpace,
 };
 
-use crate::{ast::ast1::Ast1, interior_mut::RC};
+use crate::{ast::ast1::Ast1, interior_mut::RC, multimap::MultiMap};
 
-use self::{env::VarType, multimap::MultiMap};
+// use self::{env::VarType};
 macro_rules! return_none {
     ($expr:expr) => {
         match $expr {
@@ -26,20 +26,20 @@ macro_rules! return_none {
         }
     };
 }
-mod conditionals;
-mod env;
+// mod conditionals;
+//
+// mod env;
 mod export_code;
-mod extract_object;
-mod functions;
-mod labels;
-mod loops;
-pub(crate) mod multimap;
-mod object;
-mod quotation;
+// mod extract_object;
+// mod functions;
+// mod labels;
+// mod loops;
+// mod object;
+// mod quotation;
 pub mod register_to_llvm;
 // pub mod register_to_llvm_more_opt;
 pub mod sicp;
-mod stdlib;
+// mod stdlib;
 
 /// needed for when we reach stoppers like stop or skip
 /// to tell us what type of code to generate ie, br or return
@@ -96,7 +96,7 @@ pub struct Functions<'ctx> {
 pub struct Compiler<'a, 'ctx> {
     context: &'ctx Context,
     pub(crate) module: &'a Module<'ctx>,
-    variables: Vec<HashMap<RC<str>, VarType<'a, 'ctx>>>,
+    // variables: Vec<HashMap<RC<str>, VarType<'a, 'ctx>>>,
     pub builder: &'a Builder<'ctx>,
     pub fpm: &'a PassManager<FunctionValue<'ctx>>,
     pub(crate) string: HashMap<RC<str>, GlobalValue<'ctx>>,
@@ -146,585 +146,585 @@ pub enum EngineType {
     None,
 }
 
-impl<'a, 'ctx> Compiler<'a, 'ctx> {
-    pub fn new(
-        context: &'ctx Context,
-        module: &'a Module<'ctx>,
-        builder: &'a Builder<'ctx>,
-        fpm: &'a PassManager<FunctionValue<'ctx>>,
-        ee_type: &EngineType,
-    ) -> Self {
-        let kind = context.opaque_struct_type("object");
-        // TODO: make the generic lambda function type not explicitly take an object, and also it should take a number, which signify the amount actual arguments
-        // and also it should take a pointer (that if non-null should indirect br to that ptr)
-        let call_info = context.struct_type(
-            &[
-                context.i64_type().into(),
-                context.i8_type().ptr_type(AddressSpace::default()).into(),
-            ],
-            false,
-        );
-        let generic_pointer = context.i8_type().ptr_type(AddressSpace::default());
-        let fn_type = kind.fn_type(
-            &[
-                generic_pointer.into(),
-                call_info.into(),
-                generic_pointer.into(),
-            ],
-            true,
-        );
-
-        let lambda = context.struct_type(
-            &[
-                fn_type.ptr_type(AddressSpace::default()).into(),
-                generic_pointer.into(),
-            ],
-            false,
-        );
-        let va_arg = context.struct_type(&[kind.into(), generic_pointer.into()], false);
-        let types = Types {
-            object: kind,
-            ty: context.i8_type(),
-            boolean: context.bool_type(),
-            number: context.f64_type(),
-            string: context.i8_type().ptr_type(AddressSpace::default()),
-            cons: context.struct_type(&[kind.into(), kind.into(), kind.into()], false),
-            lambda,
-            lambda_ty: fn_type,
-            symbol: context.i8_type().ptr_type(AddressSpace::default()),
-            generic_pointer,
-            hempty: context.struct_type(&[], false),
-            thunk_ty: context.struct_type(
-                &[
-                    kind.fn_type(&[generic_pointer.into()], false)
-                        .ptr_type(AddressSpace::default())
-                        .into(),
-                    generic_pointer.into(),
-                ],
-                false,
-            ),
-            thunk: kind.fn_type(&[generic_pointer.into()], false),
-            primitive_ty: kind.fn_type(&[call_info.into(), generic_pointer.into()], false),
-            args: context.struct_type(&[kind.into(), generic_pointer.into()], false),
-            va_arg,
-            call_info,
-        };
-        let exit = module.add_function(
-            "exit",
-            context
-                .void_type()
-                .fn_type(&[context.i32_type().into()], false),
-            Some(Linkage::External),
-        );
-        let rand = module.add_function(
-            "rand",
-            context.i32_type().fn_type(&[], false),
-            Some(Linkage::External),
-        );
-        let printf = module.add_function(
-            "printf",
-            context.i32_type().fn_type(&[types.string.into()], true),
-            Some(Linkage::External),
-        );
-
-        let va_procces_type = va_arg.fn_type(
-            &[types.generic_pointer.into(), context.i64_type().into()],
-            false,
-        );
-        let va_procces = module.add_function("va_procces", va_procces_type, None);
-
-        let functions = Functions {
-            exit,
-            va_procces,
-            printf,
-            rand,
-        };
-        kind.set_body(
-            &[
-                types.ty.as_basic_type_enum(),              //type
-                types.boolean.as_basic_type_enum(),         // bool
-                types.number.as_basic_type_enum(),          //number
-                types.string.as_basic_type_enum(),          // string
-                types.generic_pointer.as_basic_type_enum(), // cons (maybee turn it back to 3 elemement struct)
-                types.lambda.as_basic_type_enum(),          // function
-                types.symbol.as_basic_type_enum(),          // symbol
-                types.thunk_ty.as_basic_type_enum(),        // thunk
-                types.hempty.as_basic_type_enum(),          //hempty
-                types.generic_pointer.as_basic_type_enum(), // primitive function
-            ],
-            false,
-        );
-        Self {
-            context,
-            module,
-            variables: vec![],
-            builder,
-            fpm,
-            string: HashMap::new(),
-            ident: HashMap::new(),
-            fn_value: None,
-            types,
-            links: MultiMap::new(),
-            functions,
-            state: vec![],
-            main: None,
-            non_found_links: vec![],
-            engine: Self::create_engine(module, ee_type),
-            module_list: vec![],
-        }
-    }
-
-    // because we cannot have multiple engines per module
-    fn create_engine(
-        module: &'a Module<'ctx>,
-        ee_type: &EngineType,
-    ) -> Option<ExecutionEngine<'ctx>> {
-        match ee_type {
-            EngineType::Repl => Some(module.create_execution_engine().unwrap()),
-            EngineType::Jit => Some(
-                module
-                    // optimaztion break goto
-                    .create_jit_execution_engine(inkwell::OptimizationLevel::None)
-                    .unwrap(),
-            ),
-            EngineType::None => None,
-        }
-    }
-
-    pub(crate) fn build_n_select(
-        &self,
-        default: BasicValueEnum<'ctx>,
-        choices: &[(IntValue<'ctx>, BasicValueEnum<'ctx>)],
-    ) -> BasicValueEnum<'ctx> {
-        choices.iter().fold(default, |prev, choice| {
-            self.builder
-                .build_select(choice.0, choice.1, prev, "")
-                .unwrap()
-        })
-    }
-
-    #[inline]
-    fn current_fn_value(&self) -> Result<FunctionValue<'ctx>, &str> {
-        self.fn_value.ok_or("could not find current function")
-    }
-    // / Creates a new stack allocation instruction in the entry block of the function.
-    fn create_entry_block_alloca<T>(&self, ty: T, name: &str) -> Result<PointerValue<'ctx>, &str>
-    where
-        T: BasicType<'ctx>,
-    {
-        // self.engine.unwrap().
-        let old_block = self.builder.get_insert_block();
-        let fn_value = self.current_fn_value()?;
-        // if a function is already allocated it will have an entry block so its fine to unwrap
-        let entry = fn_value.get_first_basic_block().unwrap();
-
-        entry.get_first_instruction().map_or_else(
-            || self.builder.position_at_end(entry),
-            |first_instr| self.builder.position_before(&first_instr),
-        );
-
-        let build_alloca = self.builder.build_alloca(ty, name).unwrap();
-        if let Some(bb) = old_block {
-            self.builder.position_at_end(bb);
-        }
-        Ok(build_alloca)
-    }
-
-    fn compile_expr(&mut self, expr: &Ast1) -> Result<Option<BasicValueEnum<'ctx>>, String> {
-        match expr {
-            Ast1::Number(value) => Ok(Some(self.const_number(*value).as_basic_value_enum())),
-            Ast1::Bool(value) => Ok(Some(self.const_boolean(*value).as_basic_value_enum())),
-            Ast1::String(value) => Ok(Some(self.const_string(value).as_basic_value_enum())),
-            Ast1::Ident(s) => self.get_var(s).map(Some),
-            Ast1::Application(application) => self.compile_application(application),
-            Ast1::Label(s) => self.compile_label(s),
-            Ast1::FnParam(s) => self.get_var(&s.to_string().into()).map(Some),
-            // EverythingExpr::Hempty => Ok(Some(self.hempty().into())),
-        }
-    }
-
-    // the reason this is not in loop.rs is because it could be in functions.rs too.
-    // maybe we should make control_flow.rs for stop, skip, and labels
-
-    // TODO: keep in mind the fact that the loop might be in outer function
-    fn special_form_stop(
-        &mut self,
-        exprs: &[Ast1],
-    ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
-        if exprs.len() != 1 {
-            Err("this is an expression oreinted language stopping a loop or function requires a value")?;
-        }
-        let res = return_none!(self.compile_expr(&exprs[0])?);
-        match self
-            .state
-            .last()
-            .ok_or("a stop is found outside a funcion or loop")?
-        {
-            EvalType::Function => {
-                self.builder.build_return(Some(&res));
-            }
-            EvalType::Loop {
-                loop_bb: _,
-                done_loop_bb,
-                connection,
-            } => {
-                let cont_bb = self
-                    .context
-                    .append_basic_block(self.fn_value.unwrap(), "loop-continue");
-                self.builder.build_conditional_branch(
-                    self.context.bool_type().const_zero(),
-                    cont_bb,
-                    *done_loop_bb,
-                );
-                connection.add_incoming(&[(&res, self.builder.get_insert_block().unwrap())]);
-                self.builder.position_at_end(cont_bb);
-            }
-        };
-        Ok(None)
-    }
-
-    fn special_form_mod(&mut self, exprs: &[Ast1]) -> Result<Option<BasicValueEnum<'ctx>>, String> {
-        // we should probalby compile with root env as opposed to whatever env the compiler was in when it reached this mod
-        // one way to do this is to keep a list of modules with thein envs including one for the root ...
-        if exprs.is_empty() {
-            Err("Mod requires either a name and scope")?;
-        }
-        let Ast1::Ident(module_name) = &exprs[0] else {
-            return Err("Mod requires a module name as its first argument")?;
-        };
-        self.module_list.push(module_name.to_string());
-        for expr in &exprs[1..] {
-            // self.print_ir();
-            self.compile_expr(expr)?;
-        }
-        self.module_list.pop();
-        Ok(Some(self.hempty().into()))
-    }
-
-    fn insert_variable_new_ptr(
-        &mut self,
-        i: &RC<str>,
-        v: BasicValueEnum<'ctx>,
-    ) -> Result<BasicValueEnum<'ctx>, String> {
-        let ty = self.types.object;
-        let ptr = self.create_entry_block_alloca(ty, i).unwrap();
-        self.builder.build_store(ptr, v);
-        self.insert_new_variable(i.clone(), ptr)?;
-        Ok(self.types.boolean.const_zero().as_basic_value_enum())
-    }
-
-    fn actual_value(&self, thunked: StructValue<'ctx>) -> StructValue<'ctx> {
-        // needs entry /condin
-        let current_fn = self.fn_value.unwrap();
-        let current_bb = self.builder.get_insert_block().unwrap();
-        let force = self.context.append_basic_block(current_fn, "force");
-        let done_force = self.context.append_basic_block(current_fn, "done-force");
-
-        let ty = self.extract_type(thunked).unwrap().into_int_value();
-        let cond = self
-            .builder
-            .build_int_compare(
-                inkwell::IntPredicate::EQ,
-                ty,
-                self.types.ty.const_int(TyprIndex::thunk as u64, false),
-                "is thunk",
-            )
-            .unwrap();
-        self.builder
-            .build_conditional_branch(cond, force, done_force)
-            .unwrap();
-        self.builder.position_at_end(force);
-        let unthunked = self.extract_thunk(thunked).unwrap().into_struct_value();
-        let thunked_fn = self
-            .builder
-            .build_extract_value(unthunked, 0, "thunk-fn")
-            .unwrap();
-        let unthunked_env = self
-            .builder
-            .build_extract_value(unthunked, 1, "thunk-env")
-            .unwrap();
-        let unthunked = self
-            .builder
-            .build_indirect_call(
-                self.types.thunk,
-                thunked_fn.into_pointer_value(),
-                &[unthunked_env.into()],
-                "unthunk",
-            )
-            .unwrap()
-            .try_as_basic_value()
-            .unwrap_left()
-            .into_struct_value();
-        self.builder.build_unconditional_branch(done_force);
-        let force = self.builder.get_insert_block().unwrap();
-        self.builder.position_at_end(done_force);
-        // we dont need to reget the block for unthunking because we are only calling a function and nothing elsse that would make another block in between
-        let object = self.builder.build_phi(self.types.object, "value").unwrap();
-        object.add_incoming(&[(&thunked, current_bb), (&unthunked, force)]);
-        object.as_basic_value().into_struct_value()
-    }
-
-    pub fn compile_scope(&mut self, body: &[Ast1]) -> Result<Option<BasicValueEnum<'ctx>>, String> {
-        let mut res = Err("scope does not have value".to_string());
-        for expr in body {
-            res = Ok(return_none!(self.compile_expr(expr)?));
-        }
-        res.map(Some)
-    }
-
-    fn is_null(&self, pv: PointerValue<'ctx>) -> IntValue<'ctx> {
-        self.builder.build_is_null(pv, "null check").unwrap()
-    }
-
-    fn is_hempty(&self, arg: StructValue<'ctx>) -> IntValue<'ctx> {
-        let arg_type = self.extract_type(arg).unwrap();
-        self.builder
-            .build_int_compare(
-                inkwell::IntPredicate::EQ,
-                arg_type.into_int_value(),
-                self.types.ty.const_int(TyprIndex::hempty as u64, false),
-                "is hempty",
-            )
-            .unwrap()
-    }
-
-    fn init_special_forms(&mut self) {
-        self.insert_special_form("if".into(), Self::special_form_if);
-        self.insert_special_form("loop".into(), Self::special_form_loop);
-        self.insert_special_form("for".into(), Self::special_form_for_loop);
-        self.insert_special_form("while".into(), Self::special_form_while_loop);
-        self.insert_special_form("lambda".into(), Self::special_form_lambda);
-        self.insert_special_form("define".into(), Self::special_form_define);
-        self.insert_special_form("quote".into(), Self::special_form_quote);
-        self.insert_special_form("unquote".into(), Self::special_form_unquote);
-        self.insert_special_form("quasiquote".into(), Self::special_form_quasiquote);
-        self.insert_special_form("skip".into(), Self::special_form_skip);
-        self.insert_special_form("stop".into(), Self::special_form_stop);
-        self.insert_special_form("mod".into(), Self::special_form_mod);
-        self.insert_special_form("begin".into(), Self::compile_scope);
-        self.insert_special_form("set!".into(), Self::special_form_set);
-    }
-
-    pub fn get_main(&mut self) -> (FunctionValue<'ctx>, BasicBlock<'ctx>) {
-        if let Some((function, block)) = self.main {
-            (function, block)
-        } else {
-            self.new_env();
-            self.init_special_forms();
-            self.init_stdlib();
-            self.make_va_process();
-            self.new_env();
-            let main_fn_type = self.context.i32_type().fn_type(&[], false);
-            let main_fn = self.module.add_function("main", main_fn_type, None);
-            let main_block = self.context.append_basic_block(main_fn, "entry");
-            let inner_main_fn_type = self.context.i32_type().fn_type(
-                &[
-                    self.types.generic_pointer.into(),
-                    self.types.call_info.into(),
-                    self.types.generic_pointer.into(),
-                ],
-                false,
-            );
-            let inner_main_fn = self.module.add_function("main", inner_main_fn_type, None);
-            self.builder.position_at_end(main_block);
-            self.builder.build_return(Some(
-                &self
-                    .builder
-                    .build_call(
-                        inner_main_fn,
-                        &[
-                            self.types.generic_pointer.const_null().into(),
-                            self.types
-                                .call_info
-                                .const_named_struct(&[
-                                    self.context.i64_type().const_zero().into(),
-                                    self.types.generic_pointer.const_null().into(),
-                                ])
-                                .into(),
-                            self.types.generic_pointer.const_null().into(),
-                        ],
-                        "main",
-                    )
-                    .unwrap()
-                    .try_as_basic_value()
-                    .unwrap_left(),
-            ));
-
-            let main_block = self.context.append_basic_block(inner_main_fn, "entry");
-            self.builder.position_at_end(main_block);
-            let call_info = inner_main_fn.get_nth_param(1).unwrap().into_struct_value();
-            let jmp_block = self
-                .builder
-                .build_extract_value(call_info, 1, "basic block address")
-                .unwrap()
-                .into_pointer_value();
-            let jump_bb = self.context.append_basic_block(inner_main_fn, "not-jmp");
-            let cont_bb = self
-                .context
-                .append_basic_block(inner_main_fn, "normal evaluation");
-            let is_jmp = self
-                .builder
-                .build_int_compare(
-                    inkwell::IntPredicate::NE,
-                    jmp_block,
-                    self.types.generic_pointer.const_null(),
-                    "is null",
-                )
-                .unwrap();
-            self.builder
-                .build_conditional_branch(is_jmp, jump_bb, cont_bb)
-                .unwrap();
-            self.builder.position_at_end(jump_bb);
-            self.builder.build_indirect_branch(jmp_block, &[]);
-            self.builder.position_at_end(cont_bb);
-            self.main = Some((inner_main_fn, cont_bb));
-            (inner_main_fn, cont_bb)
-        }
-    }
-
-    pub fn resolve_links(&mut self) {
-        self.non_found_links = std::mem::take(&mut self.non_found_links)
-            .into_iter()
-            .filter(|link| {
-                if let Some(Some(link_info)) = self.links.get(&link.0) {
-                    // link.2 shouldnt be none b/c of place holder
-                    if let Some(inst) = link.2 {
-                        self.builder.position_at(link.1, &inst);
-                    }
-                    let call_info = self.types.call_info.const_named_struct(&[
-                        self.context.i64_type().const_zero().into(),
-                        link_info.0.into(),
-                    ]);
-
-                    self.builder.build_call(
-                        link_info.1,
-                        &[
-                            self.types.generic_pointer.const_null().into(),
-                            call_info.into(),
-                            self.types.generic_pointer.const_null().into(),
-                        ],
-                        "jump",
-                    );
-                    false
-                } else {
-                    println!(
-                        "Warning link {} not resolved bad behaviour may occur",
-                        link.0
-                    );
-                    true
-                }
-            })
-            .collect();
-    }
-
-    pub fn compile_program(
-        &mut self,
-        program: &[Ast1],
-        links: HashMap<RC<str>, Vec<RC<str>>>,
-    ) -> Option<String> {
-        // TODO: dont reset links instead add to current (needed for repl to work)
-        self.links = MultiMap::from(links.into_iter().map(|(k, ks)| {
-            (
-                ks,
-                k,
-                <Option<(PointerValue<'ctx>, FunctionValue<'ctx>)>>::None,
-            )
-        }));
-        let (main_fn, main_block) = self.get_main();
-        self.fn_value = Some(main_fn);
-
-        self.builder.position_at_end(main_block);
-        if let Some(term) = main_block.get_terminator() {
-            term.erase_from_basic_block();
-        }
-
-        for expr in program {
-            match self.compile_expr(expr) {
-                Ok(_) => continue,
-                Err(e) => return Some(e),
-            }
-        }
-        let insert_bb = self.builder.get_insert_block().unwrap();
-        self.resolve_links();
-        self.builder.position_at_end(insert_bb);
-        self.builder
-            .build_return(Some(&self.context.i32_type().const_zero()));
-        self.main = Some((main_fn, self.builder.get_insert_block().unwrap()));
-
-        let verify = main_fn.verify(true);
-
-        if verify {
-            self.fpm.run_on(&main_fn);
-            let fpm = PassManager::create(());
-            // TODO: more optimizations
-            fpm.add_function_inlining_pass();
-            fpm.add_merge_functions_pass();
-            fpm.add_global_dce_pass();
-            fpm.add_ipsccp_pass();
-            // makes hard to debug llvm ir
-            // fpm.add_strip_symbol_pass();
-            fpm.add_constant_merge_pass();
-
-            fpm.add_new_gvn_pass();
-            fpm.add_instruction_combining_pass();
-            fpm.add_reassociate_pass();
-            fpm.add_gvn_pass();
-            fpm.add_basic_alias_analysis_pass();
-            fpm.add_promote_memory_to_register_pass();
-            fpm.add_aggressive_inst_combiner_pass();
-            // // doesn't work with current goto implementation
-            // // fpm.add_cfg_simplification_pass();
-            fpm.add_aggressive_dce_pass();
-            fpm.add_instruction_simplify_pass();
-            fpm.add_function_inlining_pass();
-            fpm.add_strip_dead_prototypes_pass();
-
-            fpm.run_on(self.module);
-            None
-        } else {
-            println!("error occurred");
-            self.print_ir();
-            unsafe {
-                main_fn.delete();
-            }
-
-            Some("Invalid generated function.".to_string())
-        }
-    }
-
-    pub fn print_ir(&self) {
-        self.module.print_to_stderr();
-    }
-    pub fn run(&self) -> Option<i32> {
-        unsafe {
-            self.engine.as_ref().map(|engine| {
-                // still need better soloution for only executing only need code inr repl
-                // remove module from ee so we can reuse
-                engine.remove_module(self.module).unwrap();
-                // add module back to ee
-                engine.add_module(self.module).unwrap();
-                engine.run_function_as_main(self.module.get_function("main").unwrap(), &[])
-            })
-        }
-    }
-
-    pub fn exit(&self, reason: &str, code: i32) {
-        self.builder.build_call(
-            self.functions.printf,
-            &[self
-                .builder
-                .build_global_string_ptr(reason, "error exit")
-                .unwrap()
-                .as_basic_value_enum()
-                .into()],
-            "print",
-        );
-        self.builder.build_call(
-            self.functions.exit,
-            &[self.context.i32_type().const_int(code as u64, false).into()],
-            "exit",
-        );
-
-        self.builder.build_unreachable();
-    }
-}
+// impl<'a, 'ctx> Compiler<'a, 'ctx> {
+//     pub fn new(
+//         context: &'ctx Context,
+//         module: &'a Module<'ctx>,
+//         builder: &'a Builder<'ctx>,
+//         fpm: &'a PassManager<FunctionValue<'ctx>>,
+//         ee_type: &EngineType,
+//     ) -> Self {
+//         let kind = context.opaque_struct_type("object");
+//         // TODO: make the generic lambda function type not explicitly take an object, and also it should take a number, which signify the amount actual arguments
+//         // and also it should take a pointer (that if non-null should indirect br to that ptr)
+//         let call_info = context.struct_type(
+//             &[
+//                 context.i64_type().into(),
+//                 context.i8_type().ptr_type(AddressSpace::default()).into(),
+//             ],
+//             false,
+//         );
+//         let generic_pointer = context.i8_type().ptr_type(AddressSpace::default());
+//         let fn_type = kind.fn_type(
+//             &[
+//                 generic_pointer.into(),
+//                 call_info.into(),
+//                 generic_pointer.into(),
+//             ],
+//             true,
+//         );
+//
+//         let lambda = context.struct_type(
+//             &[
+//                 fn_type.ptr_type(AddressSpace::default()).into(),
+//                 generic_pointer.into(),
+//             ],
+//             false,
+//         );
+//         let va_arg = context.struct_type(&[kind.into(), generic_pointer.into()], false);
+//         let types = Types {
+//             object: kind,
+//             ty: context.i8_type(),
+//             boolean: context.bool_type(),
+//             number: context.f64_type(),
+//             string: context.i8_type().ptr_type(AddressSpace::default()),
+//             cons: context.struct_type(&[kind.into(), kind.into(), kind.into()], false),
+//             lambda,
+//             lambda_ty: fn_type,
+//             symbol: context.i8_type().ptr_type(AddressSpace::default()),
+//             generic_pointer,
+//             hempty: context.struct_type(&[], false),
+//             thunk_ty: context.struct_type(
+//                 &[
+//                     kind.fn_type(&[generic_pointer.into()], false)
+//                         .ptr_type(AddressSpace::default())
+//                         .into(),
+//                     generic_pointer.into(),
+//                 ],
+//                 false,
+//             ),
+//             thunk: kind.fn_type(&[generic_pointer.into()], false),
+//             primitive_ty: kind.fn_type(&[call_info.into(), generic_pointer.into()], false),
+//             args: context.struct_type(&[kind.into(), generic_pointer.into()], false),
+//             va_arg,
+//             call_info,
+//         };
+//         let exit = module.add_function(
+//             "exit",
+//             context
+//                 .void_type()
+//                 .fn_type(&[context.i32_type().into()], false),
+//             Some(Linkage::External),
+//         );
+//         let rand = module.add_function(
+//             "rand",
+//             context.i32_type().fn_type(&[], false),
+//             Some(Linkage::External),
+//         );
+//         let printf = module.add_function(
+//             "printf",
+//             context.i32_type().fn_type(&[types.string.into()], true),
+//             Some(Linkage::External),
+//         );
+//
+//         let va_procces_type = va_arg.fn_type(
+//             &[types.generic_pointer.into(), context.i64_type().into()],
+//             false,
+//         );
+//         let va_procces = module.add_function("va_procces", va_procces_type, None);
+//
+//         let functions = Functions {
+//             exit,
+//             va_procces,
+//             printf,
+//             rand,
+//         };
+//         kind.set_body(
+//             &[
+//                 types.ty.as_basic_type_enum(),              //type
+//                 types.boolean.as_basic_type_enum(),         // bool
+//                 types.number.as_basic_type_enum(),          //number
+//                 types.string.as_basic_type_enum(),          // string
+//                 types.generic_pointer.as_basic_type_enum(), // cons (maybee turn it back to 3 elemement struct)
+//                 types.lambda.as_basic_type_enum(),          // function
+//                 types.symbol.as_basic_type_enum(),          // symbol
+//                 types.thunk_ty.as_basic_type_enum(),        // thunk
+//                 types.hempty.as_basic_type_enum(),          //hempty
+//                 types.generic_pointer.as_basic_type_enum(), // primitive function
+//             ],
+//             false,
+//         );
+//         Self {
+//             context,
+//             module,
+//             variables: vec![],
+//             builder,
+//             fpm,
+//             string: HashMap::new(),
+//             ident: HashMap::new(),
+//             fn_value: None,
+//             types,
+//             links: MultiMap::new(),
+//             functions,
+//             state: vec![],
+//             main: None,
+//             non_found_links: vec![],
+//             engine: Self::create_engine(module, ee_type),
+//             module_list: vec![],
+//         }
+//     }
+//
+//     // because we cannot have multiple engines per module
+//     fn create_engine(
+//         module: &'a Module<'ctx>,
+//         ee_type: &EngineType,
+//     ) -> Option<ExecutionEngine<'ctx>> {
+//         match ee_type {
+//             EngineType::Repl => Some(module.create_execution_engine().unwrap()),
+//             EngineType::Jit => Some(
+//                 module
+//                     // optimaztion break goto
+//                     .create_jit_execution_engine(inkwell::OptimizationLevel::None)
+//                     .unwrap(),
+//             ),
+//             EngineType::None => None,
+//         }
+//     }
+//
+//     pub(crate) fn build_n_select(
+//         &self,
+//         default: BasicValueEnum<'ctx>,
+//         choices: &[(IntValue<'ctx>, BasicValueEnum<'ctx>)],
+//     ) -> BasicValueEnum<'ctx> {
+//         choices.iter().fold(default, |prev, choice| {
+//             self.builder
+//                 .build_select(choice.0, choice.1, prev, "")
+//                 .unwrap()
+//         })
+//     }
+//
+//     #[inline]
+//     fn current_fn_value(&self) -> Result<FunctionValue<'ctx>, &str> {
+//         self.fn_value.ok_or("could not find current function")
+//     }
+//     // / Creates a new stack allocation instruction in the entry block of the function.
+//     fn create_entry_block_alloca<T>(&self, ty: T, name: &str) -> Result<PointerValue<'ctx>, &str>
+//     where
+//         T: BasicType<'ctx>,
+//     {
+//         // self.engine.unwrap().
+//         let old_block = self.builder.get_insert_block();
+//         let fn_value = self.current_fn_value()?;
+//         // if a function is already allocated it will have an entry block so its fine to unwrap
+//         let entry = fn_value.get_first_basic_block().unwrap();
+//
+//         entry.get_first_instruction().map_or_else(
+//             || self.builder.position_at_end(entry),
+//             |first_instr| self.builder.position_before(&first_instr),
+//         );
+//
+//         let build_alloca = self.builder.build_alloca(ty, name).unwrap();
+//         if let Some(bb) = old_block {
+//             self.builder.position_at_end(bb);
+//         }
+//         Ok(build_alloca)
+//     }
+//
+//     fn compile_expr(&mut self, expr: &Ast1) -> Result<Option<BasicValueEnum<'ctx>>, String> {
+//         match expr {
+//             Ast1::Number(value) => Ok(Some(self.const_number(*value).as_basic_value_enum())),
+//             Ast1::Bool(value) => Ok(Some(self.const_boolean(*value).as_basic_value_enum())),
+//             Ast1::String(value) => Ok(Some(self.const_string(value).as_basic_value_enum())),
+//             Ast1::Ident(s) => self.get_var(s).map(Some),
+//             Ast1::Application(application) => self.compile_application(application),
+//             Ast1::Label(s) => self.compile_label(s),
+//             Ast1::FnParam(s) => self.get_var(&s.to_string().into()).map(Some),
+//             // EverythingExpr::Hempty => Ok(Some(self.hempty().into())),
+//         }
+//     }
+//
+//     // the reason this is not in loop.rs is because it could be in functions.rs too.
+//     // maybe we should make control_flow.rs for stop, skip, and labels
+//
+//     // TODO: keep in mind the fact that the loop might be in outer function
+//     fn special_form_stop(
+//         &mut self,
+//         exprs: &[Ast1],
+//     ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
+//         if exprs.len() != 1 {
+//             Err("this is an expression oreinted language stopping a loop or function requires a value")?;
+//         }
+//         let res = return_none!(self.compile_expr(&exprs[0])?);
+//         match self
+//             .state
+//             .last()
+//             .ok_or("a stop is found outside a funcion or loop")?
+//         {
+//             EvalType::Function => {
+//                 self.builder.build_return(Some(&res));
+//             }
+//             EvalType::Loop {
+//                 loop_bb: _,
+//                 done_loop_bb,
+//                 connection,
+//             } => {
+//                 let cont_bb = self
+//                     .context
+//                     .append_basic_block(self.fn_value.unwrap(), "loop-continue");
+//                 self.builder.build_conditional_branch(
+//                     self.context.bool_type().const_zero(),
+//                     cont_bb,
+//                     *done_loop_bb,
+//                 );
+//                 connection.add_incoming(&[(&res, self.builder.get_insert_block().unwrap())]);
+//                 self.builder.position_at_end(cont_bb);
+//             }
+//         };
+//         Ok(None)
+//     }
+//
+//     fn special_form_mod(&mut self, exprs: &[Ast1]) -> Result<Option<BasicValueEnum<'ctx>>, String> {
+//         // we should probalby compile with root env as opposed to whatever env the compiler was in when it reached this mod
+//         // one way to do this is to keep a list of modules with thein envs including one for the root ...
+//         if exprs.is_empty() {
+//             Err("Mod requires either a name and scope")?;
+//         }
+//         let Ast1::Ident(module_name) = &exprs[0] else {
+//             return Err("Mod requires a module name as its first argument")?;
+//         };
+//         self.module_list.push(module_name.to_string());
+//         for expr in &exprs[1..] {
+//             // self.print_ir();
+//             self.compile_expr(expr)?;
+//         }
+//         self.module_list.pop();
+//         Ok(Some(self.hempty().into()))
+//     }
+//
+//     fn insert_variable_new_ptr(
+//         &mut self,
+//         i: &RC<str>,
+//         v: BasicValueEnum<'ctx>,
+//     ) -> Result<BasicValueEnum<'ctx>, String> {
+//         let ty = self.types.object;
+//         let ptr = self.create_entry_block_alloca(ty, i).unwrap();
+//         self.builder.build_store(ptr, v);
+//         self.insert_new_variable(i.clone(), ptr)?;
+//         Ok(self.types.boolean.const_zero().as_basic_value_enum())
+//     }
+//
+//     fn actual_value(&self, thunked: StructValue<'ctx>) -> StructValue<'ctx> {
+//         // needs entry /condin
+//         let current_fn = self.fn_value.unwrap();
+//         let current_bb = self.builder.get_insert_block().unwrap();
+//         let force = self.context.append_basic_block(current_fn, "force");
+//         let done_force = self.context.append_basic_block(current_fn, "done-force");
+//
+//         let ty = self.extract_type(thunked).unwrap().into_int_value();
+//         let cond = self
+//             .builder
+//             .build_int_compare(
+//                 inkwell::IntPredicate::EQ,
+//                 ty,
+//                 self.types.ty.const_int(TyprIndex::thunk as u64, false),
+//                 "is thunk",
+//             )
+//             .unwrap();
+//         self.builder
+//             .build_conditional_branch(cond, force, done_force)
+//             .unwrap();
+//         self.builder.position_at_end(force);
+//         let unthunked = self.extract_thunk(thunked).unwrap().into_struct_value();
+//         let thunked_fn = self
+//             .builder
+//             .build_extract_value(unthunked, 0, "thunk-fn")
+//             .unwrap();
+//         let unthunked_env = self
+//             .builder
+//             .build_extract_value(unthunked, 1, "thunk-env")
+//             .unwrap();
+//         let unthunked = self
+//             .builder
+//             .build_indirect_call(
+//                 self.types.thunk,
+//                 thunked_fn.into_pointer_value(),
+//                 &[unthunked_env.into()],
+//                 "unthunk",
+//             )
+//             .unwrap()
+//             .try_as_basic_value()
+//             .unwrap_left()
+//             .into_struct_value();
+//         self.builder.build_unconditional_branch(done_force);
+//         let force = self.builder.get_insert_block().unwrap();
+//         self.builder.position_at_end(done_force);
+//         // we dont need to reget the block for unthunking because we are only calling a function and nothing elsse that would make another block in between
+//         let object = self.builder.build_phi(self.types.object, "value").unwrap();
+//         object.add_incoming(&[(&thunked, current_bb), (&unthunked, force)]);
+//         object.as_basic_value().into_struct_value()
+//     }
+//
+//     pub fn compile_scope(&mut self, body: &[Ast1]) -> Result<Option<BasicValueEnum<'ctx>>, String> {
+//         let mut res = Err("scope does not have value".to_string());
+//         for expr in body {
+//             res = Ok(return_none!(self.compile_expr(expr)?));
+//         }
+//         res.map(Some)
+//     }
+//
+//     fn is_null(&self, pv: PointerValue<'ctx>) -> IntValue<'ctx> {
+//         self.builder.build_is_null(pv, "null check").unwrap()
+//     }
+//
+//     fn is_hempty(&self, arg: StructValue<'ctx>) -> IntValue<'ctx> {
+//         let arg_type = self.extract_type(arg).unwrap();
+//         self.builder
+//             .build_int_compare(
+//                 inkwell::IntPredicate::EQ,
+//                 arg_type.into_int_value(),
+//                 self.types.ty.const_int(TyprIndex::hempty as u64, false),
+//                 "is hempty",
+//             )
+//             .unwrap()
+//     }
+//
+//     fn init_special_forms(&mut self) {
+//         self.insert_special_form("if".into(), Self::special_form_if);
+//         self.insert_special_form("loop".into(), Self::special_form_loop);
+//         self.insert_special_form("for".into(), Self::special_form_for_loop);
+//         self.insert_special_form("while".into(), Self::special_form_while_loop);
+//         self.insert_special_form("lambda".into(), Self::special_form_lambda);
+//         self.insert_special_form("define".into(), Self::special_form_define);
+//         self.insert_special_form("quote".into(), Self::special_form_quote);
+//         self.insert_special_form("unquote".into(), Self::special_form_unquote);
+//         self.insert_special_form("quasiquote".into(), Self::special_form_quasiquote);
+//         self.insert_special_form("skip".into(), Self::special_form_skip);
+//         self.insert_special_form("stop".into(), Self::special_form_stop);
+//         self.insert_special_form("mod".into(), Self::special_form_mod);
+//         self.insert_special_form("begin".into(), Self::compile_scope);
+//         self.insert_special_form("set!".into(), Self::special_form_set);
+//     }
+//
+//     pub fn get_main(&mut self) -> (FunctionValue<'ctx>, BasicBlock<'ctx>) {
+//         if let Some((function, block)) = self.main {
+//             (function, block)
+//         } else {
+//             self.new_env();
+//             self.init_special_forms();
+//             self.init_stdlib();
+//             self.make_va_process();
+//             self.new_env();
+//             let main_fn_type = self.context.i32_type().fn_type(&[], false);
+//             let main_fn = self.module.add_function("main", main_fn_type, None);
+//             let main_block = self.context.append_basic_block(main_fn, "entry");
+//             let inner_main_fn_type = self.context.i32_type().fn_type(
+//                 &[
+//                     self.types.generic_pointer.into(),
+//                     self.types.call_info.into(),
+//                     self.types.generic_pointer.into(),
+//                 ],
+//                 false,
+//             );
+//             let inner_main_fn = self.module.add_function("main", inner_main_fn_type, None);
+//             self.builder.position_at_end(main_block);
+//             self.builder.build_return(Some(
+//                 &self
+//                     .builder
+//                     .build_call(
+//                         inner_main_fn,
+//                         &[
+//                             self.types.generic_pointer.const_null().into(),
+//                             self.types
+//                                 .call_info
+//                                 .const_named_struct(&[
+//                                     self.context.i64_type().const_zero().into(),
+//                                     self.types.generic_pointer.const_null().into(),
+//                                 ])
+//                                 .into(),
+//                             self.types.generic_pointer.const_null().into(),
+//                         ],
+//                         "main",
+//                     )
+//                     .unwrap()
+//                     .try_as_basic_value()
+//                     .unwrap_left(),
+//             ));
+//
+//             let main_block = self.context.append_basic_block(inner_main_fn, "entry");
+//             self.builder.position_at_end(main_block);
+//             let call_info = inner_main_fn.get_nth_param(1).unwrap().into_struct_value();
+//             let jmp_block = self
+//                 .builder
+//                 .build_extract_value(call_info, 1, "basic block address")
+//                 .unwrap()
+//                 .into_pointer_value();
+//             let jump_bb = self.context.append_basic_block(inner_main_fn, "not-jmp");
+//             let cont_bb = self
+//                 .context
+//                 .append_basic_block(inner_main_fn, "normal evaluation");
+//             let is_jmp = self
+//                 .builder
+//                 .build_int_compare(
+//                     inkwell::IntPredicate::NE,
+//                     jmp_block,
+//                     self.types.generic_pointer.const_null(),
+//                     "is null",
+//                 )
+//                 .unwrap();
+//             self.builder
+//                 .build_conditional_branch(is_jmp, jump_bb, cont_bb)
+//                 .unwrap();
+//             self.builder.position_at_end(jump_bb);
+//             self.builder.build_indirect_branch(jmp_block, &[]);
+//             self.builder.position_at_end(cont_bb);
+//             self.main = Some((inner_main_fn, cont_bb));
+//             (inner_main_fn, cont_bb)
+//         }
+//     }
+//
+//     pub fn resolve_links(&mut self) {
+//         self.non_found_links = std::mem::take(&mut self.non_found_links)
+//             .into_iter()
+//             .filter(|link| {
+//                 if let Some(Some(link_info)) = self.links.get(&link.0) {
+//                     // link.2 shouldnt be none b/c of place holder
+//                     if let Some(inst) = link.2 {
+//                         self.builder.position_at(link.1, &inst);
+//                     }
+//                     let call_info = self.types.call_info.const_named_struct(&[
+//                         self.context.i64_type().const_zero().into(),
+//                         link_info.0.into(),
+//                     ]);
+//
+//                     self.builder.build_call(
+//                         link_info.1,
+//                         &[
+//                             self.types.generic_pointer.const_null().into(),
+//                             call_info.into(),
+//                             self.types.generic_pointer.const_null().into(),
+//                         ],
+//                         "jump",
+//                     );
+//                     false
+//                 } else {
+//                     println!(
+//                         "Warning link {} not resolved bad behaviour may occur",
+//                         link.0
+//                     );
+//                     true
+//                 }
+//             })
+//             .collect();
+//     }
+//
+//     pub fn compile_program(
+//         &mut self,
+//         program: &[Ast1],
+//         links: HashMap<RC<str>, Vec<RC<str>>>,
+//     ) -> Option<String> {
+//         // TODO: dont reset links instead add to current (needed for repl to work)
+//         self.links = MultiMap::from(links.into_iter().map(|(k, ks)| {
+//             (
+//                 ks,
+//                 k,
+//                 <Option<(PointerValue<'ctx>, FunctionValue<'ctx>)>>::None,
+//             )
+//         }));
+//         let (main_fn, main_block) = self.get_main();
+//         self.fn_value = Some(main_fn);
+//
+//         self.builder.position_at_end(main_block);
+//         if let Some(term) = main_block.get_terminator() {
+//             term.erase_from_basic_block();
+//         }
+//
+//         for expr in program {
+//             match self.compile_expr(expr) {
+//                 Ok(_) => continue,
+//                 Err(e) => return Some(e),
+//             }
+//         }
+//         let insert_bb = self.builder.get_insert_block().unwrap();
+//         self.resolve_links();
+//         self.builder.position_at_end(insert_bb);
+//         self.builder
+//             .build_return(Some(&self.context.i32_type().const_zero()));
+//         self.main = Some((main_fn, self.builder.get_insert_block().unwrap()));
+//
+//         let verify = main_fn.verify(true);
+//
+//         if verify {
+//             self.fpm.run_on(&main_fn);
+//             let fpm = PassManager::create(());
+//             // TODO: more optimizations
+//             fpm.add_function_inlining_pass();
+//             fpm.add_merge_functions_pass();
+//             fpm.add_global_dce_pass();
+//             fpm.add_ipsccp_pass();
+//             // makes hard to debug llvm ir
+//             // fpm.add_strip_symbol_pass();
+//             fpm.add_constant_merge_pass();
+//
+//             fpm.add_new_gvn_pass();
+//             fpm.add_instruction_combining_pass();
+//             fpm.add_reassociate_pass();
+//             fpm.add_gvn_pass();
+//             fpm.add_basic_alias_analysis_pass();
+//             fpm.add_promote_memory_to_register_pass();
+//             fpm.add_aggressive_inst_combiner_pass();
+//             // // doesn't work with current goto implementation
+//             // // fpm.add_cfg_simplification_pass();
+//             fpm.add_aggressive_dce_pass();
+//             fpm.add_instruction_simplify_pass();
+//             fpm.add_function_inlining_pass();
+//             fpm.add_strip_dead_prototypes_pass();
+//
+//             fpm.run_on(self.module);
+//             None
+//         } else {
+//             println!("error occurred");
+//             self.print_ir();
+//             unsafe {
+//                 main_fn.delete();
+//             }
+//
+//             Some("Invalid generated function.".to_string())
+//         }
+//     }
+//
+//     pub fn print_ir(&self) {
+//         self.module.print_to_stderr();
+//     }
+//     pub fn run(&self) -> Option<i32> {
+//         unsafe {
+//             self.engine.as_ref().map(|engine| {
+//                 // still need better soloution for only executing only need code inr repl
+//                 // remove module from ee so we can reuse
+//                 engine.remove_module(self.module).unwrap();
+//                 // add module back to ee
+//                 engine.add_module(self.module).unwrap();
+//                 engine.run_function_as_main(self.module.get_function("main").unwrap(), &[])
+//             })
+//         }
+//     }
+//
+//     pub fn exit(&self, reason: &str, code: i32) {
+//         self.builder.build_call(
+//             self.functions.printf,
+//             &[self
+//                 .builder
+//                 .build_global_string_ptr(reason, "error exit")
+//                 .unwrap()
+//                 .as_basic_value_enum()
+//                 .into()],
+//             "print",
+//         );
+//         self.builder.build_call(
+//             self.functions.exit,
+//             &[self.context.i32_type().const_int(code as u64, false).into()],
+//             "exit",
+//         );
+//
+//         self.builder.build_unreachable();
+//     }
+// }

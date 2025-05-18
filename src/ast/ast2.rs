@@ -1,4 +1,4 @@
-use crate::interior_mut::RC;
+use std::rc::Rc;
 
 use super::{ast1::Label, Ast, ModuleType, Param};
 
@@ -8,20 +8,20 @@ pub enum Ast2 {
 
     // special forms
     If(Box<Ast2>, Box<Ast2>, Box<Ast2>),
-    DefineValues(Vec<RC<str>>, Box<Ast2>),
-    LetValues(Vec<(Vec<RC<str>>, Ast2)>, Box<Ast2>),
-    LetRecValues(Vec<(Vec<RC<str>>, Ast2)>, Box<Ast2>),
+    DefineValues(Vec<Rc<str>>, Box<Ast2>),
+    LetValues(Vec<(Vec<Rc<str>>, Ast2)>, Box<Ast2>),
+    LetRecValues(Vec<(Vec<Rc<str>>, Ast2)>, Box<Ast2>),
     Lambda(Param, Box<Ast2>),
     Application(Box<Ast2>, Vec<Ast2>),
     Expression(Box<Ast2>),
     Begin(Vec<Ast2>),
     Begin0(Vec<Ast2>),
-    Set(RC<str>, Box<Ast2>),
+    Set(Rc<str>, Box<Ast2>),
     Quote(Ast),
     Stop(Option<Box<Ast2>>),
     Skip,
     Loop(Box<Ast2>),
-    Module(RC<str>, ModuleType),
+    Module(Rc<str>, ModuleType),
     Goto(Label),
 }
 // replaces labels with gotos
