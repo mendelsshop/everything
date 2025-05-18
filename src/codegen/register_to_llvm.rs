@@ -6,7 +6,7 @@ use inkwell::{
     passes::PassManager,
     types::{BasicType, FunctionType, IntType, PointerType, StructType},
     values::{
-        AggregateValue, BasicValue, BasicValueEnum, FunctionValue, IntValue, PhiValue,
+        AggregateValue, AnyValue, BasicValue, BasicValueEnum, FunctionValue, IntValue, PhiValue,
         PointerValue, StructValue,
     },
     AddressSpace, FloatPredicate, IntPredicate,
@@ -15,9 +15,9 @@ use inkwell::{module::Linkage, types::BasicTypeEnum};
 use itertools::Itertools;
 use std::{collections::HashMap, iter};
 
-use crate::ast::{ONE_VARIADIAC_ARG, ZERO_VARIADIAC_ARG};
+use crate::ast::{Ast, Pair, ONE_VARIADIAC_ARG, ZERO_VARIADIAC_ARG};
 
-use super::sicp::{Const, Expr, Goto, Instruction, Operation, Perform, Register};
+use super::sicp::{Expr, Goto, Instruction, Operation, Perform, Register};
 
 macro_rules! fixed_map {
     (@inner $(#[$attrs:meta])* $struct:ident, <$($gen:tt),*>, $type:ty, $index:ty {$($fields:ident)*} fn $new:ident($($param:ident: $param_type:ty),*) -> $ret:ty $new_block:block) => {
@@ -30,7 +30,7 @@ macro_rules! fixed_map {
 
         impl <$($gen),*> $struct<$($gen),*> {
             pub fn $new($($param: $param_type),*) -> $ret $new_block
-            pub const fn get(&self, index: $index) -> $type {
+            pub  fn get(&self, index: $index) -> $type {
                 match index {
                     $(
                         <$index>::$fields => self.$fields,
@@ -333,7 +333,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
             small_number,
             types: TypeMap::new(
                 context.struct_type(&[], false).into(),
-                context.bool_type().into(),
+                context.i8_type().into(),
                 context.f64_type().into(),
                 string.into(),
                 string.into(),
@@ -1128,9 +1128,58 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                 "get bool value",
             )
             .unwrap();
+        let is_maybe = self
+            .builder
+            .build_int_compare(
+                IntPredicate::EQ,
+                value.into_int_value(),
+                self.types
+                    .types
+                    .get(TypeIndex::bool)
+                    .into_int_type()
+                    .const_int(2, false),
+                "is maybe",
+            )
+            .unwrap();
+        let maybe = self.context.append_basic_block(self.current, "maybe");
+        let not_maybe = self.context.append_basic_block(self.current, "not maybe");
+        let done = self.context.append_basic_block(self.current, "done");
+        self.builder.position_at_end(done);
+        let phi = self
+            .builder
+            .build_phi(self.module.get_context().bool_type(), "resuls")
+            .unwrap();
         self.builder
-            .build_or(is_not_bool, value.into_int_value(), "non bool or true")
+            .build_conditional_branch(is_maybe, maybe, not_maybe)
+            .unwrap();
+        self.builder.position_at_end(maybe);
+        let bool = self
+            .builder
+            .build_call(self.functions.rand, &[], "random bool")
             .unwrap()
+            .try_as_basic_value()
+            .unwrap_left();
+        let bool = self
+            .builder
+            .build_int_signed_rem(
+                bool.into_int_value(),
+                self.context.i32_type().const_int(2, false),
+                "truncate to bool",
+            )
+            .unwrap();
+        phi.add_incoming(&[(&bool, maybe)]);
+        self.builder.position_at_end(not_maybe);
+
+        phi.add_incoming(&[(
+            &self
+                .builder
+                .build_or(is_not_bool, value.into_int_value(), "non bool or true")
+                .unwrap(),
+            not_maybe,
+        )]);
+        self.builder.build_unconditional_branch(done);
+        self.builder.position_at_end(done);
+        phi.as_any_value_enum().into_int_value()
     }
 
     fn compile_instructions(&mut self, instruction: Instruction) {
@@ -1562,24 +1611,24 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                     .unwrap();
                 self.make_object(&boolean, TypeIndex::bool)
             }
-            Operation::RandomBool => {
-                let bool = self
-                    .builder
-                    .build_call(self.functions.rand, &[], "random bool")
-                    .unwrap()
-                    .try_as_basic_value()
-                    .unwrap_left();
-                let bool = self
-                    .builder
-                    .build_int_signed_rem(
-                        bool.into_int_value(),
-                        self.context.i32_type().const_int(2, false),
-                        "truncate to bool",
-                    )
-                    .unwrap();
-
-                self.make_object(&bool, TypeIndex::bool)
-            }
+            // Operation::RandomBool => {
+            //     let bool = self
+            //         .builder
+            //         .build_call(self.functions.rand, &[], "random bool")
+            //         .unwrap()
+            //         .try_as_basic_value()
+            //         .unwrap_left();
+            //     let bool = self
+            //         .builder
+            //         .build_int_signed_rem(
+            //             bool.into_int_value(),
+            //             self.context.i32_type().const_int(2, false),
+            //             "truncate to bool",
+            //         )
+            //         .unwrap();
+            //
+            //     self.make_object(&bool, TypeIndex::bool)
+            // }
             Operation::MakeCompiledProcedure => {
                 let compiled_procedure_string = self.create_symbol("compiled-procedure");
                 let compiled_procedure_string =
@@ -1915,33 +1964,38 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
         obj.into_struct_value()
     }
 
-    fn compile_const(&mut self, constant: Const) -> StructValue<'ctx> {
+    fn compile_const(&mut self, constant: Ast) -> StructValue<'ctx> {
         match constant {
-            Const::Empty => self.empty(),
-            Const::String(s) => self.create_string(&s),
-            Const::Symbol(s) => self.create_symbol(&s), // TODO: intern the symbol
-            Const::Number(n) => {
+            Ast::TheEmptyList => self.empty(),
+            Ast::String(s) => self.create_string(&s),
+            Ast::Symbol(s) => self.create_symbol(&s.0),
+            Ast::Number(n) => {
                 let number = self.context.f64_type().const_float(n);
                 self.make_object(&number, TypeIndex::number)
             }
-            Const::Boolean(b) => {
+            Ast::Boolean(b) => {
                 let boolean = self.context.bool_type().const_int(u64::from(b), false);
                 self.make_object(&boolean, TypeIndex::bool)
             }
-            Const::List(car, cdr) => {
+            Ast::Pair(pair) => {
+                let Pair(car, cdr) = *pair;
                 let cons: StructValue<'_> = self.types.cons.const_zero();
                 let mut compile_and_add = |expr, name, cons, index| {
-                    let expr_compiled = self.compile_expr(expr);
+                    let expr_compiled = self.compile_const(expr);
                     let expr = self.builder.build_malloc(self.types.object, name).unwrap();
                     self.builder.build_store(expr, expr_compiled).unwrap();
                     self.builder
                         .build_insert_value(cons, expr, index, &format!("insert {name}"))
                         .unwrap()
                 };
-                let cons = compile_and_add(*car, "car", cons.as_aggregate_value_enum(), 0);
-                let cons = compile_and_add(*cdr, "cdr", cons, 1);
+                let cons = compile_and_add(car, "car", cons.as_aggregate_value_enum(), 0);
+                let cons = compile_and_add(cdr, "cdr", cons, 1);
                 self.make_object(&cons, TypeIndex::cons)
             }
+            Ast::Syntax(syntax) => todo!(),
+            Ast::Function(function) => unreachable!(),
+            // maybe unreachable
+            Ast::Label(_) => todo!(),
         }
     }
 
