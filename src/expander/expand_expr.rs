@@ -207,11 +207,10 @@ impl Expander {
         self.add_core_form("link".into(), Self::core_form_link);
         self.add_core_form("if".into(), Self::core_form_if);
         //self.add_core_form("define".into(), Self::core_form_define);
-        self.add_core_form("loop".into(), |_, _, _| todo!());
         self.add_core_form("set!".into(), Self::core_form_set);
+        self.add_core_form("loop".into(), |_, _, _| todo!());
         self.add_core_form("stop".into(), |_, _, _| todo!());
         self.add_core_form("skip".into(), |_, _, _| todo!());
-        self.add_core_form("begin".into(), Self::core_form_begin);
         // TODO: will we need begin
     }
     fn get_syntax(s: Ast) -> Option<Syntax<Ast>> {
