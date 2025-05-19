@@ -243,7 +243,7 @@ pub fn compile(
     match exp {
         Ast2::Basic(Ast::Symbol(i)) => compile_variable(i, target, linkage),
         Ast2::Application(f, a) => {
-            let compile_application = compile_application(a, target, linkage, lambda_linkage);
+            let compile_application = compile_application(*f, a, target, linkage, lambda_linkage);
             // eprintln!("{compile_application:#?}");
             compile_application
         }
@@ -856,6 +856,7 @@ pub trait MapWithSelfExt: Iterator {
 impl<I: Iterator> MapWithSelfExt for I {}
 
 fn compile_application(
+    f: Ast2,
     exp: Vec<Ast2>,
     target: Register,
     linkage: Linkage,
@@ -868,21 +869,21 @@ fn compile_application(
     );
     info!("generating ir for applications' function");
     let proc_code = force_it(
-        exp[0].clone(),
+        f.clone(),
         Register::Proc,
         Linkage::Next,
         lambda_linkage.clone(),
     );
     #[cfg(not(feature = "lazy"))]
     let proc_code = compile(
-        exp[0].clone(),
+        f.clone(),
         Register::Proc,
         Linkage::Next,
         lambda_linkage.clone(),
     );
     // TODO: make it non strict by essentially turning each argument into zero parameter function and then when we need to unthunk the parameter we just call the function with the env
     let operand_codes_primitive = {
-        exp[1..].iter().map(|exp| {
+        exp.iter().map(|exp| {
             force_it(
                 exp.clone(),
                 Register::Val,
@@ -902,7 +903,7 @@ fn compile_application(
     };
     #[cfg(feature = "lazy")]
     let operand_codes_compiled = {
-        exp[1..].iter().map(|exp| {
+        exp.iter().map(|exp| {
             delay_it(
                 exp.clone(),
                 Register::Val,
@@ -927,7 +928,7 @@ fn compile_application(
         .fold(
             proc_code,
             |proc, (i, ((primitive_args, compiled_args), arg))| {
-                let (comiled_linkage, target_compiled) = if i == exp.len() - 2 {
+                let (comiled_linkage, target_compiled) = if i == exp.len() - 1 {
                     // eprintln!("last arg {:?}", arg);
                     (linkage.clone(), target)
                 } else {

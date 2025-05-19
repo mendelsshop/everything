@@ -29,7 +29,7 @@ mod impl_transformer {
     use crate::{
         ast::{
             ast1::{Ast1, Label},
-            Ast, AstTransformFrom, IteratorTransformer,
+            map_box, Ast, AstTransformFrom, Function, IteratorTransformer, Pair,
         },
         multimap::MultiMap,
     };
@@ -67,7 +67,7 @@ mod impl_transformer {
                         Err(format!("Label {l} invalid"))
                     }
                 }
-                Ast1::Basic(b) => Ok((Self::Basic(b), state)),
+                Ast1::Basic(b) => convert_basic(b).map(|b| (Ast2::Basic(b), state)),
                 Ast1::If(cond, then, alt) => {
                     let (cond, state) = pass2_box(cond, state)?;
                     let (then, state) = pass2_box(then, state)?;
@@ -124,6 +124,28 @@ mod impl_transformer {
                 }
                 Ast1::Skip => Ok((Self::Skip, state)),
             }
+        }
+    }
+
+    fn convert_basic(b: Ast) -> Result<Ast, String> {
+        match b {
+            Ast::Pair(p) => {
+                let a = convert_basic(p.0)?;
+                let b = convert_basic(p.1)?;
+                Ok(Ast::Pair(Box::new(Pair(a, b))))
+            }
+            Ast::Symbol(_)
+            | Ast::Label(_)
+            | Ast::Boolean(_)
+            | Ast::TheEmptyList
+            | Ast::String(_)
+            | Ast::Number(_) => Ok(b),
+            Ast::Syntax(mut syntax) => {
+                let a = convert_basic(syntax.0.take())?;
+                Ok(Ast::Syntax(Box::new(syntax.with(a))))
+            }
+            Ast::Function(Function::Primitive(p)) => Ok(p.name.into()),
+            Ast::Function(Function::Lambda(_)) => unreachable!(),
         }
     }
 }

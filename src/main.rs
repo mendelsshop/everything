@@ -17,12 +17,17 @@ use std::{
 };
 
 use ast::{ast2::Ast2, scope::Scope, Ast, AstTransformFrom, Symbol};
+use codegen::{
+    register_to_llvm::CodeGen,
+    sicp::{self, Linkage, Register},
+};
 use expander::{expand_context::ExpandContext, Expander};
 //use codegen::{
 //    register_to_llvm::CodeGen,
 //    sicp::{Linkage, Register},
 //};
-use inkwell::passes::PassManager;
+use inkwell::{context::Context, passes::PassManager};
+use itertools::Itertools;
 use multimap::MultiMap;
 use simple_file_logger::LogLevel;
 
@@ -143,24 +148,35 @@ fn compile(file: &str, out: &str) {
     let ns = expander.namespace();
     let ctx = ExpandContext::new(ns.clone());
     for ele in lexer::everything_parse(&contents).unwrap() {
-        println!("new ele");
-        println!("{ele}");
+        eprintln!("new ele");
+        eprintln!("{ele}");
         let ele = expander.namespace_syntax_introduce(ele.datum_to_syntax(None, None, None));
         let ele = expander.expand(ele, ctx.clone()).unwrap();
-        println!("done expanding");
-        println!("{ele}");
+        eprintln!("done expanding");
+        eprintln!("{ele}");
         let ele = expander.compile(ele, &ns).unwrap();
-        println!("done compiling");
-        println!("{ele}");
-        let ele_val = expander.run_time_eval(ele.clone()).unwrap();
-        println!("done evaluation");
-        println!("{ele_val}");
+        eprintln!("done compiling");
+        eprintln!("{ele}");
+        // let ele_val = expander.run_time_eval(ele.clone()).unwrap();
+        // eprintln!("done evaluation");
+        // eprintln!("{ele_val}");
         let links = MultiMap::from(
             mem::take(&mut expander.links)
                 .into_iter()
                 .map(|(k, ks)| (ks, k.clone(), k)),
         );
         let (ele, _) = Ast2::transform(ele, links).unwrap();
+        let ele = sicp::compile(ele, Register::Val, Linkage::Next, Linkage::Next)
+            .instructions()
+            .to_vec();
+        eprintln!("{}", ele.iter().map(ToString::to_string).join("\n"));
+        let context = Context::create();
+        let module = context.create_module(file);
+        let builder = context.create_builder();
+        let fpm = init_function_optimizer(&module);
+        let mut codegen = CodeGen::new(&context, &builder, &module, &fpm);
+        codegen.compile(ele);
+        println!("\n{}", codegen.export_ir());
     }
     // let program = parse_and_expand(&contents).unwrap();
     //let links = MultiMap::from(program.1.into_iter().map(|(k, ks)| (ks, k.clone(), k)));

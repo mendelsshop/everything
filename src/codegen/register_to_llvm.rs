@@ -436,9 +436,18 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                         .build_global_string_ptr("false", "false")
                         .unwrap()
                         .as_pointer_value();
+                    let condition = this
+                        .builder
+                        .build_int_compare(
+                            IntPredicate::EQ,
+                            value.into_int_value(),
+                            this.types.types.bool.into_int_type().const_int(1, false),
+                            "is true",
+                        )
+                        .unwrap();
                     let value = this
                         .builder
-                        .build_select(value.into_int_value(), true_str, false_str, "bool value")
+                        .build_select(condition, true_str, false_str, "bool value")
                         .unwrap();
                     this.builder
                         .build_call(this.functions.printf, &[value.into()], "printf debug")
@@ -613,12 +622,14 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                     }
                     {
                         this.builder.position_at_end(bool_bb);
+                        // TODO: should random bools be equal
                         let b1 = this.unchecked_get_bool(e1).into_int_value();
                         let b2 = this.unchecked_get_bool(e2).into_int_value();
-                        let same = this
-                            .builder
-                            .build_int_compare(IntPredicate::EQ, b1, b2, "bool compare")
-                            .unwrap();
+                        let same = this.extend_from_native_bool(
+                            this.builder
+                                .build_int_compare(IntPredicate::EQ, b1, b2, "bool compare")
+                                .unwrap(),
+                        );
 
                         this.builder.build_return(Some(&same)).unwrap();
                     }
@@ -626,10 +637,11 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                         this.builder.position_at_end(number_bb);
                         let b1 = this.unchecked_get_number(e1).into_float_value();
                         let b2 = this.unchecked_get_number(e2).into_float_value();
-                        let equal = this
-                            .builder
-                            .build_float_compare(FloatPredicate::OEQ, b1, b2, "number compare")
-                            .unwrap();
+                        let equal = this.extend_from_native_bool(
+                            this.builder
+                                .build_float_compare(FloatPredicate::OEQ, b1, b2, "number compare")
+                                .unwrap(),
+                        );
                         // this.make_printf(
                         //     "\n%.2f = %.2f: %s\n",
                         //     vec![
@@ -654,20 +666,23 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                     {
                         this.builder.position_at_end(string_bb);
 
-                        this.builder.build_return(Some(&this.compare_str(
-                            Self::unchecked_get_string,
-                            e1,
-                            e2,
-                        )));
+                        this.builder
+                            .build_return(Some(&this.extend_from_native_bool(this.compare_str(
+                                Self::unchecked_get_string,
+                                e1,
+                                e2,
+                            ))));
                     }
                     {
                         this.builder.position_at_end(symbol_bb);
 
-                        this.builder.build_return(Some(&this.compare_str(
-                            Self::unchecked_get_symbol,
-                            e1,
-                            e2,
-                        )));
+                        this.builder.build_return(Some(
+                            &(this.extend_from_native_bool(this.compare_str(
+                                Self::unchecked_get_symbol,
+                                e1,
+                                e2,
+                            ))),
+                        ));
                     }
                     {
                         this.builder.position_at_end(cons_bb);
@@ -1144,13 +1159,13 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
         let maybe = self.context.append_basic_block(self.current, "maybe");
         let not_maybe = self.context.append_basic_block(self.current, "not maybe");
         let done = self.context.append_basic_block(self.current, "done");
+        self.builder
+            .build_conditional_branch(is_maybe, maybe, not_maybe)
+            .unwrap();
         self.builder.position_at_end(done);
         let phi = self
             .builder
             .build_phi(self.module.get_context().bool_type(), "resuls")
-            .unwrap();
-        self.builder
-            .build_conditional_branch(is_maybe, maybe, not_maybe)
             .unwrap();
         self.builder.position_at_end(maybe);
         let bool = self
@@ -1167,13 +1182,26 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                 "truncate to bool",
             )
             .unwrap();
+        let bool = self
+            .builder
+            .build_int_truncate(bool, self.module.get_context().bool_type(), "to bool")
+            .unwrap();
         phi.add_incoming(&[(&bool, maybe)]);
+        self.builder.build_unconditional_branch(done);
         self.builder.position_at_end(not_maybe);
 
+        let rhs = self
+            .builder
+            .build_int_truncate(
+                value.into_int_value(),
+                self.module.get_context().bool_type(),
+                "to bool",
+            )
+            .unwrap();
         phi.add_incoming(&[(
             &self
                 .builder
-                .build_or(is_not_bool, value.into_int_value(), "non bool or true")
+                .build_or(is_not_bool, rhs, "non bool or true")
                 .unwrap(),
             not_maybe,
         )]);
@@ -1493,12 +1521,16 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
             )
             .unwrap();
         self.builder
-            .build_and(
+            .build_and(str_len_matches, is_same, "eq?")
+            .unwrap()
+    }
+
+    fn extend_from_native_bool(&self, str_len_matches: IntValue<'ctx>) -> IntValue<'ctx> {
+        self.builder
+            .build_int_z_extend(
                 str_len_matches,
-                self.builder
-                    .build_int_cast(is_same, self.context.bool_type(), "")
-                    .unwrap(),
-                "eq?",
+                self.types.types.bool.into_int_type(),
+                "to bool",
             )
             .unwrap()
     }
