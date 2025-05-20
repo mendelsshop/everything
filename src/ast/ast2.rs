@@ -28,7 +28,8 @@ pub enum Ast2 {
 mod impl_transformer {
     use crate::{
         ast::{
-            ast1::{Ast1, Label}, Ast, AstTransformFrom, Function, IteratorTransformer, Pair,
+            ast1::{Ast1, Label},
+            Ast, AstTransformFrom, Function, IteratorTransformer, Pair,
         },
         multimap::MultiMap,
     };

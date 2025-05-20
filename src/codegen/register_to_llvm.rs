@@ -912,11 +912,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
             let continue_reg = self.registers.get(Register::Continue);
             let register = self
                 .builder
-                .build_load(
-                    self.types.object,
-                    continue_reg,
-                    "load register continue",
-                )
+                .build_load(self.types.object, continue_reg, "load register continue")
                 .unwrap();
             let label = self
                 .unchecked_get_label(register.into_struct_value())

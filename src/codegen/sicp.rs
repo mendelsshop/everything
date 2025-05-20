@@ -238,7 +238,6 @@ pub fn compile(exp: Ast2, target: Register, linkage: Linkage) -> InstructionSequ
     match exp {
         Ast2::Basic(Ast::Symbol(i)) => compile_variable(i, target, linkage),
         Ast2::Application(f, a) => {
-            
             // eprintln!("{compile_application:#?}");
             compile_application(*f, a, target, linkage)
         }

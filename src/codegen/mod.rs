@@ -8,10 +8,7 @@ use inkwell::{
     module::Module,
     passes::PassManager,
     types::{FloatType, FunctionType, IntType, PointerType, StructType},
-    values::{
-        FunctionValue, GlobalValue, InstructionValue,
-        PhiValue, PointerValue,
-    },
+    values::{FunctionValue, GlobalValue, InstructionValue, PhiValue, PointerValue},
 };
 
 use crate::{interior_mut::RC, multimap::MultiMap};
