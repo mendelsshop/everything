@@ -754,7 +754,81 @@ fn compile_lambda_body(lambda: (Param, Ast2), proc_entry: String) -> Instruction
         compile(lambda.1, Register::Val, Linkage::Return),
     )
 }
+// map with self is used compiling applications:
+// because when we compiling applications we do not know if we have to fully apply
+// or not if we have to fully apply then we want whatever is left (the self part) (this is for
+// variadic and primitives now)
+// otherwise in standard application (and maybe eventually primitives that are non variadic) we
+// just need the current element like a normal iterator
+use std::iter::FusedIterator;
 
+#[derive(Clone)]
+pub struct MapWithSelf<I, F> {
+    iter: I,
+    f: F,
+}
+
+impl<I: fmt::Debug, F> fmt::Debug for MapWithSelf<I, F> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MapWithSelf")
+            .field("iter", &self.iter)
+            .finish()
+    }
+}
+
+impl<B, I: Iterator + Clone, F> Iterator for MapWithSelf<I, F>
+where
+    F: FnMut(I, I::Item) -> B,
+{
+    type Item = B;
+
+    #[inline]
+    fn next(&mut self) -> Option<B> {
+        let this = self.iter.clone();
+        self.iter.next().map(|n| (self.f)(this, n))
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.iter.size_hint()
+    }
+}
+
+impl<B, I: DoubleEndedIterator + Clone, F> DoubleEndedIterator for MapWithSelf<I, F>
+where
+    F: FnMut(I, I::Item) -> B,
+{
+    #[inline]
+    fn next_back(&mut self) -> Option<B> {
+        let this = self.iter.clone();
+        self.iter.next_back().map(|n| (self.f)(this, n))
+    }
+}
+
+impl<B, I: ExactSizeIterator + Clone, F> ExactSizeIterator for MapWithSelf<I, F>
+where
+    F: FnMut(I, I::Item) -> B,
+{
+    fn len(&self) -> usize {
+        self.iter.len()
+    }
+}
+
+impl<B, I: FusedIterator + Clone, F> FusedIterator for MapWithSelf<I, F> where
+    F: FnMut(I, I::Item) -> B
+{
+}
+
+pub trait MapWithSelfExt: Iterator {
+    fn map_with_self<F, B>(self, f: F) -> MapWithSelf<Self, F>
+    where
+        Self: Sized,
+        F: FnMut(Self, Self::Item) -> B,
+    {
+        MapWithSelf { iter: self, f }
+    }
+}
+impl<I: Iterator> MapWithSelfExt for I {}
 #[cfg(not(feature = "lazy"))]
 fn compile_application(
     f: Ast2,
@@ -766,28 +840,32 @@ fn compile_application(
     let arg_count = exp.len();
     let operand_codes = exp.clone().into_iter();
 
-    operand_codes.enumerate().fold(proc_code, |proc, (i, arg)| {
-        let (compiled_linkage, target_compiled) = if i + 1 == arg_count {
-            (linkage.clone(), target)
-        } else {
-            (Linkage::Next, Register::Proc)
-        };
-        preserving(
-            hashset!(Register::Continue, Register::Env),
-            // hashset!(Register::Proc, Register::Continue),
-            proc,
-            compile_procedure_call(
-                target,
-                linkage.clone(),
-                target_compiled,
-                compiled_linkage,
-                arg,
-                exp.clone().into_iter(),
-                |e| compile(e, Register::Val, Linkage::Next),
-            ),
-        )
-    })
+    operand_codes
+        .map_with_self(|this, rest| (this, rest))
+        .enumerate()
+        .fold(proc_code, |proc, (i, (args, arg))| {
+            let (compiled_linkage, target_compiled) = if i + 1 == arg_count {
+                (linkage.clone(), target)
+            } else {
+                (Linkage::Next, Register::Proc)
+            };
+            preserving(
+                hashset!(Register::Continue, Register::Env),
+                // hashset!(Register::Proc, Register::Continue),
+                proc,
+                compile_procedure_call(
+                    target,
+                    linkage.clone(),
+                    target_compiled,
+                    compiled_linkage,
+                    arg,
+                    args,
+                    |e| compile(e, Register::Val, Linkage::Next),
+                ),
+            )
+        })
 }
+
 #[cfg(feature = "lazy")]
 fn compile_application(
     f: Ast2,
@@ -805,31 +883,34 @@ fn compile_application(
 
     let len = exp.len();
     // TODO: make it non strict by essentially turning each argument into zero parameter function and then when we need to unthunk the parameter we just call the function with the env
-    let operands = exp.clone().into_iter();
+    let operands = exp.into_iter();
 
-    operands.enumerate().fold(proc_code, |proc, (i, arg)| {
-        let (comiled_linkage, target_compiled) = if i + 1 == len {
-            // eprintln!("last arg {:?}", arg);
-            (linkage.clone(), target)
-        } else {
-            (Linkage::Next, Register::Proc)
-        };
-        preserving(
-            hashset!(Register::Continue, Register::Env),
-            // hashset!(Register::Proc, Register::Continue),
-            proc,
-            compile_procedure_call(
-                target,
-                linkage.clone(),
-                exp.clone().into_iter(),
-                arg,
-                target_compiled,
-                comiled_linkage,
-                |e| force_it(e, Register::Val, Linkage::Next),
-                |e| delay_it(e, Register::Val, Linkage::Next),
-            ),
-        )
-    })
+    operands
+        .map_with_self(|this, rest| (this, rest))
+        .enumerate()
+        .fold(proc_code, |proc, (i, (args, arg))| {
+            let (comiled_linkage, target_compiled) = if i + 1 == len {
+                // eprintln!("last arg {:?}", arg);
+                (linkage.clone(), target)
+            } else {
+                (Linkage::Next, Register::Proc)
+            };
+            preserving(
+                hashset!(Register::Continue, Register::Env),
+                // hashset!(Register::Proc, Register::Continue),
+                proc,
+                compile_procedure_call(
+                    target,
+                    linkage.clone(),
+                    args,
+                    arg,
+                    target_compiled,
+                    comiled_linkage,
+                    |e| force_it(e, Register::Val, Linkage::Next),
+                    |e| delay_it(e, Register::Val, Linkage::Next),
+                ),
+            )
+        })
     // preserving(
     //     hashset!(Register::Continue, Register::Env),
     //     // hashset!(Register::Proc, Register::Continue),
@@ -859,7 +940,6 @@ const fn make_intsruction_sequnce(
 fn compile_procedure_call(
     target: Register,
     linkage: Linkage,
-
     intermediary_target: Register,
     intermediary_linkage: Linkage,
     intermediary_arg: Ast2,
@@ -1444,7 +1524,7 @@ fn construct_arg_list(
     operand_codes
         // .map(delay_it)
         .map(add_to_argl)
-        .rev()
+        // .rev()
         .fold(
             InstructionSequnce::new(
                 hashset!(),
