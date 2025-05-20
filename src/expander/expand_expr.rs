@@ -209,10 +209,12 @@ impl Expander {
         //self.add_core_form("define".into(), Self::core_form_define);
         self.add_core_form("set!".into(), Self::core_form_set);
         self.add_core_form("loop".into(), |_, _, _| todo!());
-        self.add_core_form("stop".into(), |_, _, _| todo!());
+
+        self.add_core_form("stop".into(), Self::core_form_stop);
         self.add_core_form("skip".into(), |_, _, _| todo!());
         // TODO: will we need begin
     }
+
     fn get_syntax(s: Ast) -> Option<Syntax<Ast>> {
         if let Ast::Syntax(s) = s {
             Some(*s)
@@ -520,6 +522,19 @@ impl Expander {
     }
     fn core_form_begin0(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, Error> {
         self.make_begin(s, ctx)
+    }
+    fn core_form_stop(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, Error> {
+        match_syntax!((stop))(s.clone())
+            .map(|_| s.clone())
+            .map_err(|e| e.into())
+            .or_else(|_: Error| {
+                match_syntax!((stop expr))(s.clone())
+                    .map_err(|e| e.into())
+                    .and_then(|m| {
+                        self.expand(m.expr, ctx)
+                            .map(|e| rebuild(s, sexpr!((#(m.stop) #(e)))))
+                    })
+            })
     }
     fn core_form_set(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, Error> {
         // TODO: let m = matcher::match_syntax!( (set! id rhs))(s.clone(),)?;

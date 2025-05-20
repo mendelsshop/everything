@@ -152,7 +152,16 @@ impl Expander {
                         ))
                     }
                     "module" => todo!(),
-                    "stop" => todo!(),
+                    "stop" => match_syntax!((stop))(s.clone())
+                        .map(|_| Ast1::Stop(None))
+                        .map_err(|e| e.into())
+                        .or_else(|_: Error| {
+                            match_syntax!((stop expr))(s)
+                                .map_err(|e| e.into())
+                                .and_then(|m| {
+                                    compile(m.expr).map(Box::new).map(Some).map(Ast1::Stop)
+                                })
+                        }),
                     "skip" => todo!(),
                     "loop" => todo!(),
                     _ => Err(format!("unrecognized core form {core_sym}").into()),
