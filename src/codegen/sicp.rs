@@ -56,6 +56,7 @@ pub enum Register {
     Val,
     Proc,
     Continue,
+    Values,
     Thunk,
 }
 
@@ -91,6 +92,7 @@ impl fmt::Display for Register {
             Self::Proc => write!(f, "proc"),
             Self::Continue => write!(f, "continue"),
             Self::Thunk => write!(f, "thunk"),
+            Self::Values => write!(f, "values"),
         }
     }
 }

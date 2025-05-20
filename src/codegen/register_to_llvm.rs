@@ -125,8 +125,18 @@ fixed_map!(TypeMap, BasicTypeEnum<'ctx>,TypeIndex {empty bool number string symb
     }
 );
 
-fixed_map!(#[allow(non_snake_case)]RegiMap, PointerValue<'ctx>,Register {Env Argl Val Proc Continue Thunk}
-    fn new(builder: &Builder<'ctx>, ty: StructType<'ctx>) -> Self {
+#[allow(non_snake_case)]
+pub struct RegiMap<'ctx> {
+    Env: PointerValue<'ctx>,
+    Argl: PointerValue<'ctx>,
+    Val: PointerValue<'ctx>,
+    Proc: PointerValue<'ctx>,
+    Continue: PointerValue<'ctx>,
+    Thunk: PointerValue<'ctx>,
+    Values: PointerValue<'ctx>,
+}
+impl<'ctx> RegiMap<'ctx> {
+    pub fn new(builder: &Builder<'ctx>, ty: StructType<'ctx>, values_ty: StructType<'ctx>) -> Self {
         let create_register = |name| builder.build_alloca(ty, name).unwrap();
         Self {
             Env: create_register("env"),
@@ -135,10 +145,21 @@ fixed_map!(#[allow(non_snake_case)]RegiMap, PointerValue<'ctx>,Register {Env Arg
             Proc: create_register("proc"),
             Continue: create_register("continue"),
             Thunk: create_register("thunk"),
+            Values: (|name| builder.build_alloca(values_ty, name).unwrap())("values"),
         }
     }
-
-);
+    pub const fn get(&self, index: Register) -> PointerValue<'ctx> {
+        match index {
+            <Register>::Env => self.Env,
+            <Register>::Argl => self.Argl,
+            <Register>::Val => self.Val,
+            <Register>::Proc => self.Proc,
+            <Register>::Continue => self.Continue,
+            <Register>::Thunk => self.Thunk,
+            <Register>::Values => self.Values,
+        }
+    }
+}
 
 #[derive(Clone, Copy)]
 #[allow(non_camel_case_types)]
@@ -165,6 +186,7 @@ pub struct Types<'ctx> {
     primitive: FunctionType<'ctx>,
     error: StructType<'ctx>,
     small_number: IntType<'ctx>,
+    values_type: StructType<'ctx>,
 }
 /// Important function that the compiler needs to access
 pub struct Functions<'ctx> {
@@ -192,18 +214,17 @@ impl<'ctx> Functions<'ctx> {
         );
         let printf = module.add_function(
             "printf",
-            context.i32_type().fn_type(
-                &[context.bool_type().ptr_type(AddressSpace::default()).into()],
-                true,
-            ),
+            context
+                .i32_type()
+                .fn_type(&[context.ptr_type(AddressSpace::default()).into()], true),
             Some(Linkage::External),
         );
         let strncmp = module.add_function(
             "strncmp",
             context.i32_type().fn_type(
                 &[
-                    context.i8_type().ptr_type(AddressSpace::default()).into(),
-                    context.i8_type().ptr_type(AddressSpace::default()).into(),
+                    context.ptr_type(AddressSpace::default()).into(),
+                    context.ptr_type(AddressSpace::default()).into(),
                     context.i32_type().into(),
                 ],
                 false,
@@ -219,10 +240,9 @@ impl<'ctx> Functions<'ctx> {
         );
         let time = module.add_function(
             "time",
-            context.i32_type().fn_type(
-                &[context.i32_type().ptr_type(AddressSpace::default()).into()],
-                false,
-            ),
+            context
+                .i32_type()
+                .fn_type(&[context.ptr_type(AddressSpace::default()).into()], false),
             Some(Linkage::External),
         );
         Self {
@@ -314,14 +334,18 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
         module: &'a Module<'ctx>,
         fpm: &'a PassManager<FunctionValue<'ctx>>,
     ) -> Self {
-        let pointer = context.bool_type().ptr_type(AddressSpace::default());
+        let pointer = context.ptr_type(AddressSpace::default());
         let object = context.struct_type(&[context.i32_type().into(), pointer.into()], false);
         let string = context.struct_type(&[context.i32_type().into(), pointer.into()], false);
         let cons = context.struct_type(&[pointer.into(), pointer.into()], false);
         let stack = context.struct_type(&[object.into(), pointer.into()], false);
+        // TODO: values register is different its not an object but rather a list of objects (the
+        // values) so assigning/saving/restoring requires different types
+        // let stack = context.struct_type(&[pointer.into(), pointer.into()], false);
         let primitive_type = object.fn_type(&[object.into()], false);
         let error = context.struct_type(&[pointer.into(), context.i32_type().into()], false);
         let small_number = context.i8_type();
+        let values_type = context.struct_type(&[pointer.into(), context.i32_type().into()], false);
         let types = Types {
             object,
             string,
@@ -331,6 +355,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
             primitive: primitive_type,
             error,
             small_number,
+            values_type,
             types: TypeMap::new(
                 context.struct_type(&[], false).into(),
                 context.i8_type().into(),
@@ -377,7 +402,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                 .build_call(functions.srand, &[time.into()], "set rng seed")
                 .unwrap();
         }
-        let registers = RegiMap::new(builder, object);
+        let registers = RegiMap::new(builder, object, values_type);
         let stop = builder.build_alloca(small_number, "stop").unwrap();
         builder
             .build_store(stop, small_number.const_zero())

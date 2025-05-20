@@ -111,10 +111,10 @@ fn init_function_optimizer<'ctx>(
     fpm.add_gvn_pass();
     fpm.add_basic_alias_analysis_pass();
     fpm.add_promote_memory_to_register_pass();
-    fpm.add_aggressive_inst_combiner_pass();
+    // fpm.add_aggressive_inst_combiner_pass();
     // // doesn't work with current goto implementation (non sicp)
     fpm.add_cfg_simplification_pass();
-    fpm.add_aggressive_dce_pass();
+    // fpm.add_aggressive_dce_pass();
     fpm.add_instruction_simplify_pass();
 
     fpm.add_verifier_pass();
