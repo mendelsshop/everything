@@ -166,7 +166,7 @@ fn compile(file: &str, out: &str) {
                 .map(|(k, ks)| (ks, k.clone(), k)),
         );
         let (ele, _) = Ast2::transform(ele, links).unwrap();
-        let ele = sicp::compile(ele, Register::Val, Linkage::Next, Linkage::Next)
+        let ele = sicp::compile(ele, Register::Val, Linkage::Next)
             .instructions()
             .to_vec();
         eprintln!("{}", ele.iter().map(ToString::to_string).join("\n"));

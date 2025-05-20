@@ -28,8 +28,7 @@ pub enum Ast2 {
 mod impl_transformer {
     use crate::{
         ast::{
-            ast1::{Ast1, Label},
-            map_box, Ast, AstTransformFrom, Function, IteratorTransformer, Pair,
+            ast1::{Ast1, Label}, Ast, AstTransformFrom, Function, IteratorTransformer, Pair,
         },
         multimap::MultiMap,
     };
@@ -67,7 +66,7 @@ mod impl_transformer {
                         Err(format!("Label {l} invalid"))
                     }
                 }
-                Ast1::Basic(b) => convert_basic(b).map(|b| (Ast2::Basic(b), state)),
+                Ast1::Basic(b) => convert_basic(b).map(|b| (Self::Basic(b), state)),
                 Ast1::If(cond, then, alt) => {
                     let (cond, state) = pass2_box(cond, state)?;
                     let (then, state) = pass2_box(then, state)?;

@@ -138,7 +138,7 @@ pub struct Perform {
 }
 
 impl Perform {
-    pub fn op(&self) -> &Operation {
+    pub const fn op(&self) -> &Operation {
         &self.op
     }
 
@@ -217,7 +217,7 @@ pub struct InstructionSequnce {
 }
 
 impl InstructionSequnce {
-    fn new(
+    const fn new(
         needs: HashSet<Register>,
         modifiers: HashSet<Register>,
         instructions: Vec<Instruction>,
@@ -234,29 +234,22 @@ impl InstructionSequnce {
     }
 }
 
-pub fn compile(
-    exp: Ast2,
-    target: Register,
-    linkage: Linkage,
-    lambda_linkage: Linkage,
-) -> InstructionSequnce {
+pub fn compile(exp: Ast2, target: Register, linkage: Linkage) -> InstructionSequnce {
     match exp {
         Ast2::Basic(Ast::Symbol(i)) => compile_variable(i, target, linkage),
         Ast2::Application(f, a) => {
-            let compile_application = compile_application(*f, a, target, linkage, lambda_linkage);
+            
             // eprintln!("{compile_application:#?}");
-            compile_application
+            compile_application(*f, a, target, linkage)
         }
-        Ast2::Begin(b) => compile_seq(b, target, linkage, lambda_linkage),
+        Ast2::Begin(b) => compile_seq(b, target, linkage),
         Ast2::DefineValues(s, exp) => {
             // compile_defeninition((s, *exp), target, linkage, lambda_linkage)
             todo!()
         }
-        Ast2::Set(s, exp) => compile_assignment((s, *exp), target, linkage, lambda_linkage),
+        Ast2::Set(s, exp) => compile_assignment((s, *exp), target, linkage),
         Ast2::Lambda(arg, body) => compile_lambda((arg, *body), target, linkage),
-        Ast2::If(cond, cons, alt) => {
-            compile_if((*cond, *cons, *alt), target, linkage, lambda_linkage)
-        }
+        Ast2::If(cond, cons, alt) => compile_if((*cond, *cons, *alt), target, linkage),
         Ast2::Quote(q) => compile_quoted(q, target, linkage),
         Ast2::Basic(Ast::Label(l)) => {
             end_with_linkage(linkage, make_label_instruction(l.to_string()))
@@ -291,12 +284,12 @@ pub fn compile(
                             vec![Instruction::Assign(target, Expr::Const(Ast::TheEmptyList))],
                         )
                     },
-                    |s| compile(*s, target, Linkage::Next, lambda_linkage),
+                    |s| compile(*s, target, Linkage::Next),
                 ),
                 compile_linkage(Linkage::Return),
             ),
         ),
-        Ast2::Loop(loop_function) => compile_loop(loop_function, target, linkage, lambda_linkage),
+        Ast2::Loop(loop_function) => compile_loop(loop_function, target, linkage),
         Ast2::Module(name, kind) => todo!("compile module refrence"),
         Ast2::Basic(exp) => compile_self_evaluating(exp.into(), target, linkage),
         Ast2::LetValues(items, ast2) => todo!(),
@@ -311,19 +304,13 @@ fn compile_loop(
     loop_function: Box<Ast2>,
     target: Register,
     linkage: Linkage,
-    lambda_linkage: Linkage,
 ) -> InstructionSequnce {
     // TODO: should we use an itermidiate register to hold loop_function
     info!(
         "generating ir for loop {loop_function:?}, with register {target}, with linkage {linkage:?}",
 
     );
-    let loop_function = compile(
-        *loop_function,
-        Register::Proc,
-        Linkage::Next,
-        lambda_linkage,
-    );
+    let loop_function = compile(*loop_function, Register::Proc, Linkage::Next);
     let loop_label = make_label_name("loop".to_owned());
     let after_loop_label = make_label_name("after_loop".to_owned());
     let done_label = make_label_name("done".to_owned());
@@ -532,14 +519,13 @@ fn compile_assignment(
     exp: (Rc<str>, Ast2),
     target: Register,
     linkage: Linkage,
-    lambda_linkage: Linkage,
 ) -> InstructionSequnce {
     info!(
         "generating ir for assigning {:?} to {}, with register {target}, with linkage {linkage:?}",
         exp.1, exp.0
     );
     let var = exp.0;
-    let get_value_code = compile(exp.1, Register::Val, Linkage::Next, lambda_linkage);
+    let get_value_code = compile(exp.1, Register::Val, Linkage::Next);
 
     end_with_linkage(
         linkage,
@@ -569,14 +555,13 @@ fn compile_defeninition(
     exp: (Rc<str>, Ast2),
     target: Register,
     linkage: Linkage,
-    lambda_linkage: Linkage,
 ) -> InstructionSequnce {
     info!(
         "generating ir for assigning {:?} to {}, with register {target}, with linkage {linkage:?}",
         exp.1, exp.0
     );
     let var = exp.0;
-    let val = compile(exp.1, Register::Val, Linkage::Next, lambda_linkage);
+    let val = compile(exp.1, Register::Val, Linkage::Next);
 
     end_with_linkage(
         linkage,
@@ -602,12 +587,7 @@ fn compile_defeninition(
     )
 }
 
-fn compile_if(
-    exp: (Ast2, Ast2, Ast2),
-    target: Register,
-    linkage: Linkage,
-    lambda_linkage: Linkage,
-) -> InstructionSequnce {
+fn compile_if(exp: (Ast2, Ast2, Ast2), target: Register, linkage: Linkage) -> InstructionSequnce {
     info!("generating ir for if expresion (condition) {:?} (consequent) {:?} (alternative) {:?}, with register {target}, with linkage {linkage:?}", exp.0, exp.1, exp.2);
     let t_branch = make_label_name("true-branch".to_string());
     let f_branch = make_label_name("false-branch".to_string());
@@ -619,12 +599,12 @@ fn compile_if(
     };
 
     #[cfg(feature = "lazy")]
-    let p_code = force_it(exp.0, Register::Val, Linkage::Next, lambda_linkage.clone());
+    let p_code = force_it(exp.0, Register::Val, Linkage::Next);
     #[cfg(not(feature = "lazy"))]
-    let p_code = compile(exp.0, Register::Val, Linkage::Next, lambda_linkage.clone());
+    let p_code = compile(exp.0, Register::Val, Linkage::Next);
 
-    let c_code = compile(exp.1, target, linkage, lambda_linkage.clone());
-    let a_code = compile(exp.2, target, consequent_linkage, lambda_linkage);
+    let c_code = compile(exp.1, target, linkage);
+    let a_code = compile(exp.2, target, consequent_linkage);
 
     preserving(
         hashset!(Register::Env, Register::Continue),
@@ -652,12 +632,7 @@ fn compile_if(
     )
 }
 
-fn compile_seq(
-    seq: Vec<Ast2>,
-    target: Register,
-    linkage: Linkage,
-    lambda_linkage: Linkage,
-) -> InstructionSequnce {
+fn compile_seq(seq: Vec<Ast2>, target: Register, linkage: Linkage) -> InstructionSequnce {
     info!(
         "generating ir for begin with expressions {:?}, with register {target}, with linkage {linkage:?}",
         seq.iter().map(|e|format!("{e:?}")).join(" ")
@@ -667,9 +642,9 @@ fn compile_seq(
         .enumerate()
         .map(move |(i, exp)| {
             if i == size - 1 {
-                compile(exp, target, linkage.clone(), lambda_linkage.clone())
+                compile(exp, target, linkage.clone())
             } else {
-                compile(exp, target, Linkage::Next, lambda_linkage.clone())
+                compile(exp, target, Linkage::Next)
             }
         })
         .reduce(|a, b| preserving(hashset!(Register::Env, Register::Continue), a, b))
@@ -705,7 +680,7 @@ fn compile_lambda(lambda: (Param, Ast2), target: Register, linkage: Linkage) -> 
     append_instruction_sequnce(
         tack_on_instruction_seq(
             end_with_linkage(
-                lambda_linkage.clone(),
+                lambda_linkage,
                 InstructionSequnce::new(
                     hashset!(Register::Env),
                     hashset!(target),
@@ -726,17 +701,13 @@ fn compile_lambda(lambda: (Param, Ast2), target: Register, linkage: Linkage) -> 
                     )],
                 ),
             ),
-            compile_lambda_body(lambda, proc_entry, lambda_linkage),
+            compile_lambda_body(lambda, proc_entry),
         ),
         make_label_instruction(after_lambda),
     )
 }
 
-fn compile_lambda_body(
-    lambda: (Param, Ast2),
-    proc_entry: String,
-    lambda_linkage: Linkage,
-) -> InstructionSequnce {
+fn compile_lambda_body(lambda: (Param, Ast2), proc_entry: String) -> InstructionSequnce {
     // TODO: do aritty checks by either going through argl and getting the length, having a register that contains the length of the arguments, or combine the 2 together and argl could be a pair of the length of the arguements and the arguements
     append_instruction_sequnce(
         if let Param::One(i) | Param::AtLeast0(i) | Param::AtLeast1(i) = lambda.0 {
@@ -781,86 +752,49 @@ fn compile_lambda_body(
                 ],
             )
         },
-        compile(lambda.1, Register::Val, Linkage::Return, lambda_linkage),
+        compile(lambda.1, Register::Val, Linkage::Return),
     )
 }
 
-use std::iter::FusedIterator;
-
-#[derive(Clone)]
-pub struct MapWithSelf<I, F> {
-    iter: I,
-    f: F,
-}
-
-impl<I: fmt::Debug, F> fmt::Debug for MapWithSelf<I, F> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("MapWithSelf")
-            .field("iter", &self.iter)
-            .finish()
-    }
-}
-
-impl<B, I: Iterator + Clone, F> Iterator for MapWithSelf<I, F>
-where
-    F: FnMut(&I, I::Item) -> B,
-{
-    type Item = B;
-
-    #[inline]
-    fn next(&mut self) -> Option<B> {
-        let iter = self.iter.clone();
-        self.iter.next().map(|n| (self.f)(&iter, n))
-    }
-
-    #[inline]
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.iter.size_hint()
-    }
-}
-
-impl<B, I: DoubleEndedIterator + Clone, F> DoubleEndedIterator for MapWithSelf<I, F>
-where
-    F: FnMut(&I, I::Item) -> B,
-{
-    #[inline]
-    fn next_back(&mut self) -> Option<B> {
-        self.iter.next_back().map(|n| (self.f)(&self.iter, n))
-    }
-}
-
-impl<B, I: ExactSizeIterator + Clone, F> ExactSizeIterator for MapWithSelf<I, F>
-where
-    F: FnMut(&I, I::Item) -> B,
-{
-    fn len(&self) -> usize {
-        self.iter.len()
-    }
-}
-
-impl<B, I: FusedIterator + Clone, F> FusedIterator for MapWithSelf<I, F> where
-    F: FnMut(&I, I::Item) -> B
-{
-}
-
-pub trait MapWithSelfExt: Iterator {
-    fn map_with_self<F, B>(self, f: F) -> MapWithSelf<Self, F>
-    where
-        Self: Sized,
-        F: FnMut(&Self, Self::Item) -> B,
-    {
-        MapWithSelf { iter: self, f }
-    }
-}
-
-impl<I: Iterator> MapWithSelfExt for I {}
-
+#[cfg(not(feature = "lazy"))]
 fn compile_application(
     f: Ast2,
     exp: Vec<Ast2>,
     target: Register,
     linkage: Linkage,
-    lambda_linkage: Linkage,
+) -> InstructionSequnce {
+    let proc_code = compile(f.clone(), Register::Proc, Linkage::Next);
+    let arg_count = exp.len();
+    let operand_codes = exp.clone().into_iter();
+
+    operand_codes.enumerate().fold(proc_code, |proc, (i, arg)| {
+        let (compiled_linkage, target_compiled) = if i + 1 == arg_count {
+            (linkage.clone(), target)
+        } else {
+            (Linkage::Next, Register::Proc)
+        };
+        preserving(
+            hashset!(Register::Continue, Register::Env),
+            // hashset!(Register::Proc, Register::Continue),
+            proc,
+            compile_procedure_call(
+                target,
+                linkage.clone(),
+                target_compiled,
+                compiled_linkage,
+                arg,
+                exp.clone().into_iter(),
+                |e| compile(e, Register::Val, Linkage::Next),
+            ),
+        )
+    })
+}
+#[cfg(feature = "lazy")]
+fn compile_application(
+    f: Ast2,
+    exp: Vec<Ast2>,
+    target: Register,
+    linkage: Linkage,
 ) -> InstructionSequnce {
     #[cfg(feature = "lazy")]
     info!(
@@ -868,90 +802,35 @@ fn compile_application(
         exp.iter().map(|e|format!("{e:?}")).join(" ")
     );
     info!("generating ir for applications' function");
-    let proc_code = force_it(
-        f.clone(),
-        Register::Proc,
-        Linkage::Next,
-        lambda_linkage.clone(),
-    );
-    #[cfg(not(feature = "lazy"))]
-    let proc_code = compile(
-        f.clone(),
-        Register::Proc,
-        Linkage::Next,
-        lambda_linkage.clone(),
-    );
+    let proc_code = force_it(f, Register::Proc, Linkage::Next);
+
+    let len = exp.len();
     // TODO: make it non strict by essentially turning each argument into zero parameter function and then when we need to unthunk the parameter we just call the function with the env
-    let operand_codes_primitive = {
-        exp.iter().map(|exp| {
-            force_it(
-                exp.clone(),
-                Register::Val,
-                Linkage::Next,
-                lambda_linkage.clone(),
-            )
-        })
-        // .map(|exp| {
-        //     compile(
-        //         exp.clone(),
-        //         Register::Val,
-        //         Linkage::Next,
-        //         lambda_linkage.clone(),
-        //     )
-        // })
-        // .collect()
-    };
-    #[cfg(feature = "lazy")]
-    let operand_codes_compiled = {
-        exp.iter().map(|exp| {
-            delay_it(
-                exp.clone(),
-                Register::Val,
-                Linkage::Next,
-                lambda_linkage.clone(),
-            )
-        })
-        // .map(|exp| {
-        //     compile(
-        //         exp.clone(),
-        //         Register::Val,
-        //         Linkage::Next,
-        //         lambda_linkage.clone(),
-        //     )
-        // })
-        // .collect()
-    };
-    operand_codes_primitive
-        .zip(operand_codes_compiled)
-        .map_with_self(|args, (_, arg)| (args.clone().unzip(), arg))
-        .enumerate()
-        .fold(
-            proc_code,
-            |proc, (i, ((primitive_args, compiled_args), arg))| {
-                let (comiled_linkage, target_compiled) = if i == exp.len() - 1 {
-                    // eprintln!("last arg {:?}", arg);
-                    (linkage.clone(), target)
-                } else {
-                    (Linkage::Next, Register::Proc)
-                };
-                preserving(
-                    hashset!(Register::Continue, Register::Env),
-                    // hashset!(Register::Proc, Register::Continue),
-                    proc,
-                    compile_procedure_call(
-                        target,
-                        linkage.clone(),
-                        primitive_args,
-                        #[cfg(feature = "lazy")]
-                        compiled_args,
-                        #[cfg(feature = "lazy")]
-                        arg,
-                        target_compiled,
-                        comiled_linkage,
-                    ),
-                )
-            },
+    let operands = exp.clone().into_iter();
+
+    operands.enumerate().fold(proc_code, |proc, (i, arg)| {
+        let (comiled_linkage, target_compiled) = if i + 1 == len {
+            // eprintln!("last arg {:?}", arg);
+            (linkage.clone(), target)
+        } else {
+            (Linkage::Next, Register::Proc)
+        };
+        preserving(
+            hashset!(Register::Continue, Register::Env),
+            // hashset!(Register::Proc, Register::Continue),
+            proc,
+            compile_procedure_call(
+                target,
+                linkage.clone(),
+                exp.clone().into_iter(),
+                arg,
+                target_compiled,
+                comiled_linkage,
+                |e| force_it(e, Register::Val, Linkage::Next),
+                |e| delay_it(e, Register::Val, Linkage::Next),
+            ),
         )
+    })
     // preserving(
     //     hashset!(Register::Continue, Register::Env),
     //     // hashset!(Register::Proc, Register::Continue),
@@ -970,7 +849,7 @@ fn make_label_instruction(label: Label) -> InstructionSequnce {
     InstructionSequnce::new(hashset!(), hashset!(), vec![Instruction::Label(label)])
 }
 
-fn make_intsruction_sequnce(
+const fn make_intsruction_sequnce(
     needs: HashSet<Register>,
     modifies: HashSet<Register>,
     instructions: Vec<Instruction>,
@@ -981,43 +860,102 @@ fn make_intsruction_sequnce(
 fn compile_procedure_call(
     target: Register,
     linkage: Linkage,
-    operand_codes: Vec<InstructionSequnce>,
+
+    intermediary_target: Register,
+    intermediary_linkage: Linkage,
+    intermediary_arg: Ast2,
+    args: impl DoubleEndedIterator<Item = Ast2> + Clone,
+    compile: fn(Ast2) -> InstructionSequnce,
 ) -> InstructionSequnce {
     // TODO: make cfg for lazy so when its not we can just have one set of operand codes
     let primitive_branch = make_label_name("primitive-branch".to_string());
+    let normal_branch = make_label_name("normal-branch".to_string());
     let compiled_branch = make_label_name("compiled-branch".to_string());
+    let variadiac_branch = make_label_name("variadiac-branch".to_string());
     let after_call = make_label_name("after-call".to_string());
-    let compiled_linkage = if linkage == Linkage::Next {
+    let compiled_linkage = if intermediary_linkage == Linkage::Next {
         Linkage::Label(after_call.clone())
     } else {
         linkage.clone()
     };
-    preserving(
-        hashset!(Register::Proc, Register::Continue),
-        construct_arg_list(operand_codes),
-        append_instruction_sequnce(
-            InstructionSequnce::new(
-                hashset!(Register::Proc),
-                hashset!(),
-                vec![
-                    Instruction::Test(Perform {
-                        op: Operation::PrimitiveProcedure,
-                        args: vec![Expr::Register(Register::Proc)],
-                    }),
-                    Instruction::Branch(primitive_branch.clone()),
-                ],
-                // ),
-            ),
-            parallel_instruction_sequnce(
-                append_instruction_sequnce(
-                    make_label_instruction(compiled_branch),
-                    compile_proc_appl::<Procedure>(target, compiled_linkage),
+    let linkage = if linkage == Linkage::Next {
+        Linkage::Label(after_call.clone())
+    } else {
+        linkage
+    };
+
+    append_instruction_sequnce(
+        InstructionSequnce::new(
+            hashset!(Register::Proc),
+            hashset!(),
+            vec![
+                Instruction::Test(Perform {
+                    op: Operation::PrimitiveProcedure,
+                    args: vec![Expr::Register(Register::Proc)],
+                }),
+                Instruction::Branch(primitive_branch.clone()),
+            ],
+        ),
+        parallel_instruction_sequnce(
+            append_instruction_sequnce(
+                InstructionSequnce::new(
+                    hashset!(Register::Proc),
+                    hashset!(),
+                    vec![
+                        Instruction::Label(compiled_branch.clone()),
+                        Instruction::Test(Perform {
+                            op: Operation::VariadiacProcedure,
+                            args: vec![Expr::Register(Register::Proc)],
+                        }),
+                        Instruction::Branch(variadiac_branch.clone()),
+                    ],
                 ),
-                append_instruction_sequnce(
-                    make_label_instruction(primitive_branch),
-                    // preserving(
-                    // hashset!(Register::Proc, Register::Continue),
-                    // construct_arg_list(operand_codes_primitive),
+                parallel_instruction_sequnce(
+                    append_instruction_sequnce(
+                        make_label_instruction(normal_branch),
+                        preserving(
+                            hashset!(Register::Proc, Register::Continue),
+                            preserving(
+                                hashset!(Register::Argl),
+                                compile(intermediary_arg),
+                                InstructionSequnce::new(
+                                    hashset!(Register::Val, Register::Argl),
+                                    hashset!(Register::Argl),
+                                    vec![Instruction::Assign(
+                                        Register::Argl,
+                                        Expr::Register(Register::Val),
+                                    )],
+                                ),
+                            ),
+                            compile_proc_appl::<Procedure>(intermediary_target, compiled_linkage),
+                        ),
+                    ),
+                    append_instruction_sequnce(
+                        make_label_instruction(variadiac_branch),
+                        preserving(
+                            hashset!(Register::Proc, Register::Continue),
+                            preserving(
+                                hashset!(Register::Argl),
+                                construct_arg_list(args.clone().map(compile)),
+                                InstructionSequnce::new(
+                                    hashset!(Register::Val, Register::Argl),
+                                    hashset!(Register::Argl),
+                                    vec![Instruction::Assign(
+                                        Register::Argl,
+                                        Expr::Register(Register::Val),
+                                    )],
+                                ),
+                            ),
+                            compile_proc_appl::<Procedure>(target, linkage.clone()),
+                        ),
+                    ),
+                ),
+            ),
+            append_instruction_sequnce(
+                make_label_instruction(primitive_branch),
+                preserving(
+                    hashset!(Register::Proc, Register::Continue),
+                    construct_arg_list(args.map(compile)),
                     append_instruction_sequnce(
                         end_with_linkage(
                             linkage,
@@ -1037,22 +975,23 @@ fn compile_procedure_call(
                             ),
                         ),
                         make_label_instruction(after_call),
-                        // ),
                     ),
                 ),
             ),
         ),
+        // ),
     )
 }
 #[cfg(feature = "lazy")]
 fn compile_procedure_call(
     target: Register,
     linkage: Linkage,
-    operand_codes_primitive: Vec<InstructionSequnce>,
-    operand_codes_compiled: Vec<InstructionSequnce>,
-    arg: InstructionSequnce,
+    operands: impl DoubleEndedIterator<Item = Ast2> + Clone,
+    arg: Ast2,
     target_compiled: Register,
     comiled_linkage: Linkage,
+    compile_primitive: fn(Ast2) -> InstructionSequnce,
+    compile_compiled: fn(Ast2) -> InstructionSequnce,
 ) -> InstructionSequnce {
     // TODO: make cfg for lazy so when its not we can just have one set of operand codes
     let primitive_branch = make_label_name("primitive-branch".to_string());
@@ -1092,7 +1031,7 @@ fn compile_procedure_call(
                     hashset!(Register::Proc),
                     hashset!(),
                     vec![
-                        Instruction::Label(compiled_branch.clone()),
+                        Instruction::Label(compiled_branch),
                         Instruction::Test(Perform {
                             op: Operation::VariadiacProcedure,
                             args: vec![Expr::Register(Register::Proc)],
@@ -1108,7 +1047,7 @@ fn compile_procedure_call(
                             hashset!(Register::Proc, Register::Continue),
                             preserving(
                                 hashset!(Register::Argl),
-                                arg,
+                                compile_compiled(arg),
                                 InstructionSequnce::new(
                                     hashset!(Register::Val, Register::Argl),
                                     hashset!(Register::Argl),
@@ -1127,7 +1066,7 @@ fn compile_procedure_call(
                             hashset!(Register::Proc, Register::Continue),
                             preserving(
                                 hashset!(Register::Argl),
-                                construct_arg_list(operand_codes_compiled),
+                                construct_arg_list(operands.clone().map(compile_compiled)),
                                 InstructionSequnce::new(
                                     hashset!(Register::Val, Register::Argl),
                                     hashset!(Register::Argl),
@@ -1146,7 +1085,7 @@ fn compile_procedure_call(
                 make_label_instruction(primitive_branch),
                 preserving(
                     hashset!(Register::Proc, Register::Continue),
-                    construct_arg_list(operand_codes_primitive),
+                    construct_arg_list(operands.map(compile_primitive)),
                     append_instruction_sequnce(
                         end_with_linkage(
                             linkage,
@@ -1206,7 +1145,7 @@ fn compile_procedure_call_loop(target: Register, linkage: Linkage) -> Instructio
                 InstructionSequnce::new(
                     hashset!(Register::Proc),
                     hashset!(),
-                    vec![Instruction::Label(compiled_branch.clone())],
+                    vec![Instruction::Label(compiled_branch)],
                     // ),
                 ),
                 compile_proc_appl::<Procedure>(target, linkage.clone()),
@@ -1381,16 +1320,9 @@ fn add_to_argl(inst: InstructionSequnce) -> InstructionSequnce {
 }
 
 #[cfg(feature = "lazy")]
-// #[cfg(not(feature = "lazy"))]
-fn force_it(
-    exp: Ast2,
-    target: Register,
-    linkage: Linkage,
-    lambda_linkage: Linkage,
-) -> InstructionSequnce {
+fn force_it(exp: Ast2, target: Register, linkage: Linkage) -> InstructionSequnce {
     info!(
-        "generating ir for forcing expression {:?}, with register {target}, with linkage {linkage:?}",
-        exp
+        "generating ir for forcing expression {exp:?}, with register {target}, with linkage {linkage:?}"
     );
     // TODO: when a thunk early returns were do we early return from?
     // it should early return from the last known function: (lambda linkage), so we need to
@@ -1399,11 +1331,11 @@ fn force_it(
     let actual_value_label = make_label_name("actual-value".to_string());
     let force_label = make_label_name("force".to_string());
     let done = make_label_name("done".to_string());
-    let thunk = compile(exp, Register::Thunk, Linkage::Next, lambda_linkage);
+    let thunk = compile(exp, Register::Thunk, Linkage::Next);
     let thunk_linkage = if linkage == Linkage::Next {
         Linkage::Label(actual_value_label.clone())
     } else {
-        linkage.clone()
+        linkage
     };
     preserving(
         hashset!(Register::Env, Register::Continue),
@@ -1413,7 +1345,7 @@ fn force_it(
                 hashset!(Register::Thunk),
                 hashset!(),
                 vec![
-                    Instruction::Label(actual_value_label.clone()),
+                    Instruction::Label(actual_value_label),
                     Instruction::Test(Perform {
                         op: Operation::NotThunk,
                         args: vec![Expr::Register(Register::Thunk)],
@@ -1438,16 +1370,9 @@ fn force_it(
 }
 
 #[cfg(feature = "lazy")]
-// #[cfg(not(feature = "lazy"))]
-fn delay_it(
-    exp: Ast2,
-    target: Register,
-    linkage: Linkage,
-    lambda_linkage: Linkage,
-) -> InstructionSequnce {
+fn delay_it(exp: Ast2, target: Register, linkage: Linkage) -> InstructionSequnce {
     info!(
-        "generating ir for delaying expression {:?}, with register {target}, with linkage {linkage:?}",
-        exp
+        "generating ir for delaying expression {exp:?}, with register {target}, with linkage {linkage:?}"
     );
     // TODO: when a thunk early returns were do we early return from?
     // it should early return from the last known function: (lambda linkage), so we need to
@@ -1478,23 +1403,19 @@ fn delay_it(
         ),
     );
     inst.instructions
-        .extend(compile_thunk_body(exp, thunk_label, lambda_linkage).instructions);
+        .extend(compile_thunk_body(exp, thunk_label).instructions);
     inst.instructions.push(Instruction::Label(after_thunk));
     inst
 }
 
 #[cfg(feature = "lazy")]
-fn compile_thunk_body(
-    thunk: Ast2,
-    thunk_entry: Label,
-    lambda_linkage: Linkage,
-) -> InstructionSequnce {
+fn compile_thunk_body(thunk: Ast2, thunk_entry: Label) -> InstructionSequnce {
     append_instruction_sequnce(
         InstructionSequnce::new(
             hashset!(Register::Env, Register::Thunk),
             hashset!(Register::Env),
             vec![
-                Instruction::Label(thunk_entry.clone()),
+                Instruction::Label(thunk_entry),
                 Instruction::Assign(
                     Register::Env,
                     Expr::Op(Perform {
@@ -1504,33 +1425,24 @@ fn compile_thunk_body(
                 ),
             ],
         ),
-        compile(thunk, Register::Thunk, Linkage::Return, lambda_linkage),
+        compile(thunk, Register::Thunk, Linkage::Return),
     )
 }
 // #[cfg(feature = "lazy")]
 #[cfg(not(feature = "lazy"))]
-fn delay_it(
-    exp: Ast2,
-    target: Register,
-    linkage: Linkage,
-    lambda_linkage: Linkage,
-) -> InstructionSequnce {
-    compile(exp, target, linkage, lambda_linkage)
+fn delay_it(exp: Ast2, target: Register, linkage: Linkage) -> InstructionSequnce {
+    compile(exp, target, linkage)
 }
 
 // #[cfg(feature = "lazy")]
 #[cfg(not(feature = "lazy"))]
-fn force_it(
-    exp: Ast2,
-    target: Register,
-    linkage: Linkage,
-    lambda_linkage: Linkage,
-) -> InstructionSequnce {
-    compile(exp, target, linkage, lambda_linkage)
+fn force_it(exp: Ast2, target: Register, linkage: Linkage) -> InstructionSequnce {
+    compile(exp, target, linkage)
 }
-fn construct_arg_list(operand_codes: Vec<InstructionSequnce>) -> InstructionSequnce {
+fn construct_arg_list(
+    operand_codes: impl DoubleEndedIterator<Item = InstructionSequnce>,
+) -> InstructionSequnce {
     operand_codes
-        .into_iter()
         // .map(delay_it)
         .map(add_to_argl)
         .rev()
@@ -1549,6 +1461,6 @@ fn construct_arg_list(operand_codes: Vec<InstructionSequnce>) -> InstructionSequ
 
 impl From<Ast> for Expr {
     fn from(value: Ast) -> Self {
-        Expr::Const(value)
+        Self::Const(value)
     }
 }

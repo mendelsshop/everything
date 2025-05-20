@@ -29,8 +29,8 @@ macro_rules! fixed_map {
         }
 
         impl <$($gen),*> $struct<$($gen),*> {
-            pub fn $new($($param: $param_type),*) -> $ret $new_block
-            pub  fn get(&self, index: $index) -> $type {
+            pub const fn $new($($param: $param_type),*) -> $ret $new_block
+            pub const fn get(&self, index: $index) -> $type {
                 match index {
                     $(
                         <$index>::$fields => self.$fields,
@@ -734,28 +734,28 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                         this.builder
                             .build_unconditional_branch(this.error_block)
                             .unwrap();
-                        this.set_error("cannot compare labels", 1)
+                        this.set_error("cannot compare labels", 1);
                     }
                     {
                         self.builder.position_at_end(thunk_bb);
                         this.builder
                             .build_unconditional_branch(this.error_block)
                             .unwrap();
-                        this.set_error("cannot compare thunks", 1)
+                        this.set_error("cannot compare thunks", 1);
                     }
                     {
                         self.builder.position_at_end(lambda_bb);
                         this.builder
                             .build_unconditional_branch(this.error_block)
                             .unwrap();
-                        this.set_error("cannot compare lambdas", 1)
+                        this.set_error("cannot compare lambdas", 1);
                     }
                     {
                         self.builder.position_at_end(primitive_bb);
                         this.builder
                             .build_unconditional_branch(this.error_block)
                             .unwrap();
-                        this.set_error("cannot compare primitives", 1)
+                        this.set_error("cannot compare primitives", 1);
                     }
                 }
             },
@@ -915,7 +915,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                 .build_load(
                     self.types.object,
                     continue_reg,
-                    &format!("load register continue"),
+                    "load register continue",
                 )
                 .unwrap();
             let label = self

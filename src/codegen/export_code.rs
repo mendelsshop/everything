@@ -8,7 +8,7 @@ use inkwell::{
 use super::Compiler;
 
 // exporting functions
-impl<'a, 'ctx> Compiler<'a, 'ctx> {
+impl Compiler<'_, '_> {
     pub fn export_ir(&self, path: impl Into<PathBuf>) {
         let mut path: PathBuf = path.into();
         path.set_extension("ll");

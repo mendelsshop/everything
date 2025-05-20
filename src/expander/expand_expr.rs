@@ -526,10 +526,10 @@ impl Expander {
     fn core_form_stop(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, Error> {
         match_syntax!((stop))(s.clone())
             .map(|_| s.clone())
-            .map_err(|e| e.into())
+            .map_err(std::convert::Into::into)
             .or_else(|_: Error| {
                 match_syntax!((stop expr))(s.clone())
-                    .map_err(|e| e.into())
+                    .map_err(std::convert::Into::into)
                     .and_then(|m| {
                         self.expand(m.expr, ctx)
                             .map(|e| rebuild(s, sexpr!((#(m.stop) #(e)))))

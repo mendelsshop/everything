@@ -5,17 +5,16 @@ use inkwell::{
     builder::Builder,
     context::Context,
     execution_engine::ExecutionEngine,
-    module::{Linkage, Module},
+    module::Module,
     passes::PassManager,
-    types::{BasicType, FloatType, FunctionType, IntType, PointerType, StructType},
+    types::{FloatType, FunctionType, IntType, PointerType, StructType},
     values::{
-        BasicValue, BasicValueEnum, FunctionValue, GlobalValue, InstructionValue, IntValue,
-        PhiValue, PointerValue, StructValue,
+        FunctionValue, GlobalValue, InstructionValue,
+        PhiValue, PointerValue,
     },
-    AddressSpace,
 };
 
-use crate::{ast::ast1::Ast1, interior_mut::RC, multimap::MultiMap};
+use crate::{interior_mut::RC, multimap::MultiMap};
 
 // use self::{env::VarType};
 macro_rules! return_none {

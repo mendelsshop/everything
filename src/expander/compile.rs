@@ -154,10 +154,10 @@ impl Expander {
                     "module" => todo!(),
                     "stop" => match_syntax!((stop))(s.clone())
                         .map(|_| Ast1::Stop(None))
-                        .map_err(|e| e.into())
+                        .map_err(std::convert::Into::into)
                         .or_else(|_: Error| {
                             match_syntax!((stop expr))(s)
-                                .map_err(|e| e.into())
+                                .map_err(std::convert::Into::into)
                                 .and_then(|m| {
                                     compile(m.expr).map(Box::new).map(Some).map(Ast1::Stop)
                                 })

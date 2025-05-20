@@ -396,10 +396,10 @@ impl fmt::Display for Ast {
 }
 
 impl Ast {
-    fn take(&mut self) -> Ast {
-        let mut dummy = Ast::TheEmptyList;
+    const fn take(&mut self) -> Self {
+        let mut dummy = Self::TheEmptyList;
         swap(&mut dummy, self);
-        return dummy;
+        dummy
     }
     #[must_use]
     pub fn size(&self) -> usize {
