@@ -1082,7 +1082,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
             self.builder.get_insert_block().unwrap(),
         )]);
     }
-    pub fn export_ir(&self) -> String {
+    pub fn ir_to_string(&self) -> String {
         self.module.to_string()
     }
 

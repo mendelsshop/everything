@@ -175,14 +175,15 @@ fn compile(file: &str, out: &str) {
         )
         .instructions()
         .to_vec();
-        eprintln!("{}", ele.iter().map(ToString::to_string).join("\n"));
+        println!("{}", ele.iter().map(ToString::to_string).join("\n"));
         let context = Context::create();
         let module = context.create_module(file);
         let builder = context.create_builder();
         let fpm = init_function_optimizer(&module);
         let mut codegen = CodeGen::new(&context, &builder, &module, &fpm);
         codegen.compile(ele);
-        println!("\n{}", codegen.export_ir());
+
+        codegen.export_ir(out);
     }
     // let program = parse_and_expand(&contents).unwrap();
     //let links = MultiMap::from(program.1.into_iter().map(|(k, ks)| (ks, k.clone(), k)));

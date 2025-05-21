@@ -5,10 +5,10 @@ use inkwell::{
     OptimizationLevel,
 };
 
-use super::Compiler;
+use super::register_to_llvm::CodeGen;
 
 // exporting functions
-impl Compiler<'_, '_> {
+impl CodeGen<'_, '_> {
     pub fn export_ir(&self, path: impl Into<PathBuf>) {
         let mut path: PathBuf = path.into();
         path.set_extension("ll");
