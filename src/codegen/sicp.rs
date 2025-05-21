@@ -664,7 +664,7 @@ fn compile_if(exp: (Ast2, Ast2, Ast2), target: Register, linkage: Linkage) -> In
     let a_code = compile(exp.2, target, consequent_linkage);
 
     preserving(
-        hashset!(Register::Env, Register::Continue),
+        hashset!(Register::Env, Register::Continue, Register::ContinueMulti),
         p_code,
         append_instruction_sequnce(
             InstructionSequnce::new(
@@ -710,7 +710,13 @@ fn compile_seq(seq: Vec<Ast2>, target: Register, linkage: Linkage) -> Instructio
                 )
             }
         })
-        .reduce(|a, b| preserving(hashset!(Register::Env, Register::Continue), a, b))
+        .reduce(|a, b| {
+            preserving(
+                hashset!(Register::Env, Register::Continue, Register::ContinueMulti),
+                a,
+                b,
+            )
+        })
         .unwrap_or_else(empty_instruction_seqeunce)
 }
 
@@ -913,43 +919,48 @@ fn compile_application(
     let arg_count = exp.len();
     let operand_codes = exp.into_iter();
 
-    operand_codes
-        .map_with_self(|this, rest| (this, rest))
-        .enumerate()
-        .fold(proc_code, |proc, (i, (args, arg))| {
-            let (compiled_linkage, target_compiled) = if i + 1 == arg_count {
-                (linkage.clone(), target)
-            } else {
-                (
-                    Linkage::Next {
-                        expect_single: true,
-                    },
-                    Register::Proc,
+    let after_full_call = make_label_name("after-full-call".to_string());
+    append_instruction_sequnce(
+        operand_codes
+            .map_with_self(|this, rest| (this, rest))
+            .enumerate()
+            .fold(proc_code, |proc, (i, (args, arg))| {
+                let (compiled_linkage, target_compiled) = if i + 1 == arg_count {
+                    (linkage.clone(), target)
+                } else {
+                    (
+                        Linkage::Next {
+                            expect_single: true,
+                        },
+                        Register::Proc,
+                    )
+                };
+                preserving(
+                    hashset!(Register::Continue, Register::ContinueMulti, Register::Env),
+                    // hashset!(Register::Proc, Register::Continue),
+                    proc,
+                    compile_procedure_call(
+                        target,
+                        linkage.clone(),
+                        target_compiled,
+                        compiled_linkage,
+                        arg,
+                        args,
+                        |e| {
+                            compile(
+                                e,
+                                Register::Val,
+                                Linkage::Next {
+                                    expect_single: true,
+                                },
+                            )
+                        },
+                        after_full_call.clone(),
+                    ),
                 )
-            };
-            preserving(
-                hashset!(Register::Continue, Register::Env),
-                // hashset!(Register::Proc, Register::Continue),
-                proc,
-                compile_procedure_call(
-                    target,
-                    linkage.clone(),
-                    target_compiled,
-                    compiled_linkage,
-                    arg,
-                    args,
-                    |e| {
-                        compile(
-                            e,
-                            Register::Val,
-                            Linkage::Next {
-                                expect_single: true,
-                            },
-                        )
-                    },
-                ),
-            )
-        })
+            }),
+        make_label_instruction(after_full_call),
+    )
 }
 
 #[cfg(feature = "lazy")]
@@ -977,53 +988,59 @@ fn compile_application(
     // TODO: make it non strict by essentially turning each argument into zero parameter function and then when we need to unthunk the parameter we just call the function with the env
     let operands = exp.into_iter();
 
-    operands
-        .map_with_self(|this, rest| (this, rest))
-        .enumerate()
-        .fold(proc_code, |proc, (i, (args, arg))| {
-            let (comiled_linkage, target_compiled) = if i + 1 == len {
-                // eprintln!("last arg {:?}", arg);
-                (linkage.clone(), target)
-            } else {
-                (
-                    Linkage::Next {
-                        expect_single: true,
-                    },
-                    Register::Proc,
+    let after_full_call = make_label_name("after-full-call".to_string());
+    append_instruction_sequnce(
+        operands
+            .map_with_self(|this, rest| (this, rest))
+            .enumerate()
+            .fold(proc_code, |proc, (i, (args, arg))| {
+                let (comiled_linkage, target_compiled) = if i + 1 == len {
+                    // eprintln!("last arg {:?}", arg);
+                    (linkage.clone(), target)
+                } else {
+                    (
+                        Linkage::Next {
+                            expect_single: true,
+                        },
+                        Register::Proc,
+                    )
+                };
+                preserving(
+                    hashset!(Register::Continue, Register::MultiContinue, Register::Env),
+                    // hashset!(Register::Proc, Register::Continue),
+                    proc,
+                    compile_procedure_call(
+                        target,
+                        linkage.clone(),
+                        args,
+                        arg,
+                        target_compiled,
+                        comiled_linkage,
+                        |e| {
+                            force_it(
+                                e,
+                                Register::Val,
+                                Linkage::Next {
+                                    expect_single: true,
+                                },
+                            )
+                        },
+                        |e| {
+                            delay_it(
+                                e,
+                                Register::Val,
+                                Linkage::Next {
+                                    expect_single: true,
+                                },
+                            )
+                        },
+                        after_full_call.clone(),
+                    ),
                 )
-            };
-            preserving(
-                hashset!(Register::Continue, Register::Env),
-                // hashset!(Register::Proc, Register::Continue),
-                proc,
-                compile_procedure_call(
-                    target,
-                    linkage.clone(),
-                    args,
-                    arg,
-                    target_compiled,
-                    comiled_linkage,
-                    |e| {
-                        force_it(
-                            e,
-                            Register::Val,
-                            Linkage::Next {
-                                expect_single: true,
-                            },
-                        )
-                    },
-                    |e| {
-                        delay_it(
-                            e,
-                            Register::Val,
-                            Linkage::Next {
-                                expect_single: true,
-                            },
-                        )
-                    },
-                ),
-            )
-        })
+            }),
+        make_label_instruction(after_full_call),
+    )
+
     // preserving(
     //     hashset!(Register::Continue, Register::Env),
     //     // hashset!(Register::Proc, Register::Continue),
@@ -1058,6 +1075,7 @@ fn compile_procedure_call(
     intermediary_arg: Ast2,
     args: impl DoubleEndedIterator<Item = Ast2> + Clone,
     compile: fn(Ast2) -> InstructionSequnce,
+    after_full_call: Label,
 ) -> InstructionSequnce {
     // TODO: make cfg for lazy so when its not we can just have one set of operand codes
     let primitive_branch = make_label_name("primitive-branch".to_string());
@@ -1075,7 +1093,7 @@ fn compile_procedure_call(
     };
     let linkage = if let Linkage::Next { expect_single } = linkage {
         Linkage::Label {
-            place: after_call.clone(),
+            place: after_full_call,
             expect_single,
         }
     } else {
@@ -1100,7 +1118,7 @@ fn compile_procedure_call(
                     hashset!(Register::Proc),
                     hashset!(),
                     vec![
-                        Instruction::Label(compiled_branch.clone()),
+                        Instruction::Label(compiled_branch),
                         Instruction::Test(Perform {
                             op: Operation::VariadiacProcedure,
                             args: vec![Expr::Register(Register::Proc)],
@@ -1112,7 +1130,7 @@ fn compile_procedure_call(
                     append_instruction_sequnce(
                         make_label_instruction(normal_branch),
                         preserving(
-                            hashset!(Register::Proc, Register::Continue),
+                            hashset!(Register::Proc, Register::Continue, Register::ContinueMulti),
                             preserving(
                                 hashset!(Register::Argl),
                                 compile(intermediary_arg),
@@ -1131,7 +1149,7 @@ fn compile_procedure_call(
                     append_instruction_sequnce(
                         make_label_instruction(variadiac_branch),
                         preserving(
-                            hashset!(Register::Proc, Register::Continue),
+                            hashset!(Register::Proc, Register::Continue, Register::ContinueMulti),
                             preserving(
                                 hashset!(Register::Argl),
                                 construct_arg_list(args.clone().map(compile)),
@@ -1152,7 +1170,7 @@ fn compile_procedure_call(
             append_instruction_sequnce(
                 make_label_instruction(primitive_branch),
                 preserving(
-                    hashset!(Register::Proc, Register::Continue),
+                    hashset!(Register::Proc, Register::Continue, Register::ContinueMulti),
                     construct_arg_list(args.map(compile)),
                     append_instruction_sequnce(
                         end_with_linkage(
@@ -1190,6 +1208,7 @@ fn compile_procedure_call(
     comiled_linkage: Linkage,
     compile_primitive: fn(Ast2) -> InstructionSequnce,
     compile_compiled: fn(Ast2) -> InstructionSequnce,
+    after_full_call: Label,
 ) -> InstructionSequnce {
     // TODO: make cfg for lazy so when its not we can just have one set of operand codes
     let primitive_branch = make_label_name("primitive-branch".to_string());
@@ -1207,7 +1226,7 @@ fn compile_procedure_call(
     };
     let linkage = if let Linkage::Next { expect_single } = linkage {
         Linkage::Label {
-            place: after_call.clone(),
+            place: after_full_call.clone(),
             expect_single,
         }
     } else {
@@ -1248,7 +1267,7 @@ fn compile_procedure_call(
                     append_instruction_sequnce(
                         make_label_instruction(normal_branch),
                         preserving(
-                            hashset!(Register::Proc, Register::Continue),
+                            hashset!(Register::Proc, Register::Continue, Register::ContinueMulti),
                             preserving(
                                 hashset!(Register::Argl),
                                 compile_compiled(arg),
@@ -1267,7 +1286,7 @@ fn compile_procedure_call(
                     append_instruction_sequnce(
                         make_label_instruction(variadiac_branch),
                         preserving(
-                            hashset!(Register::Proc, Register::Continue),
+                            hashset!(Register::Proc, Register::Continue, Register::ContinueMulti),
                             preserving(
                                 hashset!(Register::Argl),
                                 construct_arg_list(operands.clone().map(compile_compiled)),
@@ -1288,7 +1307,7 @@ fn compile_procedure_call(
             append_instruction_sequnce(
                 make_label_instruction(primitive_branch),
                 preserving(
-                    hashset!(Register::Proc, Register::Continue),
+                    hashset!(Register::Proc, Register::Continue, Register::ContinueMulti),
                     construct_arg_list(operands.map(compile_primitive)),
                     append_instruction_sequnce(
                         end_with_linkage(
@@ -1437,7 +1456,7 @@ fn compile_proc_appl<T: Application>(
         Linkage::Return
                     // if target == T::return_register() 
          => make_intsruction_sequnce(
-                    hashset!(T::register(), Register::Continue),
+                    hashset!(T::register(), Register::ContinueMulti, Register::Continue),
                     all_regs(),
                     vec![
                         Instruction::Assign(
@@ -1455,9 +1474,9 @@ fn compile_proc_appl<T: Application>(
                     all_regs(),
                     vec![
                         Instruction::Assign(Register::Continue, Expr::Label(l.clone())),
-                    if !expect_single {
-Instruction::AssignError(Register::ContinueMulti , "not expecting multiple values")
-                        } else {    Instruction::Assign(Register::ContinueMulti, Expr::Label(l))},
+                    if expect_single {    Instruction::Assign(Register::ContinueMulti, Expr::Label(l))} else {
+                    Instruction::AssignError(Register::ContinueMulti , "not expecting multiple values")
+                                            },
                         Instruction::Assign(
                             Register::Val,
                             Expr::Op(Perform {
@@ -1673,7 +1692,7 @@ fn construct_arg_list(
     operand_codes
         // .map(delay_it)
         .map(add_to_argl)
-        // .rev()
+        .rev()
         .fold(
             InstructionSequnce::new(
                 hashset!(),
