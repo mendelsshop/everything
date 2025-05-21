@@ -287,14 +287,14 @@ macro_rules! is_type {
 pub struct CodeGen<'a, 'ctx> {
     context: &'ctx Context,
     builder: &'a Builder<'ctx>,
-    module: &'a Module<'ctx>,
+    pub module: &'a Module<'ctx>,
     current: FunctionValue<'ctx>,
     labels: HashMap<String, BasicBlock<'ctx>>,
     registers: RegiMap<'ctx>,
     types: Types<'ctx>,
     functions: Functions<'ctx>,
     flag: PointerValue<'ctx>,
-    fpm: &'a PassManager<FunctionValue<'ctx>>,
+    pub fpm: &'a PassManager<FunctionValue<'ctx>>,
     stack: PointerValue<'ctx>,
     error_block: BasicBlock<'ctx>,
     error_phi: inkwell::values::PhiValue<'ctx>,
@@ -564,7 +564,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
         let name = self.create_symbol(name);
         (name, primitive)
     }
-    fn init_accessors(&mut self) -> Vec<(&'static str, FunctionValue<'ctx>)> {
+    const fn init_accessors(&mut self) -> Vec<(&'static str, FunctionValue<'ctx>)> {
         macro_rules! accessors {
         ($(($name:literal $acces:ident )),*) => {
             vec![$(($name, self.create_primitive($name, |this,func,_|{
@@ -811,7 +811,6 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
             let car = this.make_car(argl);
             let cdr = this.make_cadr(argl);
             let cons = this.make_cons(car, cdr);
-            // this.print_object(cons);
             this.builder.build_return(Some(&cons)).unwrap();
         });
         let primitive_eq = self.create_primitive("eq", |this, cons, _| {
@@ -869,7 +868,6 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                 )
                 .unwrap();
             let result = this.make_object(&num1, TypeIndex::number);
-            // this.print_object(result);
             this.builder
                 .build_return(Some(&this.make_object(&num1, TypeIndex::number)))
                 .unwrap();
@@ -891,7 +889,6 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                 )
                 .unwrap();
             let result = this.make_object(&num1, TypeIndex::number);
-            // this.print_object(result);
             this.builder.build_return(Some(&result)).unwrap();
         });
         let values = {
@@ -901,6 +898,13 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                 .builder
                 .build_load(self.types.object, env, "load argl")
                 .unwrap();
+            let compiled_procedure_type = self.make_object(
+                &self
+                    .context
+                    .f64_type()
+                    .const_float(ZERO_VARIADIAC_ARG as f64),
+                TypeIndex::number,
+            );
             let prev_bb = self.builder.get_insert_block().unwrap();
 
             let start_label = self.context.append_basic_block(self.current, "values");
@@ -923,7 +927,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                 .unchecked_get_label(register.into_struct_value())
                 .into_pointer_value();
             self.builder
-                // we need all possible labels as destinations b/c indirect br requires a destination but we dont which one at compile time so we use all of them - maybe fixed with register_to_llvm_more_opt
+                //     // we need all possible labels as destinations b/c indirect br requires a destination but we dont which one at compile time so we use all of them - maybe fixed with register_to_llvm_more_opt
                 .build_indirect_branch(
                     label,
                     &self
@@ -944,6 +948,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                         )
                         .into(),
                         env,
+                        (compiled_procedure_type).into(),
                     ],
                 ),
                 TypeIndex::lambda,
@@ -951,81 +956,6 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
             (self.create_symbol("values"), lambda)
         };
 
-        // for some reason the problem with primitives - you guessed it is only with primitives, so
-        // when we make one "non" primitive it works flawlesly
-        // two places were primitves are broken at caller - or declaration and given the fact the
-        // printing the result before returning prints the correct results it may be by calling?
-        let add1 = {
-            let env = self.registers.get(Register::Env);
-
-            let env = self
-                .builder
-                .build_load(self.types.object, env, "load argl")
-                .unwrap();
-            let prev_bb = self.builder.get_insert_block().unwrap();
-
-            let start_label = self.context.append_basic_block(self.current, "add1");
-            self.labels.insert("add1".to_string(), start_label);
-            self.builder.position_at_end(start_label);
-            let argl = self.registers.get(Register::Argl);
-            let argl = self
-                .builder
-                .build_load(self.types.object, argl, "load argl")
-                .unwrap();
-            let value = self.make_unchecked_car(argl.into_struct_value());
-            let num = self.get_number(value).into_float_value();
-            let num1 = self
-                .builder
-                .build_float_add(
-                    num,
-                    self.types
-                        .types
-                        .get(TypeIndex::number)
-                        .into_float_type()
-                        .const_float(1.0),
-                    "add 1",
-                )
-                .unwrap();
-            let result = self.make_object(&num1, TypeIndex::number);
-
-            let val = self.registers.get(Register::Val);
-            self.builder.build_store(val, result);
-            let continue_reg = self.registers.get(Register::Continue);
-            let register = self
-                .builder
-                .build_load(self.types.object, continue_reg, "load register continue")
-                .unwrap();
-            let label = self
-                .unchecked_get_label(register.into_struct_value())
-                .into_pointer_value();
-            self.builder
-                // we need all possible labels as destinations b/c indirect br requires a destination but we dont which one at compile time so we use all of them - maybe fixed with register_to_llvm_more_opt
-                .build_indirect_branch(
-                    label,
-                    &self
-                        .labels
-                        .values()
-                        // .chain(iter::once(&self.error_block))
-                        .copied()
-                        .collect_vec(),
-                );
-            self.builder.position_at_end(prev_bb);
-            let lambda = self.make_object(
-                &self.list_to_struct(
-                    self.types.types.get(TypeIndex::lambda).into_struct_type(),
-                    &[
-                        self.make_object(
-                            &unsafe { start_label.get_address().unwrap() },
-                            TypeIndex::label,
-                        )
-                        .into(),
-                        env,
-                    ],
-                ),
-                TypeIndex::lambda,
-            );
-            (self.create_symbol("+1"), lambda)
-        };
         let primitives = [
             ("newline", primitive_newline),
             ("=", primitive_eq),
@@ -1815,14 +1745,13 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
             Operation::VariadiacProcedure => {
                 let proc = args[0];
                 let proc = self.unchecked_get_lambda(proc).into_struct_value();
-                let lambda_type = self
-                    .get_number(
-                        self.builder
-                            .build_extract_value(proc, 2, "proc entry")
-                            .unwrap()
-                            .into_struct_value(),
-                    )
-                    .into_float_value();
+                let val = self
+                    .builder
+                    .build_extract_value(proc, 2, "proc entry")
+                    .unwrap()
+                    .into_struct_value();
+                let lambda_type = self.get_number(val).into_float_value();
+
                 self.make_object(
                     &self
                         .builder
