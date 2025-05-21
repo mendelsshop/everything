@@ -101,16 +101,17 @@ impl Expander {
                         let m = match_syntax!( (expression value))(s)?;
                         Ok(Ast1::Expression(Box::new(compile(m.value)?)))
                     }
-                    "set!" => {
-                        // TODO: match_syntax!( (set! id value))
+                    "set-bang" => {
+                        // TODO: match_syntax!( (set-bang id value))
                         let m = match_syntax!( (set id value))(s)?;
+                        let ast1 = compile(m.id)?;
                         if let Ast1::Basic(Ast::Symbol(id)) =
                             // maybe just use compile_identeifier
-                            compile(m.id)?
+                            ast1
                         {
                             Ok(Ast1::Set(id.0, Box::new(compile(m.value)?)))
                         } else {
-                            Err("set requires an identifier".into())
+                            Err(format!("set requires an identifier {ast1}").into())
                         }
                     }
                     "let-values" | "letrec-values" => self.compile_let(core_sym, s, ns),

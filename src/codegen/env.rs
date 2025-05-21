@@ -91,7 +91,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             || Err(format!("cannot create variable `{name}`")),
             |scope| {
                 if scope.insert(name.clone(), VarType::Lisp(value)).is_some() {
-                    Err(format!("cannot reassign {name}, use set! instead",))
+                    Err(format!("cannot reassign {name}, use set-bang instead",))
                 } else {
                     Ok(())
                 }
@@ -106,7 +106,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     ) -> Result<(), String> {
         let ptr = self
             .get_variable(&name)
-            .ok_or(format!("could not use set!: {name} not found"))?;
+            .ok_or(format!("could not use set-bang: {name} not found"))?;
         match ptr {
             VarType::Lisp(l) => {
                 self.builder.build_store(l, value);

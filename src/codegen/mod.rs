@@ -498,7 +498,7 @@ pub enum EngineType {
 //         self.insert_special_form("stop".into(), Self::special_form_stop);
 //         self.insert_special_form("mod".into(), Self::special_form_mod);
 //         self.insert_special_form("begin".into(), Self::compile_scope);
-//         self.insert_special_form("set!".into(), Self::special_form_set);
+//         self.insert_special_form("set-bang".into(), Self::special_form_set);
 //     }
 //
 //     pub fn get_main(&mut self) -> (FunctionValue<'ctx>, BasicBlock<'ctx>) {

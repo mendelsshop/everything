@@ -200,14 +200,12 @@ impl Expander {
         // );
         self.add_core_form("begin".into(), Self::core_form_begin);
         self.add_core_form("begin0".into(), Self::core_form_begin0);
-        self.add_core_form("set!".into(), Self::core_form_set);
+        self.add_core_form("set-bang".into(), Self::core_form_set);
         // from expand_top_level
         self.add_core_form("define-values".into(), Self::core_form_define_values);
         self.add_core_form("define-syntaxes".into(), Self::core_form_define_syntaxes);
         self.add_core_form("link".into(), Self::core_form_link);
         self.add_core_form("if".into(), Self::core_form_if);
-        //self.add_core_form("define".into(), Self::core_form_define);
-        self.add_core_form("set!".into(), Self::core_form_set);
         self.add_core_form("loop".into(), |_, _, _| todo!());
 
         self.add_core_form("stop".into(), Self::core_form_stop);
@@ -537,9 +535,25 @@ impl Expander {
             })
     }
     fn core_form_set(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, Error> {
-        // TODO: let m = matcher::match_syntax!( (set! id rhs))(s.clone(),)?;
-        let m = match_syntax!( (set id rhs))(s.clone())?;
-        let id = m.id;
+        // TODO: let m = matcher::match_syntax!( (set-bang id rhs))(s.clone(),)?;
+        let (set, id, rhs) = match_syntax!( (set id rhs))(s.clone())
+            .map(|m| (m.set, m.id, m.rhs))
+            .or_else(|e| {
+                match_syntax!( (set (param index) rhs))(s.clone())
+                    .map_err(std::convert::Into::into)
+                    .and_then(|m| {
+                        Self::to_number(m.index).map(|n| {
+                            let n0 = n.0;
+                            (
+                                m.set,
+                                Ast::Syntax(Box::new(
+                                    n.with::<Ast>(Ast::Symbol(format!("{n0:o}").into())),
+                                )),
+                                m.rhs,
+                            )
+                        })
+                    })
+            })?;
         let binding = Self::resolve(&id.clone().try_into()?, false)
             .map_err(|_| format!("no binding for assignment: {s}"))?;
         let t = ctx
@@ -548,8 +562,6 @@ impl Expander {
         if !matches!(t, CompileTimeBinding::Regular(Ast::Symbol(s)) if s == self.variable) {
             return Err(format!("cannot assign to syntax: {s}").into());
         }
-        let set = m.set;
-        let rhs = m.rhs;
         let rhs = self.expand(rhs, ctx)?;
         Ok(expand::rebuild(s, list!(set, id, rhs)))
     }

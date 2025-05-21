@@ -110,7 +110,7 @@ impl fmt::Display for Ast1 {
                 "(begin0 {})",
                 b.iter().map(ToString::to_string).join(" ")
             ),
-            Self::Set(v, val) => write!(f, "(set! {v} {val})"),
+            Self::Set(v, val) => write!(f, "(set-bang {v} {val})"),
             Self::Quote(q) => write!(f, ";{q}"),
             Self::Loop(l) => write!(f, "(loop {l}"),
             Self::Stop(s) => write!(
