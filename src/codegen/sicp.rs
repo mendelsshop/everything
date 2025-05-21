@@ -45,8 +45,9 @@ macro_rules! count {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Linkage {
     Return,
-    Next,
-    Label(Label),
+    // true mean that expects one value
+    Next { expect_single: bool },
+    Label { place: Label, expect_single: bool },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -56,6 +57,7 @@ pub enum Register {
     Val,
     Proc,
     Continue,
+    ContinueMulti,
     Values,
     Thunk,
 }
@@ -91,6 +93,7 @@ impl fmt::Display for Register {
             Self::Val => write!(f, "val"),
             Self::Proc => write!(f, "proc"),
             Self::Continue => write!(f, "continue"),
+            Self::ContinueMulti => write!(f, "continue-multi"),
             Self::Thunk => write!(f, "thunk"),
             Self::Values => write!(f, "values"),
         }
@@ -194,12 +197,14 @@ pub enum Instruction {
     Restore(Register),
     Perform(Perform),
     Label(Label),
+    AssignError(Register, &'static str),
 }
 
 impl fmt::Display for Instruction {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::Assign(r, e) => write!(f, " (assign {r} {e})"),
+            Self::AssignError(r, e) => write!(f, " (assign error to {r} with message {e})"),
             Self::Test(p) => write!(f, " (test {p})",),
             Self::Branch(l) => write!(f, " (branch (label {l}))",),
             Self::Goto(g) => write!(f, " (goto {g})",),
@@ -285,7 +290,15 @@ pub fn compile(exp: Ast2, target: Register, linkage: Linkage) -> InstructionSequ
                             vec![Instruction::Assign(target, Expr::Const(Ast::TheEmptyList))],
                         )
                     },
-                    |s| compile(*s, target, Linkage::Next),
+                    |s| {
+                        compile(
+                            *s,
+                            target,
+                            Linkage::Next {
+                                expect_single: true,
+                            },
+                        )
+                    },
                 ),
                 compile_linkage(Linkage::Return),
             ),
@@ -311,7 +324,13 @@ fn compile_loop(
         "generating ir for loop {loop_function:?}, with register {target}, with linkage {linkage:?}",
 
     );
-    let loop_function = compile(*loop_function, Register::Proc, Linkage::Next);
+    let loop_function = compile(
+        *loop_function,
+        Register::Proc,
+        Linkage::Next {
+            expect_single: true,
+        },
+    );
     let loop_label = make_label_name("loop".to_owned());
     let after_loop_label = make_label_name("after_loop".to_owned());
     let done_label = make_label_name("done".to_owned());
@@ -335,7 +354,12 @@ fn compile_loop(
                     hashset!(Register::Continue, Register::Proc),
                     // we don't actually care about result of application so we throw it in target
                     // which is overwritten when loop is done
-                    compile_procedure_call_loop(target, Linkage::Next),
+                    compile_procedure_call_loop(
+                        target,
+                        Linkage::Next {
+                            expect_single: false,
+                        },
+                    ),
                     make_intsruction_sequnce(
                         hashset!(Register::Continue, Register::Proc),
                         hashset!(target),
@@ -373,8 +397,12 @@ fn compile_linkage(linkage: Linkage) -> InstructionSequnce {
             hashset![],
             vec![Instruction::Goto(Goto::Register(Register::Continue))],
         ),
-        Linkage::Next => empty_instruction_seqeunce(),
-        Linkage::Label(label) => InstructionSequnce::new(
+        Linkage::Next { expect_single: _ } => empty_instruction_seqeunce(),
+        // we are assuming this is only being used from single value context
+        Linkage::Label {
+            place: label,
+            expect_single: _,
+        } => InstructionSequnce::new(
             hashset![],
             hashset![],
             vec![Instruction::Goto(Goto::Label(label))],
@@ -526,7 +554,13 @@ fn compile_assignment(
         exp.1, exp.0
     );
     let var = exp.0;
-    let get_value_code = compile(exp.1, Register::Val, Linkage::Next);
+    let get_value_code = compile(
+        exp.1,
+        Register::Val,
+        Linkage::Next {
+            expect_single: true,
+        },
+    );
 
     end_with_linkage(
         linkage,
@@ -545,6 +579,7 @@ fn compile_assignment(
                             Expr::Register(Register::Env),
                         ],
                     }),
+                    // TODO: make the a zero value
                     Instruction::Assign(target, Expr::Const(Ast::Symbol("ok".into()))),
                 ],
             ),
@@ -562,7 +597,13 @@ fn compile_defeninition(
         exp.1, exp.0
     );
     let var = exp.0;
-    let val = compile(exp.1, Register::Val, Linkage::Next);
+    let val = compile(
+        exp.1,
+        Register::Val,
+        Linkage::Next {
+            expect_single: false,
+        },
+    );
 
     end_with_linkage(
         linkage,
@@ -593,16 +634,31 @@ fn compile_if(exp: (Ast2, Ast2, Ast2), target: Register, linkage: Linkage) -> In
     let t_branch = make_label_name("true-branch".to_string());
     let f_branch = make_label_name("false-branch".to_string());
     let after_if = make_label_name("after-if".to_string());
-    let consequent_linkage = if linkage == Linkage::Next {
-        Linkage::Label(after_if.clone())
+    let consequent_linkage = if let Linkage::Next { expect_single } = linkage {
+        Linkage::Label {
+            place: after_if.clone(),
+            expect_single,
+        }
     } else {
         linkage.clone()
     };
 
     #[cfg(feature = "lazy")]
-    let p_code = force_it(exp.0, Register::Val, Linkage::Next);
+    let p_code = force_it(
+        exp.0,
+        Register::Val,
+        Linkage::Next {
+            expect_single: true,
+        },
+    );
     #[cfg(not(feature = "lazy"))]
-    let p_code = compile(exp.0, Register::Val, Linkage::Next);
+    let p_code = compile(
+        exp.0,
+        Register::Val,
+        Linkage::Next {
+            expect_single: true,
+        },
+    );
 
     let c_code = compile(exp.1, target, linkage);
     let a_code = compile(exp.2, target, consequent_linkage);
@@ -645,7 +701,13 @@ fn compile_seq(seq: Vec<Ast2>, target: Register, linkage: Linkage) -> Instructio
             if i == size - 1 {
                 compile(exp, target, linkage.clone())
             } else {
-                compile(exp, target, Linkage::Next)
+                compile(
+                    exp,
+                    target,
+                    Linkage::Next {
+                        expect_single: false,
+                    },
+                )
             }
         })
         .reduce(|a, b| preserving(hashset!(Register::Env, Register::Continue), a, b))
@@ -673,8 +735,11 @@ fn compile_lambda(lambda: (Param, Ast2), target: Register, linkage: Linkage) -> 
     );
     let proc_entry = make_label_name("entry".to_string());
     let after_lambda = make_label_name("after-lambda".to_string());
-    let lambda_linkage = if linkage == Linkage::Next {
-        Linkage::Label(after_lambda.clone())
+    let lambda_linkage = if let Linkage::Next { expect_single } = linkage {
+        Linkage::Label {
+            place: after_lambda.clone(),
+            expect_single,
+        }
     } else {
         linkage
     };
@@ -838,9 +903,15 @@ fn compile_application(
     target: Register,
     linkage: Linkage,
 ) -> InstructionSequnce {
-    let proc_code = compile(f.clone(), Register::Proc, Linkage::Next);
+    let proc_code = compile(
+        f,
+        Register::Proc,
+        Linkage::Next {
+            expect_single: true,
+        },
+    );
     let arg_count = exp.len();
-    let operand_codes = exp.clone().into_iter();
+    let operand_codes = exp.into_iter();
 
     operand_codes
         .map_with_self(|this, rest| (this, rest))
@@ -849,7 +920,12 @@ fn compile_application(
             let (compiled_linkage, target_compiled) = if i + 1 == arg_count {
                 (linkage.clone(), target)
             } else {
-                (Linkage::Next, Register::Proc)
+                (
+                    Linkage::Next {
+                        expect_single: true,
+                    },
+                    Register::Proc,
+                )
             };
             preserving(
                 hashset!(Register::Continue, Register::Env),
@@ -862,7 +938,15 @@ fn compile_application(
                     compiled_linkage,
                     arg,
                     args,
-                    |e| compile(e, Register::Val, Linkage::Next),
+                    |e| {
+                        compile(
+                            e,
+                            Register::Val,
+                            Linkage::Next {
+                                expect_single: true,
+                            },
+                        )
+                    },
                 ),
             )
         })
@@ -881,7 +965,13 @@ fn compile_application(
         exp.iter().map(|e|format!("{e:?}")).join(" ")
     );
     info!("generating ir for applications' function");
-    let proc_code = force_it(f, Register::Proc, Linkage::Next);
+    let proc_code = force_it(
+        f,
+        Register::Proc,
+        Linkage::Next {
+            expect_single: true,
+        },
+    );
 
     let len = exp.len();
     // TODO: make it non strict by essentially turning each argument into zero parameter function and then when we need to unthunk the parameter we just call the function with the env
@@ -895,7 +985,12 @@ fn compile_application(
                 // eprintln!("last arg {:?}", arg);
                 (linkage.clone(), target)
             } else {
-                (Linkage::Next, Register::Proc)
+                (
+                    Linkage::Next {
+                        expect_single: true,
+                    },
+                    Register::Proc,
+                )
             };
             preserving(
                 hashset!(Register::Continue, Register::Env),
@@ -908,8 +1003,24 @@ fn compile_application(
                     arg,
                     target_compiled,
                     comiled_linkage,
-                    |e| force_it(e, Register::Val, Linkage::Next),
-                    |e| delay_it(e, Register::Val, Linkage::Next),
+                    |e| {
+                        force_it(
+                            e,
+                            Register::Val,
+                            Linkage::Next {
+                                expect_single: true,
+                            },
+                        )
+                    },
+                    |e| {
+                        delay_it(
+                            e,
+                            Register::Val,
+                            Linkage::Next {
+                                expect_single: true,
+                            },
+                        )
+                    },
                 ),
             )
         })
@@ -954,13 +1065,19 @@ fn compile_procedure_call(
     let compiled_branch = make_label_name("compiled-branch".to_string());
     let variadiac_branch = make_label_name("variadiac-branch".to_string());
     let after_call = make_label_name("after-call".to_string());
-    let compiled_linkage = if intermediary_linkage == Linkage::Next {
-        Linkage::Label(after_call.clone())
+    let compiled_linkage = if let Linkage::Next { expect_single } = intermediary_linkage {
+        Linkage::Label {
+            place: after_call.clone(),
+            expect_single,
+        }
     } else {
         linkage.clone()
     };
-    let linkage = if linkage == Linkage::Next {
-        Linkage::Label(after_call.clone())
+    let linkage = if let Linkage::Next { expect_single } = linkage {
+        Linkage::Label {
+            place: after_call.clone(),
+            expect_single,
+        }
     } else {
         linkage
     };
@@ -1080,13 +1197,19 @@ fn compile_procedure_call(
     let variadiac_branch = make_label_name("variadiac-branch".to_string());
     let compiled_branch = make_label_name("compiled-branch".to_string());
     let after_call = make_label_name("after-call".to_string());
-    let compiled_linkage = if comiled_linkage == Linkage::Next {
-        Linkage::Label(after_call.clone())
+    let compiled_linkage = if let Linkage::Next { expect_single } = comiled_linkage {
+        Linkage::Label {
+            place: after_call.clone(),
+            expect_single,
+        }
     } else {
-        comiled_linkage
+        linkage.clone()
     };
-    let linkage = if linkage == Linkage::Next {
-        Linkage::Label(after_call.clone())
+    let linkage = if let Linkage::Next { expect_single } = linkage {
+        Linkage::Label {
+            place: after_call.clone(),
+            expect_single,
+        }
     } else {
         linkage
     };
@@ -1200,8 +1323,11 @@ fn compile_procedure_call_loop(target: Register, linkage: Linkage) -> Instructio
     let primitive_branch = make_label_name("primitive-branch".to_string());
     let compiled_branch = make_label_name("compiled-branch".to_string());
     let after_call = make_label_name("after-call".to_string());
-    let linkage = if linkage == Linkage::Next {
-        Linkage::Label(after_call.clone())
+    let linkage = if let Linkage::Next { expect_single } = linkage {
+        Linkage::Label {
+            place: after_call.clone(),
+            expect_single,
+        }
     } else {
         linkage
     };
@@ -1309,62 +1435,69 @@ fn compile_proc_appl<T: Application>(
 ) -> InstructionSequnce {
     match compiled_linkage {
         Linkage::Return
-            // if target == T::return_register() 
- => make_intsruction_sequnce(
-            hashset!(T::register(), Register::Continue),
-            all_regs(),
-            vec![
-                Instruction::Assign(
-                    Register::Val,
-                    Expr::Op(Perform {
-                        op: T::entry(),
-                        args: vec![Expr::Register(T::register())],
-                    }),
+                    // if target == T::return_register() 
+         => make_intsruction_sequnce(
+                    hashset!(T::register(), Register::Continue),
+                    all_regs(),
+                    vec![
+                        Instruction::Assign(
+                            Register::Val,
+                            Expr::Op(Perform {
+                                op: T::entry(),
+                                args: vec![Expr::Register(T::register())],
+                            }),
+                        ),
+                        Instruction::Goto(Goto::Register(Register::Val)),
+                    ],
                 ),
-                Instruction::Goto(Goto::Register(Register::Val)),
-            ],
-        ),
-        Linkage::Label(l) if target == T::return_register() => make_intsruction_sequnce(
-            hashset!(T::register()),
-            all_regs(),
-            vec![
-                Instruction::Assign(Register::Continue, Expr::Label(l)),
-                Instruction::Assign(
-                    Register::Val,
-                    Expr::Op(Perform {
-                        op: T::entry(),
-                        args: vec![Expr::Register(T::register())],
-                    }),
+        Linkage::Label { place: l, expect_single } if target == T::return_register() => make_intsruction_sequnce(
+                    hashset!(T::register()),
+                    all_regs(),
+                    vec![
+                        Instruction::Assign(Register::Continue, Expr::Label(l.clone())),
+                    if !expect_single {
+Instruction::AssignError(Register::ContinueMulti , "not expecting multiple values")
+                        } else {    Instruction::Assign(Register::ContinueMulti, Expr::Label(l))},
+                        Instruction::Assign(
+                            Register::Val,
+                            Expr::Op(Perform {
+                                op: T::entry(),
+                                args: vec![Expr::Register(T::register())],
+                            }),
+                        ),
+                        Instruction::Goto(Goto::Register(Register::Val)),
+                    ],
                 ),
-                Instruction::Goto(Goto::Register(Register::Val)),
-            ],
-        ),
-        Linkage::Next => unreachable!(),
         Linkage::Return => panic!(
-            "return linkage, target not {} -- COMPILE {target}",
-            T::return_register()
-        ),
-        Linkage::Label(l) => {
-            let proc_return = make_label_name(format!("{}-return", T::name()));
-            make_intsruction_sequnce(
-                hashset!(T::register()),
-                all_regs(),
-                vec![
-                    Instruction::Assign(Register::Continue, Expr::Label(proc_return.clone())),
-                    Instruction::Assign(
-                        Register::Val,
-                        Expr::Op(Perform {
-                            op: T::entry(),
-                            args: vec![Expr::Register(T::register())],
-                        }),
-                    ),
-                    Instruction::Goto(Goto::Register(Register::Val)),
-                    Instruction::Label(proc_return),
-                    Instruction::Assign(target, Expr::Register(T::return_register())),
-                    Instruction::Goto(Goto::Label(l)),
-                ],
-            )
-        }
+                    "return linkage, target not {} -- COMPILE {target}",
+                    T::return_register()
+                ),
+        Linkage::Label { place: l, expect_single } => {
+                    let proc_return = make_label_name(format!("{}-return", T::name()));
+                    make_intsruction_sequnce(
+                        hashset!(T::register()),
+                        all_regs(),
+                        vec![
+                            Instruction::Assign(Register::Continue, Expr::Label(proc_return.clone())),
+
+                    if expect_single {
+Instruction::AssignError(Register::ContinueMulti , "not expecting multiple values")
+                        } else {    Instruction::Assign(Register::ContinueMulti, Expr::Label(proc_return.clone()))},
+                            Instruction::Assign(
+                                Register::Val,
+                                Expr::Op(Perform {
+                                    op: T::entry(),
+                                    args: vec![Expr::Register(T::register())],
+                                }),
+                            ),
+                            Instruction::Goto(Goto::Register(Register::Val)),
+                            Instruction::Label(proc_return),
+                            Instruction::Assign(target, Expr::Register(T::return_register())),
+                            Instruction::Goto(Goto::Label(l)),
+                        ],
+                    )
+                }
+        Linkage::Next { expect_single } => unreachable!(),
     }
 }
 
@@ -1412,11 +1545,21 @@ fn force_it(exp: Ast2, target: Register, linkage: Linkage) -> InstructionSequnce
     let actual_value_label = make_label_name("actual-value".to_string());
     let force_label = make_label_name("force".to_string());
     let done = make_label_name("done".to_string());
-    let thunk = compile(exp, Register::Thunk, Linkage::Next);
-    let thunk_linkage = if linkage == Linkage::Next {
-        Linkage::Label(actual_value_label.clone())
+
+    let thunk = compile(
+        exp,
+        Register::Thunk,
+        Linkage::Next {
+            expect_single: true,
+        },
+    );
+    let thunk_linkage = if let Linkage::Next { expect_single } = linkage {
+        Linkage::Label {
+            place: actual_value_label.clone(),
+            expect_single,
+        }
     } else {
-        linkage
+        linkage.clone()
     };
     preserving(
         hashset!(Register::Env, Register::Continue),
@@ -1461,11 +1604,15 @@ fn delay_it(exp: Ast2, target: Register, linkage: Linkage) -> InstructionSequnce
     // continue register, if we have an actual thunk)
     let thunk_label = make_label_name("thunk".to_string());
     let after_thunk = make_label_name("after-label".to_string());
-    let thunk_linkage = if linkage == Linkage::Next {
-        Linkage::Label(after_thunk.clone())
+    let thunk_linkage = if let Linkage::Next { expect_single } = linkage {
+        Linkage::Label {
+            place: after_thunk.clone(),
+            expect_single,
+        }
     } else {
-        linkage
+        linkage.clone()
     };
+
     let mut inst = end_with_linkage(
         thunk_linkage,
         make_intsruction_sequnce(

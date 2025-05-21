@@ -166,9 +166,15 @@ fn compile(file: &str, out: &str) {
                 .map(|(k, ks)| (ks, k.clone(), k)),
         );
         let (ele, _) = Ast2::transform(ele, links).unwrap();
-        let ele = sicp::compile(ele, Register::Val, Linkage::Next)
-            .instructions()
-            .to_vec();
+        let ele = sicp::compile(
+            ele,
+            Register::Val,
+            Linkage::Next {
+                expect_single: false,
+            },
+        )
+        .instructions()
+        .to_vec();
         eprintln!("{}", ele.iter().map(ToString::to_string).join("\n"));
         let context = Context::create();
         let module = context.create_module(file);

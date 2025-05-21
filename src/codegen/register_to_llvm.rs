@@ -132,6 +132,7 @@ pub struct RegiMap<'ctx> {
     Val: PointerValue<'ctx>,
     Proc: PointerValue<'ctx>,
     Continue: PointerValue<'ctx>,
+    ContinueMulti: PointerValue<'ctx>,
     Thunk: PointerValue<'ctx>,
     Values: PointerValue<'ctx>,
 }
@@ -144,8 +145,9 @@ impl<'ctx> RegiMap<'ctx> {
             Val: create_register("val"),
             Proc: create_register("proc"),
             Continue: create_register("continue"),
+            ContinueMulti: create_register("continue-multi"),
             Thunk: create_register("thunk"),
-            Values: (|name| builder.build_alloca(values_ty, name).unwrap())("values"),
+            Values: create_register("thunk"),
         }
     }
     pub const fn get(&self, index: Register) -> PointerValue<'ctx> {
@@ -157,6 +159,7 @@ impl<'ctx> RegiMap<'ctx> {
             <Register>::Continue => self.Continue,
             <Register>::Thunk => self.Thunk,
             <Register>::Values => self.Values,
+            <Register>::ContinueMulti => self.ContinueMulti,
         }
     }
 }
@@ -186,7 +189,6 @@ pub struct Types<'ctx> {
     primitive: FunctionType<'ctx>,
     error: StructType<'ctx>,
     small_number: IntType<'ctx>,
-    values_type: StructType<'ctx>,
 }
 /// Important function that the compiler needs to access
 pub struct Functions<'ctx> {
@@ -355,7 +357,6 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
             primitive: primitive_type,
             error,
             small_number,
-            values_type,
             types: TypeMap::new(
                 context.struct_type(&[], false).into(),
                 context.i8_type().into(),
@@ -550,7 +551,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
         let str = self.builder.build_extract_value(str, 1, "strlen").unwrap();
         // https://stackoverflow.com/questions/256218/the-simplest-way-of-printing-a-portion-of-a-char-in-c
         // for how to print fixed length strings
-        self.make_printf("%.*s", vec![len, str]);
+        self.make_printf("%.*s\n", vec![len, str]);
     }
 
     fn make_primitive_pair(
@@ -568,7 +569,6 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
         ($(($name:literal $acces:ident )),*) => {
             vec![$(($name, self.create_primitive($name, |this,func,_|{
                 let argl = func.get_first_param().unwrap().into_struct_value();
-                // this.print_object(argl);
                 self.builder.build_return(Some(&this.$acces(this.make_car(func.get_first_param().unwrap().into_struct_value())))).unwrap();
             }))),*]
         };
@@ -894,6 +894,62 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
             // this.print_object(result);
             this.builder.build_return(Some(&result)).unwrap();
         });
+        let values = {
+            let env = self.registers.get(Register::Env);
+
+            let env = self
+                .builder
+                .build_load(self.types.object, env, "load argl")
+                .unwrap();
+            let prev_bb = self.builder.get_insert_block().unwrap();
+
+            let start_label = self.context.append_basic_block(self.current, "values");
+            self.labels.insert("values".to_string(), start_label);
+            self.builder.position_at_end(start_label);
+            let argl = self.registers.get(Register::Argl);
+            let argl = self
+                .builder
+                .build_load(self.types.object, argl, "load argl")
+                .unwrap();
+
+            let val = self.registers.get(Register::Val);
+            self.builder.build_store(val, argl);
+            let continue_reg = self.registers.get(Register::ContinueMulti);
+            let register = self
+                .builder
+                .build_load(self.types.object, continue_reg, "load register continue")
+                .unwrap();
+            let label = self
+                .unchecked_get_label(register.into_struct_value())
+                .into_pointer_value();
+            self.builder
+                // we need all possible labels as destinations b/c indirect br requires a destination but we dont which one at compile time so we use all of them - maybe fixed with register_to_llvm_more_opt
+                .build_indirect_branch(
+                    label,
+                    &self
+                        .labels
+                        .values()
+                        // .chain(iter::once(&self.error_block))
+                        .copied()
+                        .collect_vec(),
+                );
+            self.builder.position_at_end(prev_bb);
+            let lambda = self.make_object(
+                &self.list_to_struct(
+                    self.types.types.get(TypeIndex::lambda).into_struct_type(),
+                    &[
+                        self.make_object(
+                            &unsafe { start_label.get_address().unwrap() },
+                            TypeIndex::label,
+                        )
+                        .into(),
+                        env,
+                    ],
+                ),
+                TypeIndex::lambda,
+            );
+            (self.create_symbol("values"), lambda)
+        };
 
         // for some reason the problem with primitives - you guessed it is only with primitives, so
         // when we make one "non" primitive it works flawlesly
@@ -944,7 +1000,15 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                 .into_pointer_value();
             self.builder
                 // we need all possible labels as destinations b/c indirect br requires a destination but we dont which one at compile time so we use all of them - maybe fixed with register_to_llvm_more_opt
-                .build_indirect_branch(label, &self.labels.values().copied().collect_vec());
+                .build_indirect_branch(
+                    label,
+                    &self
+                        .labels
+                        .values()
+                        // .chain(iter::once(&self.error_block))
+                        .copied()
+                        .collect_vec(),
+                );
             self.builder.position_at_end(prev_bb);
             let lambda = self.make_object(
                 &self.list_to_struct(
@@ -970,7 +1034,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
             ("set_cdr!", primitive_set_cdr),
             ("set_car!", primitive_set_car),
             ("cons", primitive_cons),
-            // ("+1", primitive_add1),
+            ("+1", primitive_add1),
             ("-1", primitive_sub1),
         ];
         let accesors = self.init_accessors();
@@ -978,7 +1042,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
             .into_iter()
             .chain(accesors)
             .map(|(name, function)| self.make_primitive_pair(name, function))
-            .chain(iter::once(add1))
+            .chain(iter::once(values))
             .fold(
                 (self.empty(), self.empty()),
                 |(symbols, functions), (symbol, function)| {
@@ -1111,7 +1175,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
             .build_return(Some(&self.context.i32_type().const_zero()))
             .unwrap();
         // self.fpm.run_on(&self.current);
-        let fpm = PassManager::create(());
+        // let fpm = PassManager::create(());
         // TODO: more and better optimizations
 
         // fpm.add_function_inlining_pass();
@@ -1136,7 +1200,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
         // fpm.add_function_inlining_pass();
         // fpm.add_strip_dead_prototypes_pass();
 
-        fpm.run_on(self.module);
+        // fpm.run_on(self.module);
     }
 
     fn truthy(&self, val: StructValue<'ctx>) -> IntValue<'ctx> {
@@ -1359,6 +1423,17 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                     .unwrap();
                 self.builder.position_at_end(*self.labels.get(&l).unwrap());
             }
+            Instruction::AssignError(register, e) => {
+                let expr = self.make_object(
+                    &unsafe { &self.error_block.get_address() }.unwrap(),
+                    TypeIndex::label,
+                );
+                let register = self.registers.get(register);
+                // TODO: add error message as part of phi to error
+
+                self.set_error(e, 3);
+                self.builder.build_store(register, expr).unwrap();
+            }
         }
     }
 
@@ -1380,7 +1455,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
         }
     }
 
-    // lookup variable for set! and plain variable lookup
+    // lookup variable for set-bang and plain variable lookup
     // returns a tuple contatining the cons of the found variable and the rest of the vars in the frame
     fn lookup_variable(&self, var: StructValue<'ctx>, env: StructValue<'ctx>) -> StructValue<'ctx> {
         let lookup_entry_bb = self
@@ -1619,6 +1694,8 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                 self.empty()
             }
             Operation::ApplyPrimitiveProcedure => {
+                // TODO: make primitive procedure be like compiled procedure in that its not c
+                // function so that it has access to registers
                 let proc = args[0];
                 let argl = args[1];
                 let proc = self.unchecked_get_primitive(proc);
