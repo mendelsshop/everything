@@ -1168,6 +1168,13 @@ fn compile_procedure_call(
                 ),
             ),
             append_instruction_sequnce(
+                // primitive branch uses end with linkage which assumes single values
+                // we have to inform the primitve about the two jumping place (through the registes
+                // continue/continue-multi or by providing apply primitive procedure two registers)
+                // instead of implicitly jumping to a single value, point
+                // it would be up to the primtive to decide which one to use
+                // similar to what we do in compile_proc_appl, speciically setting the two
+                // register, and letting the called function decide where to jump back to
                 make_label_instruction(primitive_branch),
                 preserving(
                     hashset!(Register::Proc, Register::Continue, Register::ContinueMulti),
