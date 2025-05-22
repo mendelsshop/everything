@@ -45,7 +45,7 @@ macro_rules! count {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Linkage {
     Return,
-    // true mean that expects one value
+    // true mean that expects one value, maybe instead of boolean have optional label, to jump to
     Next { expect_single: bool },
     Label { place: Label, expect_single: bool },
 }
@@ -483,7 +483,7 @@ fn end_with_linkage(
     instruction_sequnce: InstructionSequnce,
 ) -> InstructionSequnce {
     preserving(
-        hashset![Register::Continue],
+        hashset![Register::Continue, Register::ContinueMulti],
         instruction_sequnce,
         compile_linkage(linkage),
     )
@@ -1386,21 +1386,27 @@ fn compile_procedure_call_loop(target: Register, linkage: Linkage) -> Instructio
             append_instruction_sequnce(
                 make_label_instruction(primitive_branch),
                 append_instruction_sequnce(
+                    // maybe don't need to end with linkage as it should be up to the primitive
+                    // procedure to do the jumping
                     end_with_linkage(
-                        linkage,
-                        make_intsruction_sequnce(
-                            hashset!(Register::Proc, Register::Argl),
-                            hashset!(target),
-                            vec![Instruction::Assign(
-                                target,
-                                Expr::Op(Perform {
-                                    op: Operation::ApplyPrimitiveProcedure,
-                                    args: vec![
-                                        Expr::Register(Register::Proc),
-                                        Expr::Register(Register::Argl),
-                                    ],
-                                }),
-                            )],
+                        linkage.clone(),
+                        compile_proc_appl_end::<Procedure>(
+                            Procedure::register(),
+                            linkage,
+                            make_intsruction_sequnce(
+                                hashset!(Register::Proc, Register::Argl),
+                                hashset!(target),
+                                vec![Instruction::Assign(
+                                    target,
+                                    Expr::Op(Perform {
+                                        op: Operation::ApplyPrimitiveProcedure,
+                                        args: vec![
+                                            Expr::Register(Register::Proc),
+                                            Expr::Register(Register::Argl),
+                                        ],
+                                    }),
+                                )],
+                            ),
                         ),
                     ),
                     make_label_instruction(after_call),
@@ -1458,73 +1464,104 @@ impl Application for Procedure {
 fn compile_proc_appl<T: Application>(
     target: Register,
     compiled_linkage: Linkage,
+    application_code: InstructionSequnce,
 ) -> InstructionSequnce {
     match compiled_linkage {
-        Linkage::Return
-                    // if target == T::return_register() 
-         => make_intsruction_sequnce(
-                    hashset!(T::register(), Register::ContinueMulti, Register::Continue),
-                    all_regs(),
-                    vec![
-                        Instruction::Assign(
-                            Register::Val,
-                            Expr::Op(Perform {
-                                op: T::entry(),
-                                args: vec![Expr::Register(T::register())],
-                            }),
-                        ),
-                        Instruction::Goto(Goto::Register(Register::Val)),
-                    ],
-                ),
-        Linkage::Label { place: l, expect_single } if target == T::return_register() => make_intsruction_sequnce(
-                    hashset!(T::register()),
-                    all_regs(),
-                    vec![
-                        Instruction::Assign(Register::Continue, Expr::Label(l.clone())),
-                    if expect_single {    Instruction::Assign(Register::ContinueMulti, Expr::Label(l))} else {
-                    Instruction::AssignError(Register::ContinueMulti , "not expecting multiple values")
-                                            },
-                        Instruction::Assign(
-                            Register::Val,
-                            Expr::Op(Perform {
-                                op: T::entry(),
-                                args: vec![Expr::Register(T::register())],
-                            }),
-                        ),
-                        Instruction::Goto(Goto::Register(Register::Val)),
-                    ],
-                ),
-        Linkage::Return => panic!(
-                    "return linkage, target not {} -- COMPILE {target}",
-                    T::return_register()
-                ),
-        Linkage::Label { place: l, expect_single } => {
-                    let proc_return = make_label_name(format!("{}-return", T::name()));
-                    make_intsruction_sequnce(
-                        hashset!(T::register()),
-                        all_regs(),
-                        vec![
-                            Instruction::Assign(Register::Continue, Expr::Label(proc_return.clone())),
-
+        // if target == T::return_register()
+        Linkage::Return => append_instruction_sequnce(
+            make_intsruction_sequnce(
+                hashset!(Register::ContinueMulti, Register::Continue),
+                hashset!(),
+                vec![],
+            ),
+            application_code,
+        ),
+        Linkage::Label {
+            place: l,
+            expect_single,
+        } if target == T::return_register() => append_instruction_sequnce(
+            make_intsruction_sequnce(
+                hashset!(),
+                hashset!(Register::ContinueMulti, Register::Continue),
+                vec![
+                    Instruction::Assign(Register::Continue, Expr::Label(l.clone())),
                     if expect_single {
-Instruction::AssignError(Register::ContinueMulti , "not expecting multiple values")
-                        } else {    Instruction::Assign(Register::ContinueMulti, Expr::Label(proc_return.clone()))},
+                        Instruction::Assign(Register::ContinueMulti, Expr::Label(l))
+                    } else {
+                        Instruction::AssignError(
+                            Register::ContinueMulti,
+                            "not expecting multiple values",
+                        )
+                    },
+                ],
+            ),
+            application_code,
+        ),
+        Linkage::Return => panic!(
+            "return linkage, target not {} -- COMPILE {target}",
+            T::return_register()
+        ),
+        Linkage::Label {
+            place: l,
+            expect_single,
+        } => {
+            let proc_return = make_label_name(format!("{}-return", T::name()));
+            append_instruction_sequnce(
+                make_intsruction_sequnce(
+                    hashset!(),
+                    hashset!(Register::ContinueMulti, Register::Continue),
+                    vec![
+                        Instruction::Assign(Register::Continue, Expr::Label(proc_return.clone())),
+                        if expect_single {
+                            Instruction::AssignError(
+                                Register::ContinueMulti,
+                                "not expecting multiple values",
+                            )
+                        } else {
                             Instruction::Assign(
-                                Register::Val,
-                                Expr::Op(Perform {
-                                    op: T::entry(),
-                                    args: vec![Expr::Register(T::register())],
-                                }),
-                            ),
-                            Instruction::Goto(Goto::Register(Register::Val)),
+                                Register::ContinueMulti,
+                                Expr::Label(proc_return.clone()),
+                            )
+                        },
+                    ],
+                ),
+                append_instruction_sequnce(
+                    application_code,
+                    make_intsruction_sequnce(
+                        hashset!(),
+                        hashset!(target),
+                        vec![
                             Instruction::Label(proc_return),
                             Instruction::Assign(target, Expr::Register(T::return_register())),
                             Instruction::Goto(Goto::Label(l)),
                         ],
-                    )
-                }
+                    ),
+                ),
+            )
+        }
         Linkage::Next { expect_single } => unreachable!(),
     }
+}
+// the way we differentiate between thunk and procedure is with the T generic we could also do this with const generics
+fn compile_proc_appl<T: Application>(
+    target: Register,
+    compiled_linkage: Linkage,
+) -> InstructionSequnce {
+    let application_code = make_intsruction_sequnce(
+        hashset!(T::register()),
+        all_regs(),
+        vec![
+            Instruction::Assign(
+                Register::Val,
+                Expr::Op(Perform {
+                    op: T::entry(),
+                    args: vec![Expr::Register(T::register())],
+                }),
+            ),
+            Instruction::Goto(Goto::Register(Register::Val)),
+        ],
+    );
+    compile_proc_appl_end::<T>(target, compiled_linkage, application_code)
 }
 
 fn all_regs() -> HashSet<Register> {
