@@ -1137,22 +1137,15 @@ fn compile_procedure_call(
                                 InstructionSequnce::new(
                                     hashset!(Register::Val, Register::Argl),
                                     hashset!(Register::Argl),
-                                    vec![
-                                        Instruction::Assign(
-                                            Register::Argl,
-                                            Expr::Register(Register::Val),
-                                        ),
-                                        Instruction::Assign(
-                                            Register::Argl,
-                                            Expr::Op(Perform {
-                                                op: Operation::Cons,
-                                                args: vec![
-                                                    Expr::Register(Register::Argl),
-                                                    Expr::Const(Ast::TheEmptyList),
-                                                ],
-                                            }),
-                                        ),
-                                    ],
+                                    // we do not need to do any consing because we only take on
+                                    // a single argument, and the way extend env works is that it
+                                    // only expects one value and one symbol because user defined
+                                    // functions only take on arguement, the only difference for
+                                    // variadiacs is at the call site
+                                    vec![Instruction::Assign(
+                                        Register::Argl,
+                                        Expr::Register(Register::Val),
+                                    )],
                                 ),
                             ),
                             compile_proc_appl::<Procedure>(intermediary_target, compiled_linkage),
@@ -1287,22 +1280,15 @@ fn compile_procedure_call(
                                 InstructionSequnce::new(
                                     hashset!(Register::Val, Register::Argl),
                                     hashset!(Register::Argl),
-                                    vec![
-                                        Instruction::Assign(
-                                            Register::Argl,
-                                            Expr::Register(Register::Val),
-                                        ),
-                                        Instruction::Assign(
-                                            Register::Argl,
-                                            Expr::Op(Perform {
-                                                op: Operation::Cons,
-                                                args: vec![
-                                                    Expr::Register(Register::Argl),
-                                                    Expr::Const(Ast::TheEmptyList),
-                                                ],
-                                            }),
-                                        ),
-                                    ],
+                                    // we do not need to do any consing because we only take on
+                                    // a single argument, and the way extend env works is that it
+                                    // only expects one value and one symbol because user defined
+                                    // functions only take on arguement, the only difference for
+                                    // variadiacs is at the call site
+                                    vec![Instruction::Assign(
+                                        Register::Argl,
+                                        Expr::Register(Register::Val),
+                                    )],
                                 ),
                             ),
                             compile_proc_appl::<Procedure>(target_compiled, compiled_linkage),
