@@ -1006,7 +1006,7 @@ fn compile_application(
                     )
                 };
                 preserving(
-                    hashset!(Register::Continue, Register::MultiContinue, Register::Env),
+                    hashset!(Register::Continue, Register::ContinueMulti, Register::Env),
                     // hashset!(Register::Proc, Register::Continue),
                     proc,
                     compile_procedure_call(
@@ -1137,10 +1137,22 @@ fn compile_procedure_call(
                                 InstructionSequnce::new(
                                     hashset!(Register::Val, Register::Argl),
                                     hashset!(Register::Argl),
-                                    vec![Instruction::Assign(
-                                        Register::Argl,
-                                        Expr::Register(Register::Val),
-                                    )],
+                                    vec![
+                                        Instruction::Assign(
+                                            Register::Argl,
+                                            Expr::Register(Register::Val),
+                                        ),
+                                        Instruction::Assign(
+                                            Register::Argl,
+                                            Expr::Op(Perform {
+                                                op: Operation::Cons,
+                                                args: vec![
+                                                    Expr::Register(Register::Argl),
+                                                    Expr::Const(Ast::TheEmptyList),
+                                                ],
+                                            }),
+                                        ),
+                                    ],
                                 ),
                             ),
                             compile_proc_appl::<Procedure>(intermediary_target, compiled_linkage),
@@ -1150,18 +1162,7 @@ fn compile_procedure_call(
                         make_label_instruction(variadiac_branch),
                         preserving(
                             hashset!(Register::Proc, Register::Continue, Register::ContinueMulti),
-                            preserving(
-                                hashset!(Register::Argl),
-                                construct_arg_list(args.clone().map(compile)),
-                                InstructionSequnce::new(
-                                    hashset!(Register::Val, Register::Argl),
-                                    hashset!(Register::Argl),
-                                    vec![Instruction::Assign(
-                                        Register::Argl,
-                                        Expr::Register(Register::Val),
-                                    )],
-                                ),
-                            ),
+                            construct_arg_list(args.clone().map(compile)),
                             compile_proc_appl::<Procedure>(target, linkage.clone()),
                         ),
                     ),
@@ -1181,20 +1182,25 @@ fn compile_procedure_call(
                     construct_arg_list(args.map(compile)),
                     append_instruction_sequnce(
                         end_with_linkage(
-                            linkage,
-                            make_intsruction_sequnce(
-                                hashset!(Register::Proc, Register::Argl),
-                                hashset!(target),
-                                vec![Instruction::Assign(
-                                    target,
-                                    Expr::Op(Perform {
-                                        op: Operation::ApplyPrimitiveProcedure,
-                                        args: vec![
-                                            Expr::Register(Register::Proc),
-                                            Expr::Register(Register::Argl),
-                                        ],
-                                    }),
-                                )],
+                            linkage.clone(),
+                            compile_proc_appl_end::<Procedure>(
+                                Procedure::register(),
+                                linkage,
+                                make_intsruction_sequnce(
+                                    hashset!(Register::Proc, Register::Argl),
+                                    // calls could modify the continue(-multi) registers
+                                    hashset!(target),
+                                    vec![Instruction::Assign(
+                                        target,
+                                        Expr::Op(Perform {
+                                            op: Operation::ApplyPrimitiveProcedure,
+                                            args: vec![
+                                                Expr::Register(Register::Proc),
+                                                Expr::Register(Register::Argl),
+                                            ],
+                                        }),
+                                    )],
+                                ),
                             ),
                         ),
                         make_label_instruction(after_call),
@@ -1233,7 +1239,7 @@ fn compile_procedure_call(
     };
     let linkage = if let Linkage::Next { expect_single } = linkage {
         Linkage::Label {
-            place: after_full_call.clone(),
+            place: after_full_call,
             expect_single,
         }
     } else {
@@ -1281,10 +1287,22 @@ fn compile_procedure_call(
                                 InstructionSequnce::new(
                                     hashset!(Register::Val, Register::Argl),
                                     hashset!(Register::Argl),
-                                    vec![Instruction::Assign(
-                                        Register::Argl,
-                                        Expr::Register(Register::Val),
-                                    )],
+                                    vec![
+                                        Instruction::Assign(
+                                            Register::Argl,
+                                            Expr::Register(Register::Val),
+                                        ),
+                                        Instruction::Assign(
+                                            Register::Argl,
+                                            Expr::Op(Perform {
+                                                op: Operation::Cons,
+                                                args: vec![
+                                                    Expr::Register(Register::Argl),
+                                                    Expr::Const(Ast::TheEmptyList),
+                                                ],
+                                            }),
+                                        ),
+                                    ],
                                 ),
                             ),
                             compile_proc_appl::<Procedure>(target_compiled, compiled_linkage),
@@ -1294,18 +1312,7 @@ fn compile_procedure_call(
                         make_label_instruction(variadiac_branch),
                         preserving(
                             hashset!(Register::Proc, Register::Continue, Register::ContinueMulti),
-                            preserving(
-                                hashset!(Register::Argl),
-                                construct_arg_list(operands.clone().map(compile_compiled)),
-                                InstructionSequnce::new(
-                                    hashset!(Register::Val, Register::Argl),
-                                    hashset!(Register::Argl),
-                                    vec![Instruction::Assign(
-                                        Register::Argl,
-                                        Expr::Register(Register::Val),
-                                    )],
-                                ),
-                            ),
+                            construct_arg_list(operands.clone().map(compile_compiled)),
                             compile_proc_appl::<Procedure>(target, linkage.clone()),
                         ),
                     ),
@@ -1318,20 +1325,24 @@ fn compile_procedure_call(
                     construct_arg_list(operands.map(compile_primitive)),
                     append_instruction_sequnce(
                         end_with_linkage(
-                            linkage,
-                            make_intsruction_sequnce(
-                                hashset!(Register::Proc, Register::Argl),
-                                hashset!(target),
-                                vec![Instruction::Assign(
-                                    target,
-                                    Expr::Op(Perform {
-                                        op: Operation::ApplyPrimitiveProcedure,
-                                        args: vec![
-                                            Expr::Register(Register::Proc),
-                                            Expr::Register(Register::Argl),
-                                        ],
-                                    }),
-                                )],
+                            linkage.clone(),
+                            compile_proc_appl_end::<Procedure>(
+                                Procedure::register(),
+                                linkage,
+                                make_intsruction_sequnce(
+                                    hashset!(Register::Proc, Register::Argl),
+                                    hashset!(target),
+                                    vec![Instruction::Assign(
+                                        target,
+                                        Expr::Op(Perform {
+                                            op: Operation::ApplyPrimitiveProcedure,
+                                            args: vec![
+                                                Expr::Register(Register::Proc),
+                                                Expr::Register(Register::Argl),
+                                            ],
+                                        }),
+                                    )],
+                                ),
                             ),
                         ),
                         make_label_instruction(after_call),
@@ -1395,6 +1406,7 @@ fn compile_procedure_call_loop(target: Register, linkage: Linkage) -> Instructio
                             linkage,
                             make_intsruction_sequnce(
                                 hashset!(Register::Proc, Register::Argl),
+                                // calls could modify the continue(-multi) registers
                                 hashset!(target),
                                 vec![Instruction::Assign(
                                     target,
@@ -1622,7 +1634,7 @@ fn force_it(exp: Ast2, target: Register, linkage: Linkage) -> InstructionSequnce
             expect_single,
         }
     } else {
-        linkage.clone()
+        linkage
     };
     preserving(
         hashset!(Register::Env, Register::Continue),
@@ -1673,7 +1685,7 @@ fn delay_it(exp: Ast2, target: Register, linkage: Linkage) -> InstructionSequnce
             expect_single,
         }
     } else {
-        linkage.clone()
+        linkage
     };
 
     let mut inst = end_with_linkage(
