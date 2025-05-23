@@ -1243,9 +1243,8 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
     fn compile_instructions(&mut self, instruction: Instruction) {
         match instruction {
             Instruction::Assign(r, e) => {
-                let register = self.registers.get(r);
                 let expr = self.compile_expr(e);
-                self.builder.build_store(register, expr).unwrap();
+                self.assign_register(r, expr);
             }
             Instruction::Test(p) => {
                 self.builder
@@ -1349,9 +1348,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                     .builder
                     .build_extract_value(stack.into_struct_value(), 0, "current stack")
                     .unwrap();
-                self.builder
-                    .build_store(self.registers.get(reg), current)
-                    .unwrap();
+                self.assign_register(reg, current.into_struct_value());
                 let old_stack = self
                     .builder
                     .build_load(
@@ -1386,6 +1383,27 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
             }
         }
     }
+    fn assign_register_label(
+        &mut self,
+        r: Register,
+        expr: BasicBlock<'ctx>,
+    ) -> inkwell::values::InstructionValue<'ctx> {
+        self.builder
+            .build_store(
+                self.registers.get(r),
+                self.make_object(&unsafe { expr.get_address() }.unwrap(), TypeIndex::label),
+            )
+            .unwrap()
+    }
+    fn assign_register(
+        &mut self,
+        r: Register,
+        expr: StructValue<'ctx>,
+    ) -> inkwell::values::InstructionValue<'ctx> {
+        self.builder
+            .build_store(self.registers.get(r), expr)
+            .unwrap()
+    }
 
     fn compile_expr(&mut self, expr: Expr) -> StructValue<'ctx> {
         match expr {
@@ -1394,15 +1412,20 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                 let label_address = unsafe { self.labels.get(&l).unwrap().get_address() }.unwrap();
                 self.make_object(&label_address, TypeIndex::label)
             }
-            Expr::Register(r) => {
-                let reg = self.registers.get(r);
-                self.builder
-                    .build_load(self.types.object, reg, &format!("load register {r}"))
-                    .unwrap()
-                    .into_struct_value()
-            }
+            Expr::Register(r) => self.load_register(r),
             Expr::Op(p) => self.compile_perform(p),
         }
+    }
+
+    fn load_register(&mut self, r: Register) -> StructValue<'ctx> {
+        self.builder
+            .build_load(
+                self.types.object,
+                self.registers.get(r),
+                &format!("load register {r}"),
+            )
+            .unwrap()
+            .into_struct_value()
     }
 
     // lookup variable for set-bang and plain variable lookup
@@ -1425,7 +1448,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
             .unwrap();
 
         self.builder.position_at_end(lookup_entry_bb);
-        self.set_error("unbound variable\n", 1);
+        self.set_error(&format!("unbound variable{}\n", rand::random::<u8>()), 1);
         let env_load = self
             .builder
             .build_load(self.types.object, env_ptr, "load env")
@@ -1620,11 +1643,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
             }
             Operation::CompiledProcedureEntry => {
                 let proc = args[0];
-                let proc = self.unchecked_get_lambda(proc).into_struct_value();
-                self.builder
-                    .build_extract_value(proc, 0, "proc entry")
-                    .unwrap()
-                    .into_struct_value()
+                self.compiled_procedure_entry(proc)
             }
             Operation::DefineVariable => {
                 let var = args[0];
@@ -1765,47 +1784,8 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
             }
             Operation::VariadiacProcedure => {
                 let proc = args[0];
-                let proc = self.unchecked_get_lambda(proc).into_struct_value();
-                let val = self
-                    .builder
-                    .build_extract_value(proc, 2, "proc entry")
-                    .unwrap()
-                    .into_struct_value();
-                let lambda_type = self.get_number(val).into_float_value();
-
-                self.make_object(
-                    &self
-                        .builder
-                        .build_or(
-                            self.builder
-                                .build_float_compare(
-                                    FloatPredicate::OEQ,
-                                    lambda_type,
-                                    self.types
-                                        .types
-                                        .number
-                                        .into_float_type()
-                                        .const_float(ZERO_VARIADIAC_ARG as f64),
-                                    "is zero variadiac",
-                                )
-                                .unwrap(),
-                            self.builder
-                                .build_float_compare(
-                                    FloatPredicate::OEQ,
-                                    lambda_type,
-                                    self.types
-                                        .types
-                                        .number
-                                        .into_float_type()
-                                        .const_float(ONE_VARIADIAC_ARG as f64),
-                                    "is one variadiac",
-                                )
-                                .unwrap(),
-                            "is variadiac",
-                        )
-                        .unwrap(),
-                    TypeIndex::bool,
-                )
+                let obj = self.is_variadiac(proc);
+                self.make_object(&obj, TypeIndex::bool)
             }
             Operation::NotStop => {
                 // if stop is not 1
@@ -1838,6 +1818,56 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                 self.empty()
             }
         }
+    }
+
+    fn compiled_procedure_entry(&mut self, proc: StructValue<'ctx>) -> StructValue<'ctx> {
+        let proc = self.unchecked_get_lambda(proc).into_struct_value();
+        self.builder
+            .build_extract_value(proc, 0, "proc entry")
+            .unwrap()
+            .into_struct_value()
+    }
+
+    fn is_variadiac(&mut self, proc: StructValue<'ctx>) -> IntValue<'ctx> {
+        let proc = self.unchecked_get_lambda(proc).into_struct_value();
+        let val = self
+            .builder
+            .build_extract_value(proc, 2, "proc entry")
+            .unwrap()
+            .into_struct_value();
+        let lambda_type = self.get_number(val).into_float_value();
+
+        let obj = self
+            .builder
+            .build_or(
+                self.builder
+                    .build_float_compare(
+                        FloatPredicate::OEQ,
+                        lambda_type,
+                        self.types
+                            .types
+                            .number
+                            .into_float_type()
+                            .const_float(ZERO_VARIADIAC_ARG as f64),
+                        "is zero variadiac",
+                    )
+                    .unwrap(),
+                self.builder
+                    .build_float_compare(
+                        FloatPredicate::OEQ,
+                        lambda_type,
+                        self.types
+                            .types
+                            .number
+                            .into_float_type()
+                            .const_float(ONE_VARIADIAC_ARG as f64),
+                        "is one variadiac",
+                    )
+                    .unwrap(),
+                "is variadiac",
+            )
+            .unwrap();
+        obj
     }
 
     fn list_to_struct(
