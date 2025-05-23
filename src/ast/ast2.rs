@@ -1,4 +1,6 @@
-use std::rc::Rc;
+use std::{fmt, rc::Rc};
+
+use itertools::Itertools;
 
 use super::{ast1::Label, Ast, ModuleType, Param};
 
@@ -23,6 +25,42 @@ pub enum Ast2 {
     Loop(Box<Ast2>),
     Module(Rc<str>, ModuleType),
     Goto(Label),
+}
+impl fmt::Display for Ast2 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Goto(g) => write!(f, "(goto {g})"),
+            // TODO: maybe datum to syntax it
+            Self::Basic(s) => write!(f, "{s}"),
+            Self::Application(f0, a0) => {
+                write!(f, "({f0} {})", a0.iter().map(ToString::to_string).join(" "))
+            }
+
+            Self::If(cond, cons, alt) => write!(f, "(if {cond} {cons} {alt})"),
+            Self::DefineValues(v, val) => todo!(),
+            // write!(f, "(define {v} {val})"),
+            Self::Lambda(param, body) => write!(f, "(lambda ({param} {body})",),
+            Self::Begin(b) => write!(f, "(begin {})", b.iter().map(ToString::to_string).join(" ")),
+            Self::Begin0(b) => write!(
+                f,
+                "(begin0 {})",
+                b.iter().map(ToString::to_string).join(" ")
+            ),
+            Self::Set(v, val) => write!(f, "(set-bang {v} {val})"),
+            Self::Quote(q) => write!(f, ";{q}"),
+            Self::Loop(l) => write!(f, "(loop {l}"),
+            Self::Stop(s) => write!(
+                f,
+                "(stop{})",
+                s.as_ref().map_or_else(String::new, |s| format!(" {s}"))
+            ),
+            Self::Skip => write!(f, "skip"),
+            Self::LetRecValues(r, b) => write!(f, "(letrec-values (...) {b})"),
+            Self::LetValues(r, b) => write!(f, "(let-values (...) {b})"),
+            Self::Expression(e) => write!(f, "(#%expression {e})"),
+            Self::Module(name, _type) => write!(f, "(module {name})"),
+        }
+    }
 }
 // replaces labels with gotos
 mod impl_transformer {

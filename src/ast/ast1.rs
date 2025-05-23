@@ -1,4 +1,8 @@
-use std::{collections::HashMap, fmt, hash::Hash};
+use std::{
+    collections::HashMap,
+    fmt::{self, Display},
+    hash::Hash,
+};
 
 use itertools::Itertools;
 
@@ -90,8 +94,13 @@ pub enum Ast1 {
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Label(pub RC<str>);
+impl Display for Label {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "@{}", self.0)
+    }
+}
 
-impl fmt::Display for Ast1 {
+impl Display for Ast1 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             // TODO: maybe datum to syntax it
