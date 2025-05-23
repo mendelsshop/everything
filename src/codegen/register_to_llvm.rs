@@ -299,6 +299,7 @@ pub struct CodeGen<'a, 'ctx> {
     error_block: BasicBlock<'ctx>,
     error_phi: inkwell::values::PhiValue<'ctx>,
     stop: PointerValue<'ctx>,
+    expect_single_block: BasicBlock<'ctx>,
 }
 
 impl<'a, 'ctx> CodeGen<'a, 'ctx> {
@@ -378,6 +379,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
         let functions = Functions::new(module, context);
         let main = module.add_function("main", context.i32_type().fn_type(&[], false), None);
         let entry_bb = context.append_basic_block(main, "entry");
+        let expect_single_block = context.append_basic_block(main, "error-mv");
         let (error_block, error_phi) = init_error_handler(
             main,
             context,
@@ -386,7 +388,6 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
             functions.printf,
             functions.exit,
         );
-
         builder.position_at_end(entry_bb);
         // init random number seed
         {
@@ -423,7 +424,21 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
             functions,
             error_phi,
             error_block,
+            expect_single_block,
         };
+        let curret_block = this.builder.get_insert_block().unwrap();
+        this.builder.position_at_end(expect_single_block);
+        this.make_printf("error expected single value", vec![]);
+        this.builder
+            .build_call(
+                this.functions.exit,
+                &[this.context.i32_type().const_int(3, false).into()],
+                "print",
+            )
+            .unwrap();
+        this.builder.build_unreachable().unwrap();
+
+        this.builder.position_at_end(curret_block);
         this.init_primitives();
         this
     }
@@ -1273,7 +1288,12 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                             // we need all possible labels as destinations b/c indirect br requires a destination but we dont which one at compile time so we use all of them - maybe fixed with register_to_llvm_more_opt
                             .build_indirect_branch(
                                 label,
-                                &self.labels.values().copied().collect_vec(),
+                                &self
+                                    .labels
+                                    .values()
+                                    .chain(iter::once(&self.expect_single_block))
+                                    .copied()
+                                    .collect_vec(),
                             );
                     }
                 }
@@ -1355,7 +1375,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
             }
             Instruction::AssignError(register, e) => {
                 let expr = self.make_object(
-                    &unsafe { &self.error_block.get_address() }.unwrap(),
+                    &unsafe { &self.expect_single_block.get_address() }.unwrap(),
                     TypeIndex::label,
                 );
                 let register = self.registers.get(register);
@@ -1628,6 +1648,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                 // function so that it has access to registers
                 let proc = args[0];
                 let argl = args[1];
+
                 let proc = self.unchecked_get_primitive(proc);
                 self.builder
                     .build_indirect_call(

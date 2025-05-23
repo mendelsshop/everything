@@ -1486,12 +1486,12 @@ fn compile_proc_appl<T: Application>(
                 vec![
                     Instruction::Assign(Register::Continue, Expr::Label(l.clone())),
                     if expect_single {
-                        Instruction::Assign(Register::ContinueMulti, Expr::Label(l))
-                    } else {
                         Instruction::AssignError(
                             Register::ContinueMulti,
                             "not expecting multiple values",
                         )
+                    } else {
+                        Instruction::Assign(Register::ContinueMulti, Expr::Label(l))
                     },
                 ],
             ),
