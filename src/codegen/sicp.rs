@@ -308,11 +308,27 @@ pub fn compile(exp: Ast2, target: Register, linkage: Linkage) -> InstructionSequ
         Ast2::Module(name, kind) => todo!("compile module refrence"),
         Ast2::Basic(exp) => compile_self_evaluating(exp.into(), target, linkage),
         Ast2::LetValues(items, ast2) => todo!(),
-        Ast2::LetRecValues(items, ast2) => todo!(),
+        Ast2::LetRecValues(variables, body) => compile_let_rec(variables, body, target, linkage),
+
         Ast2::Expression(ast2) => todo!(),
         Ast2::Begin0(ast2s) => todo!(),
         Ast2::Skip => todo!(),
     }
+}
+
+fn compile_let_rec(
+    variables: Vec<(Vec<Rc<str>>, Ast2)>,
+    body: Box<Ast2>,
+    target: Register,
+    linkage: Linkage,
+) -> InstructionSequnce {
+    // make new envoirment
+    // go through list of variables, for each set of variables:
+    // eval current variable into multi value register (need to use SetSingleMultiValueHanlder)
+    // define current list of variables with multi value register in new envoirment
+    // eval body in new env
+    // go back to original env
+    todo!()
 }
 
 fn compile_loop(
@@ -589,7 +605,6 @@ fn compile_assignment(
 }
 
 fn compile_defeninition(
-    exp: (Rc<str>, Ast2),
     target: Register,
     linkage: Linkage,
 ) -> InstructionSequnce {
@@ -820,6 +835,7 @@ fn compile_lambda_body(lambda: (Param, Ast2), proc_entry: String) -> Instruction
                         Expr::Op(Perform {
                             op: Operation::CompiledProcedureEnv,
                             args: vec![Expr::Register(Register::Proc)],
+                            // TODO: probably need to create new scope in env
                         }),
                     ),
                 ],
