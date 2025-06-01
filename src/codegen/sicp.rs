@@ -83,6 +83,7 @@ pub enum Operation {
     NotStop,
     ResetStop,
     SetStop,
+    SetSingleMultiValueHanlder,
 }
 
 impl fmt::Display for Register {

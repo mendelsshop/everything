@@ -152,14 +152,14 @@ impl<'ctx> RegiMap<'ctx> {
     }
     pub const fn get(&self, index: Register) -> PointerValue<'ctx> {
         match index {
-            <Register>::Env => self.Env,
-            <Register>::Argl => self.Argl,
-            <Register>::Val => self.Val,
-            <Register>::Proc => self.Proc,
-            <Register>::Continue => self.Continue,
-            <Register>::Thunk => self.Thunk,
-            <Register>::Values => self.Values,
-            <Register>::ContinueMulti => self.ContinueMulti,
+            Register::Env => self.Env,
+            Register::Argl => self.Argl,
+            Register::Val => self.Val,
+            Register::Proc => self.Proc,
+            Register::Continue => self.Continue,
+            Register::Thunk => self.Thunk,
+            Register::Values => self.Values,
+            Register::ContinueMulti => self.ContinueMulti,
         }
     }
 }
@@ -1010,6 +1010,17 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
             .unwrap();
     }
 
+    fn handle_single_to_multi(&mut self) -> (BasicBlock<'ctx>, BasicBlock<'ctx>) {
+        let done_branch = self.context.append_basic_block(self.current, "done");
+        let done_single_branch = self.context.append_basic_block(self.current, "done-single");
+        self.builder.position_at_end(done_single_branch);
+        // turning single value into multivalue
+        let value = self.load_register(Register::Val);
+        self.assign_register(Register::Val, self.make_cons(value, self.empty()));
+        self.builder.build_unconditional_branch(done_branch);
+        (done_branch, done_single_branch)
+    }
+
     // TODO: maybe make primitives be a block rather that a function and instead of doing an exit + unreachable with errors we could have an error block with a phi for for error string and ret code,
     // or maybe still use functiions for primitives but try to understand trampolines
     // the advantage of this is that the optimizer wouldn't get sometimes confused by unreacahbles, the disadvantage is if we go the primitive as block way is that  we have to use indirectbr for going to the primitive
@@ -1711,24 +1722,6 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                     .unwrap();
                 self.make_object(&boolean, TypeIndex::bool)
             }
-            // Operation::RandomBool => {
-            //     let bool = self
-            //         .builder
-            //         .build_call(self.functions.rand, &[], "random bool")
-            //         .unwrap()
-            //         .try_as_basic_value()
-            //         .unwrap_left();
-            //     let bool = self
-            //         .builder
-            //         .build_int_signed_rem(
-            //             bool.into_int_value(),
-            //             self.context.i32_type().const_int(2, false),
-            //             "truncate to bool",
-            //         )
-            //         .unwrap();
-            //
-            //     self.make_object(&bool, TypeIndex::bool)
-            // }
             Operation::MakeCompiledProcedure => {
                 let compiled_procedure_string = self.create_symbol("compiled-procedure");
                 let compiled_procedure_string =
@@ -1815,6 +1808,16 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                 self.builder
                     .build_store(self.stop, self.types.small_number.const_int(1, false))
                     .unwrap();
+                self.empty()
+            }
+            Operation::SetSingleMultiValueHanlder => {
+                let (single, multi) = self.handle_single_to_multi();
+                let label = args[0];
+                let label = self.get_label(label);
+
+                self.assign_register_label(Register::ContinueMulti, multi);
+                self.assign_register_label(Register::Continue, single);
+                // self.builder.position_at_end(multi);
                 self.empty()
             }
         }
