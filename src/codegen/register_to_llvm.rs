@@ -1656,21 +1656,22 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                 let proc = args[0];
                 self.compiled_procedure_entry(proc)
             }
-            Operation::DefineVariable => {
-                let var = args[0];
-                let val = args[1];
-                let env = args[2];
+            Operation::DefineVariable(v) => {
+                // let var = args[0];
+                let var = self.compile_const(Ast::Symbol(v.first().unwrap().clone().into()));
+                let val = args[0];
+                let env = args[1];
                 let frame = self.make_unchecked_car(env);
                 // set the vars part of the frame
-                self.make_unchecked_set_car(
-                    frame,
-                    self.make_cons(var, self.make_unchecked_car(frame)),
-                );
-                // set the vals part of the frame
-                self.make_unchecked_set_cdr(
-                    frame,
-                    self.make_cons(val, self.make_unchecked_cdr(frame)),
-                );
+                // self.make_unchecked_set_car(
+                //     frame,
+                //     self.make_cons(var, self.make_unchecked_car(frame)),
+                // );
+                // // set the vals part of the frame
+                // self.make_unchecked_set_cdr(
+                //     frame,
+                //     self.make_cons(val, self.make_unchecked_cdr(frame)),
+                // );
                 self.empty()
             }
             Operation::ApplyPrimitiveProcedure => {
@@ -1691,6 +1692,12 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                     .try_as_basic_value()
                     .unwrap_left()
                     .into_struct_value()
+            }
+            Operation::NewEnvironment => {
+                let env = args[0];
+
+                let frame = self.make_cons(self.empty(), self.empty());
+                self.make_cons(frame, env)
             }
             Operation::ExtendEnvironment => {
                 let vars = args[0];

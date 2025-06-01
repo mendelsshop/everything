@@ -67,7 +67,7 @@ pub enum Operation {
     LookupVariableValue,
     CompiledProcedureEnv,
     CompiledProcedureEntry,
-    DefineVariable,
+    DefineVariable(Vec<Rc<str>>),
     ApplyPrimitiveProcedure,
     ExtendEnvironment,
     Cons,
@@ -83,7 +83,10 @@ pub enum Operation {
     NotStop,
     ResetStop,
     SetStop,
+    // maybe combine with define variables - rn only place it is used
     SetSingleMultiValueHanlder,
+    // maybe combine with extendenv
+    NewEnvironment,
 }
 
 impl fmt::Display for Register {
@@ -250,10 +253,7 @@ pub fn compile(exp: Ast2, target: Register, linkage: Linkage) -> InstructionSequ
             compile_application(*f, a, target, linkage)
         }
         Ast2::Begin(b) => compile_seq(b, target, linkage),
-        Ast2::DefineValues(s, exp) => {
-            // compile_defeninition((s, *exp), target, linkage, lambda_linkage)
-            todo!()
-        }
+        Ast2::DefineValues(s, exp) => compile_defeninition(s, *exp, target, linkage),
         Ast2::Set(s, exp) => compile_assignment((s, *exp), target, linkage),
         Ast2::Lambda(arg, body) => compile_lambda((arg, *body), target, linkage),
         Ast2::If(cond, cons, alt) => compile_if((*cond, *cons, *alt), target, linkage),
@@ -323,12 +323,35 @@ fn compile_let_rec(
     linkage: Linkage,
 ) -> InstructionSequnce {
     // make new envoirment
+
     // go through list of variables, for each set of variables:
     // eval current variable into multi value register (need to use SetSingleMultiValueHanlder)
     // define current list of variables with multi value register in new envoirment
-    // eval body in new env
-    // go back to original env
-    todo!()
+    let env = make_intsruction_sequnce(
+        hashset!(Register::Env),
+        hashset!(Register::Values, Register::Env),
+        vec![Instruction::Assign(
+            Register::Env,
+            Expr::Op(Perform {
+                op: Operation::NewEnvironment,
+                args: vec![Expr::Register(Register::Env)],
+            }),
+        )],
+    );
+    let variables = variables
+        .into_iter()
+        .map(|(v, values)| compile_defeninition_let(v, values))
+        .rev()
+        .fold(empty_instruction_seqeunce(), |a, b| {
+            append_instruction_sequnce(a, b)
+        });
+
+    append_instruction_sequnce(
+        append_instruction_sequnce(env, variables),
+        // eval body in new env
+        // go back to original env
+        compile(*body, target, linkage),
+    )
 }
 
 fn compile_loop(
@@ -604,39 +627,83 @@ fn compile_assignment(
     )
 }
 
-fn compile_defeninition(
-    target: Register,
-    linkage: Linkage,
-) -> InstructionSequnce {
-    info!(
-        "generating ir for assigning {:?} to {}, with register {target}, with linkage {linkage:?}",
-        exp.1, exp.0
-    );
-    let var = exp.0;
+fn compile_defeninition_let(variables: Vec<Rc<str>>, value: Ast2) -> InstructionSequnce {
     let val = compile(
-        exp.1,
+        value,
         Register::Val,
         Linkage::Next {
             expect_single: false,
         },
     );
 
+    let label = make_label_name("mv".to_string());
+    preserving(
+        hashset![Register::Env],
+        append_instruction_sequnce(
+            make_intsruction_sequnce(
+                hashset!(),
+                hashset!(),
+                vec![Instruction::Perform(Perform {
+                    op: Operation::SetSingleMultiValueHanlder,
+                    args: vec![Expr::Label(label.clone())],
+                })],
+            ),
+            val,
+        ),
+        InstructionSequnce::new(
+            hashset![Register::Env, Register::Val],
+            hashset![],
+            vec![
+                Instruction::Label(label),
+                Instruction::Perform(Perform {
+                    op: Operation::DefineVariable(variables),
+                    args: vec![Expr::Register(Register::Val), Expr::Register(Register::Env)],
+                }),
+            ],
+        ),
+    )
+}
+fn compile_defeninition(
+    variables: Vec<Rc<str>>,
+    value: Ast2,
+    target: Register,
+    linkage: Linkage,
+) -> InstructionSequnce {
+    info!(
+        "generating ir for assigning {value} to {variables:?}, with register {target}, with linkage {linkage:?}"
+    );
+    let val = compile(
+        value,
+        Register::Val,
+        Linkage::Next {
+            expect_single: false,
+        },
+    );
+
+    let label = make_label_name("mv".to_string());
     end_with_linkage(
         linkage,
         preserving(
             hashset![Register::Env],
-            val,
+            append_instruction_sequnce(
+                make_intsruction_sequnce(
+                    hashset!(),
+                    hashset!(),
+                    vec![Instruction::Perform(Perform {
+                        op: Operation::SetSingleMultiValueHanlder,
+                        args: vec![Expr::Label(label.clone())],
+                    })],
+                ),
+                val,
+            ),
             InstructionSequnce::new(
                 hashset![Register::Env, Register::Val],
                 hashset![target],
                 vec![
+                    Instruction::Label(label),
                     Instruction::Perform(Perform {
-                        op: Operation::DefineVariable,
-                        args: vec![
-                            Expr::Const(Ast::Symbol(Symbol(var))),
-                            Expr::Register(Register::Val),
-                            Expr::Register(Register::Env),
-                        ],
+                        op: Operation::DefineVariable(variables),
+                        args: vec![Expr::Register(Register::Val), Expr::Register(Register::Env)],
                     }),
                     Instruction::Assign(target, Expr::Const(Ast::Symbol("ok".into()))),
                 ],
