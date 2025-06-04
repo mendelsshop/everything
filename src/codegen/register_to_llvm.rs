@@ -957,11 +957,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                 &self.list_to_struct(
                     self.types.types.get(TypeIndex::lambda).into_struct_type(),
                     &[
-                        self.make_object(
-                            &unsafe { start_label.get_address().unwrap() },
-                            TypeIndex::label,
-                        )
-                        .into(),
+                        self.make_label(start_label),
                         env,
                         (compiled_procedure_type).into(),
                     ],
@@ -1008,6 +1004,14 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
         self.builder
             .build_store(self.registers.get(Register::Env), env)
             .unwrap();
+    }
+
+    fn make_label(&self, start_label: BasicBlock<'ctx>) -> BasicValueEnum<'ctx> {
+        self.make_object(
+            &unsafe { start_label.get_address().unwrap() },
+            TypeIndex::label,
+        )
+        .into()
     }
 
     fn handle_single_to_multi(&mut self) -> (BasicBlock<'ctx>, BasicBlock<'ctx>) {
@@ -1279,34 +1283,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                 self.builder.position_at_end(next_label);
             }
             Instruction::Goto(g) => {
-                match g {
-                    Goto::Label(l) => {
-                        self.builder
-                            .build_unconditional_branch(*self.labels.get(&l).unwrap())
-                            .unwrap();
-                    }
-                    Goto::Register(r) => {
-                        let register = self.registers.get(r);
-                        let register = self
-                            .builder
-                            .build_load(self.types.object, register, &format!("load register {r}"))
-                            .unwrap();
-                        let label = self
-                            .unchecked_get_label(register.into_struct_value())
-                            .into_pointer_value();
-                        self.builder
-                            // we need all possible labels as destinations b/c indirect br requires a destination but we dont which one at compile time so we use all of them - maybe fixed with register_to_llvm_more_opt
-                            .build_indirect_branch(
-                                label,
-                                &self
-                                    .labels
-                                    .values()
-                                    .chain(iter::once(&self.expect_single_block))
-                                    .copied()
-                                    .collect_vec(),
-                            );
-                    }
-                }
+                self.compile_goto(g);
                 // we create new block/label b/c goto should be last instruction for a block so this "dummy" label acts as a catch all for anything afterwords
                 // realy only needed b/c for label instruction we assume we should just br to the label, but if we digit goto followed by new label we would have double br
                 // note wwe mahe similiar problem with branch
@@ -1391,6 +1368,37 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
 
                 self.set_error(e, 3);
                 self.builder.build_store(register, expr).unwrap();
+            }
+        }
+    }
+
+    fn compile_goto(&mut self, g: Goto) {
+        match g {
+            Goto::Label(l) => {
+                self.builder
+                    .build_unconditional_branch(*self.labels.get(&l).unwrap())
+                    .unwrap();
+            }
+            Goto::Register(r) => {
+                let register = self.registers.get(r);
+                let register = self
+                    .builder
+                    .build_load(self.types.object, register, &format!("load register {r}"))
+                    .unwrap();
+                let label = self
+                    .unchecked_get_label(register.into_struct_value())
+                    .into_pointer_value();
+                self.builder
+                    // we need all possible labels as destinations b/c indirect br requires a destination but we dont which one at compile time so we use all of them - maybe fixed with register_to_llvm_more_opt
+                    .build_indirect_branch(
+                        label,
+                        &self
+                            .labels
+                            .values()
+                            .chain(iter::once(&self.expect_single_block))
+                            .copied()
+                            .collect_vec(),
+                    );
             }
         }
     }
@@ -1659,19 +1667,20 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
             Operation::DefineVariable(v) => {
                 // let var = args[0];
                 let var = self.compile_const(Ast::Symbol(v.first().unwrap().clone().into()));
+                // TODO: values
                 let val = args[0];
                 let env = args[1];
                 let frame = self.make_unchecked_car(env);
                 // set the vars part of the frame
-                // self.make_unchecked_set_car(
-                //     frame,
-                //     self.make_cons(var, self.make_unchecked_car(frame)),
-                // );
-                // // set the vals part of the frame
-                // self.make_unchecked_set_cdr(
-                //     frame,
-                //     self.make_cons(val, self.make_unchecked_cdr(frame)),
-                // );
+                self.make_unchecked_set_car(
+                    frame,
+                    self.make_cons(var, self.make_unchecked_car(frame)),
+                );
+                // set the vals part of the frame
+                self.make_unchecked_set_cdr(
+                    frame,
+                    self.make_cons(val, self.make_unchecked_cdr(frame)),
+                );
                 self.empty()
             }
             Operation::ApplyPrimitiveProcedure => {
@@ -1818,13 +1827,17 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                 self.empty()
             }
             Operation::SetSingleMultiValueHanlder => {
-                let (single, multi) = self.handle_single_to_multi();
-                let label = args[0];
-                let label = self.get_label(label);
+                let current_branch = self.builder.get_insert_block().unwrap();
+                let done_single_branch =
+                    self.context.append_basic_block(self.current, "done-single");
+                self.builder.position_at_end(done_single_branch);
+                // turning single value into multivalue
+                let value = self.load_register(Register::Val);
+                self.assign_register(Register::Val, self.make_cons(value, self.empty()));
+                self.compile_goto(Goto::Register(Register::ContinueMulti));
 
-                self.assign_register_label(Register::ContinueMulti, multi);
-                self.assign_register_label(Register::Continue, single);
-                // self.builder.position_at_end(multi);
+                self.builder.position_at_end(current_branch);
+                self.assign_register_label(Register::Continue, done_single_branch);
                 self.empty()
             }
         }

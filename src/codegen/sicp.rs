@@ -64,6 +64,8 @@ pub enum Register {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Operation {
+    // some of the operations inputs are "static" so they could be put out of the perform and into
+    // the operation of adt
     LookupVariableValue,
     CompiledProcedureEnv,
     CompiledProcedureEntry,
@@ -643,11 +645,15 @@ fn compile_defeninition_let(variables: Vec<Rc<str>>, value: Ast2) -> Instruction
             make_intsruction_sequnce(
                 hashset!(),
                 hashset!(),
-                vec![Instruction::Perform(Perform {
-                    op: Operation::SetSingleMultiValueHanlder,
-                    args: vec![Expr::Label(label.clone())],
-                })],
+                vec![
+                    Instruction::Assign(Register::ContinueMulti, Expr::Label(label.clone())),
+                    Instruction::Perform(Perform {
+                        op: Operation::SetSingleMultiValueHanlder,
+                        args: vec![],
+                    }),
+                ],
             ),
+            // TODO: might need to presereve single or multi continue register
             val,
         ),
         InstructionSequnce::new(
