@@ -1134,6 +1134,10 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
         self.builder
             .build_return(Some(&self.context.i32_type().const_zero()))
             .unwrap();
+if self.error_phi.count_incoming() == 0 {
+            self.error_block.remove_from_function();
+            self.error_phi.as_instruction().remove_from_basic_block();
+        }
         // self.fpm.run_on(&self.current);
         // let fpm = PassManager::create(());
         // TODO: more and better optimizations
@@ -1826,7 +1830,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                     .unwrap();
                 self.empty()
             }
-            Operation::SetSingleMultiValueHanlder => {
+            Operation::SetSingleMultiValueHandler => {
                 let current_branch = self.builder.get_insert_block().unwrap();
                 let done_single_branch =
                     self.context.append_basic_block(self.current, "done-single");
