@@ -1248,7 +1248,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
         self.builder
             .build_return(Some(&self.context.i32_type().const_zero()))
             .unwrap();
-if self.error_phi.count_incoming() == 0 {
+        if self.error_phi.count_incoming() == 0 {
             self.error_block.remove_from_function();
             self.error_phi.as_instruction().remove_from_basic_block();
         }
