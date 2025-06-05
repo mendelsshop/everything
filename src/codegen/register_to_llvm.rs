@@ -906,6 +906,120 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
             let result = this.make_object(&num1, TypeIndex::number);
             this.builder.build_return(Some(&result)).unwrap();
         });
+        // would be a lot simpler if we did this in sicp
+        // we seem to be messing up the env a bit
+        let call_with_values = {
+            let env = self.registers.get(Register::Env);
+
+            let env = self
+                .builder
+                .build_load(self.types.object, env, "load argl")
+                .unwrap();
+            let compiled_procedure_type = self.make_object(
+                &self
+                    .context
+                    .f64_type()
+                    .const_float(ZERO_VARIADIAC_ARG as f64),
+                TypeIndex::number,
+            );
+            let prev_bb = self.builder.get_insert_block().unwrap();
+
+            let start_label = self
+                .context
+                .append_basic_block(self.current, "call-with-values");
+            self.labels
+                .insert("call-with-values".to_string(), start_label);
+            self.builder.position_at_end(start_label);
+            let argl_reg = self.registers.get(Register::Argl);
+            let argl = self
+                .builder
+                .build_load(self.types.object, argl_reg, "load argl")
+                .unwrap();
+
+            let continue_reg = self.registers.get(Register::Continue);
+            let register = self
+                .builder
+                .build_load(self.types.object, continue_reg, "load register continue")
+                .unwrap();
+            let label = self
+                .unchecked_get_label(register.into_struct_value())
+                .into_pointer_value();
+
+            let value_producer = self.make_car(argl.into_struct_value());
+            let is_primitive = self.is_primitive(value_producer);
+            let primitive_branch = self.context.append_basic_block(self.current, "prim");
+            let compiled_branch = self.context.append_basic_block(self.current, "compiled");
+            self.builder
+                .build_conditional_branch(is_primitive, primitive_branch, compiled_branch);
+            let (done_branch, done_single_branch) = self.handle_single_to_multi();
+            self.builder.position_at_end(primitive_branch);
+            let proc = self.unchecked_get_primitive(value_producer);
+            self.builder
+                .build_indirect_call(
+                    self.types.primitive,
+                    proc.into_pointer_value(),
+                    &[argl.into()],
+                    "call primitive",
+                )
+                .unwrap()
+                .try_as_basic_value()
+                .unwrap_left()
+                .into_struct_value();
+            // right now primitives can only return single value, we have to change priimitvies to
+            // not be c-like to be able to return multiple
+            self.builder.build_unconditional_branch(done_single_branch);
+            self.builder.position_at_end(compiled_branch);
+            self.assign_register_label(Register::ContinueMulti, done_branch);
+            self.assign_register_label(Register::Continue, done_single_branch);
+            self.assign_register(Register::Argl, self.empty());
+            let entry = self.compiled_procedure_entry(value_producer);
+            let entry = self.unchecked_get_label(entry);
+
+            // if we have are jumping to error block we have to set error phi
+            self.set_error("expected single value", 5);
+            self.builder
+                .build_indirect_branch(
+                    entry,
+                    &self
+                        .labels
+                        .values()
+                        .chain(iter::once(&self.error_block))
+                        .copied()
+                        .collect_vec(),
+                )
+                .unwrap();
+            self.builder.position_at_end(done_branch);
+            // self.assign_register(Register::Val, self.empty());
+            self.builder
+                // we need all possible labels as destinations b/c indirect br requires a destination but we dont which one at compile time so we use all of them - maybe fixed with register_to_llvm_more_opt
+                .build_indirect_branch(
+                    label,
+                    &self
+                        .labels
+                        .values()
+                        // .chain(iter::once(&self.error_block))
+                        .copied()
+                        .collect_vec(),
+                );
+
+            self.builder.position_at_end(prev_bb);
+            let lambda = self.make_object(
+                &self.list_to_struct(
+                    self.types.types.get(TypeIndex::lambda).into_struct_type(),
+                    &[
+                        self.make_object(
+                            &unsafe { start_label.get_address().unwrap() },
+                            TypeIndex::label,
+                        )
+                        .into(),
+                        env,
+                        (compiled_procedure_type).into(),
+                    ],
+                ),
+                TypeIndex::lambda,
+            );
+            (self.create_symbol("call-with-values"), lambda)
+        };
         let values = {
             let env = self.registers.get(Register::Env);
 
