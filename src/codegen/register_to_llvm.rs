@@ -15,7 +15,7 @@ use inkwell::{module::Linkage, types::BasicTypeEnum};
 use itertools::Itertools;
 use std::{collections::HashMap, iter};
 
-use crate::ast::{Ast, Pair, ONE_VARIADIAC_ARG, ZERO_VARIADIAC_ARG};
+use crate::ast::{Ast, Pair, Symbol, ONE_VARIADIAC_ARG, ZERO_VARIADIAC_ARG};
 
 use super::sicp::{Expr, Goto, Instruction, Operation, Perform, Register};
 
@@ -1098,6 +1098,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
             .chain(accesors)
             .map(|(name, function)| self.make_primitive_pair(name, function))
             .chain(iter::once(values))
+            // .chain(iter::once(call_with_values))
             .fold(
                 (self.empty(), self.empty()),
                 |(symbols, functions), (symbol, function)| {
@@ -1784,21 +1785,25 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
             }
             Operation::DefineVariable(v) => {
                 // let var = args[0];
-                let var = self.compile_const(Ast::Symbol(v.first().unwrap().clone().into()));
                 // TODO: values
                 let val = args[0];
                 let env = args[1];
                 let frame = self.make_unchecked_car(env);
+                let vars =
+                    v.iter()
+                        .cloned()
+                        .rfold(self.make_unchecked_car(frame), |vars, symbol| {
+                            self.make_cons(self.compile_const(Ast::Symbol(Symbol(symbol))), vars)
+                        });
+
+                let vals = self.make_unchecked_cdr(frame);
+                let vals = self.unwrap_vals(val, vals, v.len(), 0);
+
                 // set the vars part of the frame
-                self.make_unchecked_set_car(
-                    frame,
-                    self.make_cons(var, self.make_unchecked_car(frame)),
-                );
+
+                self.make_unchecked_set_car(frame, vars);
                 // set the vals part of the frame
-                self.make_unchecked_set_cdr(
-                    frame,
-                    self.make_cons(val, self.make_unchecked_cdr(frame)),
-                );
+                self.make_unchecked_set_cdr(frame, vals);
                 self.empty()
             }
             Operation::ApplyPrimitiveProcedure => {
@@ -2215,7 +2220,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
         obj.into_struct_value()
     }
 
-    fn compile_const(&mut self, constant: Ast) -> StructValue<'ctx> {
+    fn compile_const(&self, constant: Ast) -> StructValue<'ctx> {
         match constant {
             Ast::TheEmptyList => self.empty(),
             Ast::String(s) => self.create_string(&s),
@@ -2231,7 +2236,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
             Ast::Pair(pair) => {
                 let Pair(car, cdr) = *pair;
                 let cons: StructValue<'_> = self.types.cons.const_zero();
-                let mut compile_and_add = |expr, name, cons, index| {
+                let compile_and_add = |expr, name, cons, index| {
                     let expr_compiled = self.compile_const(expr);
                     let expr = self.builder.build_malloc(self.types.object, name).unwrap();
                     self.builder.build_store(expr, expr_compiled).unwrap();
@@ -2286,6 +2291,23 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
             1,
         )
         .into_struct_value()
+    }
+
+    fn unwrap_vals(
+        &self,
+        vals: StructValue<'ctx>,
+        current_frame_vals: StructValue<'ctx>,
+        len: usize,
+        i: usize,
+    ) -> StructValue<'ctx> {
+        if i == len {
+            vals
+        } else {
+            let v = self.make_unchecked_car(vals);
+            let val = self.make_unchecked_cdr(vals);
+            // self.print_object(v);
+            self.make_cons(v, self.unwrap_vals(val, vals, len, i + 1))
+        }
     }
 }
 
