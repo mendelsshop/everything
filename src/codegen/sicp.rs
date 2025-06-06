@@ -631,9 +631,8 @@ fn compile_defeninition_let(variables: Vec<Rc<str>>, value: Ast2) -> Instruction
     let val = compile(
         value,
         Register::Val,
-        Linkage::Next {
-            expect_single: false,
-        },
+        Linkage::Return, // we use return linkage so that if we end up using jumping to the right
+                         // continue register
     );
 
     let label = make_label_name("mv".to_string());
@@ -684,9 +683,8 @@ fn compile_defeninition(
     let val = compile(
         value,
         Register::Val,
-        Linkage::Next {
-            expect_single: false,
-        },
+        Linkage::Return, // we use return linkage so that if we end up using jumping to the right
+                         // continue register
     );
 
     let label = make_label_name("mv".to_string());
