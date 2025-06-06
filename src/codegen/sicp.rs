@@ -1544,7 +1544,7 @@ impl Application for Procedure {
 }
 
 // the way we differentiate between thunk and procedure is with the T generic we could also do this with const generics
-fn compile_proc_appl<T: Application>(
+fn compile_proc_appl_end<T: Application>(
     target: Register,
     compiled_linkage: Linkage,
     application_code: InstructionSequnce,

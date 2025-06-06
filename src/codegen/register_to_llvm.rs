@@ -579,7 +579,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
         let name = self.create_symbol(name);
         (name, primitive)
     }
-    const fn init_accessors(&mut self) -> Vec<(&'static str, FunctionValue<'ctx>)> {
+    fn init_accessors(&mut self) -> Vec<(&'static str, FunctionValue<'ctx>)> {
         macro_rules! accessors {
         ($(($name:literal $acces:ident )),*) => {
             vec![$(($name, self.create_primitive($name, |this,func,_|{
