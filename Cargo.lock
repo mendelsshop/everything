@@ -637,7 +637,6 @@ dependencies = [
 [[package]]
 name = "trace"
 version = "0.1.7"
-source = "git+https://github.com/gsingh93/trace#d8c2d940a84ddcc32b164ac69dfb9be5fd19fb1c"
 dependencies = [
  "proc-macro2",
  "quote",

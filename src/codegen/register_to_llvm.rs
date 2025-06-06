@@ -1046,8 +1046,36 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                 .unwrap();
 
             let val = self.registers.get(Register::Val);
-            self.builder.build_store(val, argl);
-            let continue_reg = self.registers.get(Register::ContinueMulti);
+            let is_not_empty = self
+                .builder
+                .build_not(self.is_hempty(argl.into_struct_value()), "not empty values")
+                .unwrap();
+            let is_length_1 = self.is_hempty(self.make_unchecked_cdr(argl.into_struct_value()));
+            let is_not_lenth_1 = self
+                .builder
+                .build_and(is_not_empty, is_length_1, "is actual mv")
+                .unwrap();
+            // if its only single value then we do need to keep it as values
+            let value = self
+                .builder
+                .build_select(
+                    is_not_lenth_1,
+                    self.make_unchecked_car(argl.into_struct_value()),
+                    argl.into_struct_value(),
+                    "value",
+                )
+                .unwrap();
+            self.builder.build_store(val, value);
+            let continue_reg = self
+                .builder
+                .build_select(
+                    is_not_lenth_1,
+                    self.registers.get(Register::Continue),
+                    self.registers.get(Register::ContinueMulti),
+                    "continue register",
+                )
+                .unwrap()
+                .into_pointer_value();
             let register = self
                 .builder
                 .build_load(self.types.object, continue_reg, "load register continue")

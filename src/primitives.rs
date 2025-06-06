@@ -159,6 +159,20 @@ impl Ast {
 pub fn new_primitive_env(mut adder: impl FnMut(Rc<str>, Ast)) {
     // add code here
     adder(
+        "call-with-values".into(),
+        Ast::Function(Function::Primitive(Primitive {
+            name: "call-with-values",
+            operation: |e| Ok(Values::Many(vec![])),
+        })),
+    );
+    adder(
+        "print".into(),
+        Ast::Function(Function::Primitive(Primitive {
+            name: "print",
+            operation: |e| Ok(Values::Many(vec![])),
+        })),
+    );
+    adder(
         "datum-to-syntax".into(),
         Ast::Function(Function::Primitive(Primitive {
             name: "datum-to-syntax",

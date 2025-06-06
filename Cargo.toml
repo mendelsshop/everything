@@ -7,7 +7,7 @@ rust_edition = "1.69.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [features]
 # TODO: when lazy fully works make it defualt
-default = ["lazy"]
+# default = ["lazy"]
 multi-threaded = []
 lazy = []
 
@@ -21,5 +21,5 @@ log = "0.4.21"
 simple_file_logger = { version = "0.4.1", features = ["clap"] }
 itertools = "0.14.0"
 matcher-proc-macro = { version = "0.1.0", path = "matcher" }
-trace = { git = "https://github.com/gsingh93/trace", version = "0.1.7" }
+trace = { version = "0.1.7", path = "../trace" }
 rand = "0.9.1"
