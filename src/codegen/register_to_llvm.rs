@@ -1,13 +1,14 @@
 use inkwell::{
     basic_block::BasicBlock,
-    builder::Builder,
+    builder::{Builder, BuilderError},
     context::Context,
+    llvm_sys::core::LLVMAddDestination,
     module::Module,
     passes::PassManager,
     types::{BasicType, FunctionType, IntType, PointerType, StructType},
     values::{
-        AggregateValue, AnyValue, BasicValue, BasicValueEnum, FunctionValue, IntValue, PhiValue,
-        PointerValue, StructValue,
+        AggregateValue, AnyValue, AsValueRef, BasicValue, BasicValueEnum, FunctionValue,
+        InstructionValue, IntValue, PhiValue, PointerValue, StructValue,
     },
     AddressSpace, FloatPredicate, IntPredicate,
 };
@@ -18,7 +19,27 @@ use std::{collections::HashMap, iter};
 use crate::ast::{Ast, Pair, Symbol, ONE_VARIADIAC_ARG, ZERO_VARIADIAC_ARG};
 
 use super::sicp::{Expr, Goto, Instruction, Operation, Perform, Register};
-
+pub trait BuilderSetIndirectDestination<'ctx> {
+    fn update_indirect_br_dest(
+        &self,
+        instruction: InstructionValue<'ctx>,
+        destinations: &[BasicBlock<'ctx>],
+    ) -> Result<InstructionValue<'ctx>, BuilderError>;
+}
+impl<'ctx> BuilderSetIndirectDestination<'ctx> for Builder<'ctx> {
+    fn update_indirect_br_dest(
+        &self,
+        instruction: InstructionValue<'ctx>,
+        destinations: &[BasicBlock<'ctx>],
+    ) -> Result<InstructionValue<'ctx>, BuilderError> {
+        for d in destinations {
+            unsafe {
+                LLVMAddDestination(instruction.as_value_ref(), d.as_mut_ptr());
+            }
+        }
+        Ok(instruction)
+    }
+}
 macro_rules! fixed_map {
     (@inner $(#[$attrs:meta])* $struct:ident, <$($gen:tt),*>, $type:ty, $index:ty {$($fields:ident)*} fn $new:ident($($param:ident: $param_type:ty),*) -> $ret:ty $new_block:block) => {
         $(#[$attrs])*
@@ -290,6 +311,8 @@ pub struct CodeGen<'a, 'ctx> {
     pub module: &'a Module<'ctx>,
     current: FunctionValue<'ctx>,
     labels: HashMap<String, BasicBlock<'ctx>>,
+    extra_blocks: Vec<BasicBlock<'ctx>>,
+    indirect_brs: Vec<InstructionValue<'ctx>>,
     registers: RegiMap<'ctx>,
     types: Types<'ctx>,
     functions: Functions<'ctx>,
@@ -410,6 +433,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
             .build_store(stop, small_number.const_zero())
             .unwrap();
         let mut this = Self {
+            indirect_brs: vec![],
             stack: builder.build_alloca(stack, "stack").unwrap(),
             context,
             flag: builder.build_alloca(types.object, "flag").unwrap(),
@@ -418,6 +442,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
             stop,
             module,
             labels: HashMap::new(),
+            extra_blocks: Vec::new(),
             registers,
             types,
             fpm,
@@ -1080,20 +1105,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                 .builder
                 .build_load(self.types.object, continue_reg, "load register continue")
                 .unwrap();
-            let label = self
-                .unchecked_get_label(register.into_struct_value())
-                .into_pointer_value();
-            self.builder
-                //     // we need all possible labels as destinations b/c indirect br requires a destination but we dont which one at compile time so we use all of them - maybe fixed with register_to_llvm_more_opt
-                .build_indirect_branch(
-                    label,
-                    &self
-                        .labels
-                        .values()
-                        // .chain(iter::once(&self.error_block))
-                        .copied()
-                        .collect_vec(),
-                );
+            self.goto_register(register);
             self.builder.position_at_end(prev_bb);
             let lambda = self.make_object(
                 &self.list_to_struct(
@@ -1281,6 +1293,21 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
             self.error_block.remove_from_function();
             self.error_phi.as_instruction().remove_from_basic_block();
         }
+        // we have to update the dest of each indirect br, because some of the indirect br are done
+        // before compiling any code so we cant even pre scan for label (like values)
+        for br in &self.indirect_brs {
+            self.builder.update_indirect_br_dest(
+                *br,
+                &self
+                    .labels
+                    .values()
+                    .chain(&self.extra_blocks)
+                    .chain(iter::once(&self.expect_single_block))
+                    .copied()
+                    .collect_vec(),
+            );
+        }
+
         // self.fpm.run_on(&self.current);
         // let fpm = PassManager::create(());
         // TODO: more and better optimizations
@@ -1532,22 +1559,22 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                     .builder
                     .build_load(self.types.object, register, &format!("load register {r}"))
                     .unwrap();
-                let label = self
-                    .unchecked_get_label(register.into_struct_value())
-                    .into_pointer_value();
-                self.builder
-                    // we need all possible labels as destinations b/c indirect br requires a destination but we dont which one at compile time so we use all of them - maybe fixed with register_to_llvm_more_opt
-                    .build_indirect_branch(
-                        label,
-                        &self
-                            .labels
-                            .values()
-                            .chain(iter::once(&self.expect_single_block))
-                            .copied()
-                            .collect_vec(),
-                    );
+                self.goto_register(register);
             }
         }
+    }
+
+    fn goto_register(&mut self, register: BasicValueEnum<'ctx>) -> InstructionValue<'ctx> {
+        let label = self
+            .unchecked_get_label(register.into_struct_value())
+            .into_pointer_value();
+        let br = self
+            .builder
+            // we need all possible labels as destinations b/c indirect br requires a destination but we dont which one at compile time so we use all of them - maybe fixed with register_to_llvm_more_opt
+            .build_indirect_branch(label, &[])
+            .unwrap();
+        self.indirect_brs.push(br);
+        br
     }
     fn assign_register_label(
         &mut self,
@@ -1978,9 +2005,14 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                 self.empty()
             }
             Operation::SetSingleMultiValueHandler => {
+                //  done single branch not part of branch list so not part of indirectbr
+                // branch list leading to segfaults when running, need to prescan or something so
+                // that its part branch list/map (we acutally post scan because stuff like values
+                // is done before compiling any code where we would no labels/branches/
                 let current_branch = self.builder.get_insert_block().unwrap();
                 let done_single_branch =
                     self.context.append_basic_block(self.current, "done-single");
+                self.extra_blocks.push(done_single_branch);
                 self.builder.position_at_end(done_single_branch);
                 // turning single value into multivalue
                 let value = self.load_register(Register::Val);
