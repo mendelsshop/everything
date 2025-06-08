@@ -313,7 +313,7 @@ pub fn compile(exp: Ast2, target: Register, linkage: Linkage) -> InstructionSequ
         Ast2::LetRecValues(variables, body) => compile_let_rec(variables, body, target, linkage),
 
         Ast2::Expression(ast2) => todo!(),
-        Ast2::Begin0(ast2s) => todo!(),
+        Ast2::Begin0(ast2s) => compile_seq0(ast2s, target, linkage),
         Ast2::Skip => todo!(),
     }
 }
@@ -827,7 +827,51 @@ fn compile_if(exp: (Ast2, Ast2, Ast2), target: Register, linkage: Linkage) -> In
         ),
     )
 }
-
+fn compile_seq0(seq: Vec<Ast2>, target: Register, linkage: Linkage) -> InstructionSequnce {
+    info!(
+        "generating ir for begin with expressions {:?}, with register {target}, with linkage {linkage:?}",
+        seq.iter().map(|e|format!("{e:?}")).join(" ")
+    );
+    let seq = seq
+        .into_iter()
+        .map(move |exp| {
+            compile(
+                exp,
+                target,
+                Linkage::Next {
+                    expect_single: false,
+                },
+            )
+        })
+        .reduce(|a, b| {
+            preserving(
+                hashset!(
+                    Register::Env,
+                    Register::Continue,
+                    Register::ContinueMulti,
+                    Register::Values,
+                    Register::Val
+                ),
+                a,
+                b,
+            )
+        })
+        .unwrap_or_else(empty_instruction_seqeunce);
+    end_with_linkage(
+        linkage,
+        append_instruction_sequnce(
+            seq,
+            make_intsruction_sequnce(
+                hashset!(Register::Values, Register::Val),
+                hashset!(target),
+                // TODO: how do we know if we are supposed to use val or values?
+                // maybe we have to do some continuation something or other (and maybe thats more
+                // efffectiont anayways?)
+                vec![Instruction::Assign(target, Expr::Register(Register::Val))],
+            ),
+        ),
+    )
+}
 fn compile_seq(seq: Vec<Ast2>, target: Register, linkage: Linkage) -> InstructionSequnce {
     info!(
         "generating ir for begin with expressions {:?}, with register {target}, with linkage {linkage:?}",
