@@ -827,10 +827,21 @@ fn compile_if(exp: (Ast2, Ast2, Ast2), target: Register, linkage: Linkage) -> In
         ),
     )
 }
-fn compile_seq0(seq: Vec<Ast2>, target: Register, linkage: Linkage) -> InstructionSequnce {
+fn compile_seq0(mut seq: Vec<Ast2>, target: Register, linkage: Linkage) -> InstructionSequnce {
     info!(
-        "generating ir for begin with expressions {:?}, with register {target}, with linkage {linkage:?}",
+        "generating ir for begin0 with expressions {:?}, with register {target}, with linkage {linkage:?}",
         seq.iter().map(|e|format!("{e:?}")).join(" ")
+    );
+    // we pick of first item and then do a big presenving around the rest of the sequence to get
+    // back the original (first) value
+    // begin(s) are veirfied to have at least on item (so no panic)
+    let first = seq.remove(0);
+    let first = compile(
+        first,
+        target,
+        Linkage::Next {
+            expect_single: false,
+        },
     );
     let seq = seq
         .into_iter()
@@ -845,13 +856,7 @@ fn compile_seq0(seq: Vec<Ast2>, target: Register, linkage: Linkage) -> Instructi
         })
         .reduce(|a, b| {
             preserving(
-                hashset!(
-                    Register::Env,
-                    Register::Continue,
-                    Register::ContinueMulti,
-                    Register::Values,
-                    Register::Val
-                ),
+                hashset!(Register::Env, Register::Continue, Register::ContinueMulti),
                 a,
                 b,
             )
@@ -860,14 +865,15 @@ fn compile_seq0(seq: Vec<Ast2>, target: Register, linkage: Linkage) -> Instructi
     end_with_linkage(
         linkage,
         append_instruction_sequnce(
-            seq,
-            make_intsruction_sequnce(
-                hashset!(Register::Values, Register::Val),
+            first,
+            preserving(
                 hashset!(target),
-                // TODO: how do we know if we are supposed to use val or values?
-                // maybe we have to do some continuation something or other (and maybe thats more
-                // efffectiont anayways?)
-                vec![Instruction::Assign(target, Expr::Register(Register::Val))],
+                seq,
+                // dummy instrcuction to make preserving preserve the register (preserving does the
+                // actual work)
+                // why not just inline preserving? because if there is just one thing in the begin0
+                // there is no need for any anctual saving/restoring
+                make_intsruction_sequnce(hashset!(target), hashset!(), vec![]),
             ),
         ),
     )
