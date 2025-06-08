@@ -309,7 +309,7 @@ pub fn compile(exp: Ast2, target: Register, linkage: Linkage) -> InstructionSequ
         Ast2::Loop(loop_function) => compile_loop(loop_function, target, linkage),
         Ast2::Module(name, kind) => todo!("compile module refrence"),
         Ast2::Basic(exp) => compile_self_evaluating(exp.into(), target, linkage),
-        Ast2::LetValues(items, ast2) => todo!(),
+        Ast2::LetValues(variables, body) => compile_let(variables, body, target, linkage),
         Ast2::LetRecValues(variables, body) => compile_let_rec(variables, body, target, linkage),
 
         Ast2::Expression(ast2) => todo!(),
@@ -331,7 +331,7 @@ fn compile_let_rec(
     // define current list of variables with multi value register in new envoirment
     let env = make_intsruction_sequnce(
         hashset!(Register::Env),
-        hashset!(Register::Values, Register::Env),
+        hashset!(Register::Env),
         vec![Instruction::Assign(
             Register::Env,
             Expr::Op(Perform {
@@ -342,7 +342,7 @@ fn compile_let_rec(
     );
     let variables = variables
         .into_iter()
-        .map(|(v, values)| compile_defeninition_let(v, values))
+        .map(|(v, values)| compile_defeninition_let(v, values, Register::Env))
         .fold(env, |a, b| preserving(hashset!(), a, b));
 
     preserving(
@@ -351,6 +351,51 @@ fn compile_let_rec(
         // eval body in new env
         // go back to original env
         compile(*body, target, linkage),
+    )
+}
+fn compile_let(
+    variables: Vec<(Vec<Rc<str>>, Ast2)>,
+    body: Box<Ast2>,
+    target: Register,
+    linkage: Linkage,
+) -> InstructionSequnce {
+    // make new envoirment (save it to proc, because let doesn't remember values from env until
+    // body).
+    // why proc? less used register so maybe less save/restores?
+
+    // go through list of variables, for each set of variables:
+    // eval current variable into multi value register (need to use SetSingleMultiValueHanlder)
+    // define current list of variables with multi value register in new envoirment
+    let env = make_intsruction_sequnce(
+        hashset!(Register::Env),
+        hashset!(Register::Proc),
+        vec![Instruction::Assign(
+            Register::Env,
+            Expr::Op(Perform {
+                op: Operation::NewEnvironment,
+                args: vec![Expr::Register(Register::Env)],
+            }),
+        )],
+    );
+    let variables = variables
+        .into_iter()
+        .map(|(v, values)| compile_defeninition_let(v, values, Register::Proc))
+        .fold(env, |a, b| preserving(hashset!(), a, b));
+    let set_env = make_intsruction_sequnce(
+        hashset!(Register::Proc),
+        hashset!(Register::Env),
+        vec![Instruction::Assign(
+            Register::Env,
+            Expr::Register(Register::Proc),
+        )],
+    );
+
+    preserving(
+        hashset!(Register::Continue, Register::ContinueMulti),
+        variables,
+        // eval body in new env
+        // go back to original env
+        append_instruction_sequnce(set_env, compile(*body, target, linkage)),
     )
 }
 
@@ -627,7 +672,11 @@ fn compile_assignment(
     )
 }
 
-fn compile_defeninition_let(variables: Vec<Rc<str>>, value: Ast2) -> InstructionSequnce {
+fn compile_defeninition_let(
+    variables: Vec<Rc<str>>,
+    value: Ast2,
+    env_reg: Register,
+) -> InstructionSequnce {
     let val = compile(
         value,
         Register::Val,
@@ -637,7 +686,7 @@ fn compile_defeninition_let(variables: Vec<Rc<str>>, value: Ast2) -> Instruction
 
     let label = make_label_name("mv".to_string());
     preserving(
-        hashset![Register::Env],
+        hashset![env_reg],
         append_instruction_sequnce(
             make_intsruction_sequnce(
                 hashset!(),
@@ -655,7 +704,7 @@ fn compile_defeninition_let(variables: Vec<Rc<str>>, value: Ast2) -> Instruction
         ),
         InstructionSequnce::new(
             hashset![
-                Register::Env,
+                env_reg,
                 Register::Val,
                 Register::Continue,
                 Register::ContinueMulti
@@ -665,7 +714,7 @@ fn compile_defeninition_let(variables: Vec<Rc<str>>, value: Ast2) -> Instruction
                 Instruction::Label(label),
                 Instruction::Perform(Perform {
                     op: Operation::DefineVariable(variables),
-                    args: vec![Expr::Register(Register::Val), Expr::Register(Register::Env)],
+                    args: vec![Expr::Register(Register::Val), Expr::Register(env_reg)],
                 }),
             ],
         ),
