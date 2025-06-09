@@ -70,7 +70,6 @@ pub enum Operation {
     CompiledProcedureEnv,
     CompiledProcedureEntry,
     DefineVariable(Vec<Rc<str>>),
-    ApplyPrimitiveProcedure,
     ExtendEnvironment,
     Cons,
     SetVariableValue,
@@ -1352,40 +1351,22 @@ fn compile_procedure_call(
                 ),
             ),
             append_instruction_sequnce(
-                // primitive branch uses end with linkage which assumes single values
-                // we have to inform the primitve about the two jumping place (through the registes
-                // continue/continue-multi or by providing apply primitive procedure two registers)
-                // instead of implicitly jumping to a single value, point
-                // it would be up to the primtive to decide which one to use
-                // similar to what we do in compile_proc_appl, speciically setting the two
-                // register, and letting the called function decide where to jump back to
-                make_label_instruction(primitive_branch),
-                preserving(
-                    hashset!(Register::Proc, Register::Continue, Register::ContinueMulti),
-                    construct_arg_list(args.map(compile)),
-                    append_instruction_sequnce(
-                        compile_proc_appl_end::<Procedure>(
-                            Procedure::return_register(),
-                            linkage,
-                            make_intsruction_sequnce(
-                                hashset!(Register::Proc, Register::Argl),
-                                // calls could modify the continue(-multi) registers
-                                hashset!(target),
-                                vec![Instruction::Assign(
-                                    target,
-                                    Expr::Op(Perform {
-                                        op: Operation::ApplyPrimitiveProcedure,
-                                        args: vec![
-                                            Expr::Register(Register::Proc),
-                                            Expr::Register(Register::Argl),
-                                        ],
-                                    }),
-                                )],
-                            ),
-                        ),
-                        make_label_instruction(after_call),
+                append_instruction_sequnce(
+                    // primitive branch uses end with linkage which assumes single values
+                    // we have to inform the primitve about the two jumping place (through the registes
+                    // continue/continue-multi or by providing apply primitive procedure two registers)
+                    // instead of implicitly jumping to a single value, point
+                    // it would be up to the primtive to decide which one to use
+                    // similar to what we do in compile_proc_appl, speciically setting the two
+                    // register, and letting the called function decide where to jump back to
+                    make_label_instruction(primitive_branch),
+                    preserving(
+                        hashset!(Register::Proc, Register::Continue, Register::ContinueMulti),
+                        construct_arg_list(args.map(compile)),
+                        compile_proc_appl::<Procedure>(target, linkage),
                     ),
                 ),
+                make_label_instruction(after_call),
             ),
         ),
         // ),
@@ -1535,7 +1516,7 @@ fn compile_procedure_call_loop(target: Register, linkage: Linkage) -> Instructio
     let after_call = make_label_name("after-call".to_string());
     let linkage = if let Linkage::Next { expect_single } = linkage {
         Linkage::Label {
-            place: after_call.clone(),
+            place: after_call,
             expect_single,
         }
     } else {
@@ -1579,16 +1560,16 @@ fn compile_procedure_call_loop(target: Register, linkage: Linkage) -> Instructio
                             hashset!(Register::Proc, Register::Argl),
                             // calls could modify the continue(-multi) registers
                             hashset!(target),
-                            vec![Instruction::Assign(
-                                target,
-                                Expr::Op(Perform {
-                                    op: Operation::ApplyPrimitiveProcedure,
-                                    args: vec![
-                                        Expr::Register(Register::Proc),
-                                        Expr::Register(Register::Argl),
-                                    ],
-                                }),
-                            )],
+                            todo!(), // vec![Instruction::Assign(
+                                     //     target,
+                                     //     Expr::Op(Perform {
+                                     //         op: Operation::ApplyPrimitiveProcedure,
+                                     //         args: vec![
+                                     //             Expr::Register(Register::Proc),
+                                     //             Expr::Register(Register::Argl),
+                                     //         ],
+                                     //     }),
+                                     // )],
                         ),
                     ),
                     make_label_instruction(after_call),

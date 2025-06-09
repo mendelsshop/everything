@@ -3,20 +3,23 @@ use inkwell::{
     builder::{Builder, BuilderError},
     context::Context,
     llvm_sys::core::LLVMAddDestination,
-    module::Module,
+    module::{Linkage, Module},
     passes::PassManager,
-    types::{BasicType, FunctionType, IntType, PointerType, StructType},
+    types::{BasicType, BasicTypeEnum, FunctionType, IntType, PointerType, StructType},
     values::{
         AggregateValue, AnyValue, AsValueRef, BasicValue, BasicValueEnum, FunctionValue,
         InstructionValue, IntValue, PhiValue, PointerValue, StructValue,
     },
     AddressSpace, FloatPredicate, IntPredicate,
 };
-use inkwell::{module::Linkage, types::BasicTypeEnum};
 use itertools::Itertools;
 use std::{collections::HashMap, iter};
 
-use crate::ast::{Ast, Pair, Symbol, ONE_VARIADIAC_ARG, ZERO_VARIADIAC_ARG};
+pub enum Values<'ctx> {
+    Single(StructValue<'ctx>),
+    Multi(StructValue<'ctx>),
+}
+use crate::ast::{Ast, Pair, Symbol, ONE_VARIADIAC_ARG, PRIMITIVE, ZERO_VARIADIAC_ARG};
 
 use super::sicp::{Expr, Goto, Instruction, Operation, Perform, Register};
 pub trait BuilderSetIndirectDestination<'ctx> {
@@ -118,7 +121,7 @@ macro_rules! extract {
     };
 }
 
-fixed_map!(TypeMap, BasicTypeEnum<'ctx>,TypeIndex {empty bool number string symbol label cons primitive thunk lambda}
+fixed_map!(TypeMap, BasicTypeEnum<'ctx>,TypeIndex {empty bool number string symbol label cons  thunk lambda}
       fn new(
         empty: BasicTypeEnum<'ctx>,
         bool: BasicTypeEnum<'ctx>,
@@ -127,7 +130,6 @@ fixed_map!(TypeMap, BasicTypeEnum<'ctx>,TypeIndex {empty bool number string symb
         symbol: BasicTypeEnum<'ctx>,
         label: BasicTypeEnum<'ctx>,
         cons: BasicTypeEnum<'ctx>,
-        primitive: BasicTypeEnum<'ctx>,
         thunk: BasicTypeEnum<'ctx>,
         lambda: BasicTypeEnum<'ctx>
     ) -> Self {
@@ -139,7 +141,6 @@ fixed_map!(TypeMap, BasicTypeEnum<'ctx>,TypeIndex {empty bool number string symb
             symbol,
             label,
             cons,
-            primitive,
             thunk,
             lambda,
         }
@@ -195,9 +196,8 @@ pub enum TypeIndex {
     symbol = 4,
     label = 5,
     cons = 6,
-    primitive = 7,
-    thunk = 8,
-    lambda = 9,
+    thunk = 7,
+    lambda = 8,
 }
 
 pub struct Types<'ctx> {
@@ -313,6 +313,7 @@ pub struct CodeGen<'a, 'ctx> {
     labels: HashMap<String, BasicBlock<'ctx>>,
     extra_blocks: Vec<BasicBlock<'ctx>>,
     indirect_brs: Vec<InstructionValue<'ctx>>,
+    primtive_blocks: Vec<BasicBlock<'ctx>>,
     registers: RegiMap<'ctx>,
     types: Types<'ctx>,
     functions: Functions<'ctx>,
@@ -333,19 +334,15 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
     }
     is_type!(is_hempty, "hempty", empty);
     is_type!(is_number, "number", number);
-    is_type!(is_primitive, "primitive", primitive);
+    // from a pure "backend" side there is really no difference between a primitive and a variadic
+    // procedure (only when intorduce lazyness is there a difference
     is_type!(is_boolean, "boolean", bool);
     is_type!(is_string, "string", string);
     is_type!(is_symbol, "symbol", symbol);
     is_type!(is_cons, "cons", cons);
     is_type!(is_label, "label", label);
     is_type!(is_thunk, "thunk", thunk);
-    extract!(
-        get_primitive,
-        unchecked_get_primitive,
-        primitive,
-        "primitive"
-    );
+
     extract!(get_label, unchecked_get_label, label, "label");
     extract!(get_number, unchecked_get_number, number, "number");
     extract!(get_bool, unchecked_get_bool, bool, "bool");
@@ -389,7 +386,6 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                 string.into(),
                 pointer.into(),
                 cons.into(),
-                pointer.into(),
                 context
                     .struct_type(&[object.into(), object.into()], false)
                     .into(),
@@ -433,6 +429,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
             .build_store(stop, small_number.const_zero())
             .unwrap();
         let mut this = Self {
+            primtive_blocks: vec![],
             indirect_brs: vec![],
             stack: builder.build_alloca(stack, "stack").unwrap(),
             context,
@@ -465,6 +462,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
 
         this.builder.position_at_end(curret_block);
         this.init_primitives();
+        this.builder.position_at_end(curret_block);
         this
     }
 
@@ -597,19 +595,37 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
     fn make_primitive_pair(
         &self,
         name: &str,
-        function: FunctionValue<'ctx>,
+        function: BasicBlock<'ctx>,
     ) -> (StructValue<'ctx>, StructValue<'ctx>) {
-        let fn_pointer = function.as_global_value().as_pointer_value();
-        let primitive = self.make_object(&fn_pointer, TypeIndex::primitive);
+        // TODO: since its lambda(ish) needs dummy env and lambda number type needs to be PRIMITIVE
+        let fn_pointer = unsafe { function.get_address() }.unwrap();
+        let compiled_procedure_type = self.make_object(
+            &self.context.f64_type().const_float(PRIMITIVE as f64),
+            TypeIndex::number,
+        );
+
+        let primitive = self.make_object(
+            &self.list_to_struct(
+                self.types.types.lambda.into_struct_type(),
+                &[
+                    self.make_object(&fn_pointer, TypeIndex::label).into(),
+                    self.empty().into(),
+                    compiled_procedure_type.into(),
+                ],
+            ),
+            TypeIndex::lambda,
+        );
         let name = self.create_symbol(name);
         (name, primitive)
     }
-    fn init_accessors(&mut self) -> Vec<(&'static str, FunctionValue<'ctx>)> {
+    fn init_accessors(&mut self) -> Vec<(&'static str, BasicBlock<'ctx>)> {
         macro_rules! accessors {
         ($(($name:literal $acces:ident )),*) => {
-            vec![$(($name, self.create_primitive($name, |this,func,_|{
-                let argl = func.get_first_param().unwrap().into_struct_value();
-                self.builder.build_return(Some(&this.$acces(this.make_car(func.get_first_param().unwrap().into_struct_value())))).unwrap();
+        // TODO: since its lambda(ish) needs dummy env and lambda number type needs to be PRIMITIVE
+            vec![$(($name, self.create_primitive($name, |this,_|{
+            let argl = this.load_register(Register::Argl);
+            Values::Single(this.$acces(argl))
+
             }))),*]
         };
 
@@ -671,7 +687,6 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                             (make_number(TypeIndex::symbol), symbol_bb),
                             (make_number(TypeIndex::cons), cons_bb),
                             (make_number(TypeIndex::lambda), lambda_bb),
-                            (make_number(TypeIndex::primitive), primitive_bb),
                             (make_number(TypeIndex::label), label_bb),
                             (make_number(TypeIndex::thunk), thunk_bb),
                         ],
@@ -833,7 +848,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
         // seems to problem with primitive that retunrn something meaningful not returning properly unless / possiblely some other action done on the in the primtive function
         self.make_print();
         self.make_eq_obj();
-        let primitive_newline = self.create_primitive("newline", |this, _, _| {
+        let primitive_newline = self.create_primitive("newline", |this, __| {
             this.builder.build_call(
                 this.functions.printf,
                 &[this
@@ -844,55 +859,54 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                     .into()],
                 "call newline",
             );
-            this.builder.build_return(Some(&this.empty())).unwrap();
+            Values::Single(this.empty())
         });
-        let primitive_cons = self.create_primitive("cons", |this, cons, _| {
-            let argl = cons.get_first_param().unwrap().into_struct_value();
+        let primitive_cons = self.create_primitive("cons", |this, _| {
+            let argl = this.load_register(Register::Argl);
             let car = this.make_car(argl);
             let cdr = this.make_cadr(argl);
             let cons = this.make_cons(car, cdr);
-            this.builder.build_return(Some(&cons)).unwrap();
+            Values::Single(cons)
         });
-        let primitive_eq = self.create_primitive("eq", |this, cons, _| {
-            let argl = cons.get_first_param().unwrap().into_struct_value();
+        let primitive_eq = self.create_primitive("eq", |this, _| {
+            let argl = this.load_register(Register::Argl);
             let e1 = this.make_car(argl);
             let e2 = this.make_cadr(argl); // doesnt do proper thing even though i have verified that argl is like (6 (6 ()))
             let eq = this.make_object(&this.compare_objects(e1, e2), TypeIndex::bool);
-            this.builder.build_return(Some(&eq)).unwrap();
+            Values::Single(eq)
         });
-        let primitive_set_car = self.create_primitive("set-car!", |this, set_car, _| {
-            let argl = set_car.get_first_param().unwrap().into_struct_value();
+        let primitive_set_car = self.create_primitive("set-car!", |this, _| {
+            let argl = this.load_register(Register::Argl);
             let cons = this.make_car(argl);
             let val = this.make_cadr(argl);
             this.make_set_car(cons, val);
-            this.builder.build_return(Some(&this.empty())).unwrap();
+            Values::Single(this.empty())
         });
-        let primitive_set_cdr = self.create_primitive("set-cdr!", |this, set_cdr, _| {
-            let argl = set_cdr.get_first_param().unwrap().into_struct_value();
+        let primitive_set_cdr = self.create_primitive("set-cdr!", |this, _| {
+            let argl = this.load_register(Register::Argl);
             let cons = this.make_car(argl);
             let val = this.make_cadr(argl);
             this.make_set_cdr(cons, val);
-            this.builder.build_return(Some(&this.empty())).unwrap();
+            Values::Single(this.empty())
         });
 
-        let primitive_not = self.create_primitive("not", |this, primitive_not, _| {
-            let args = primitive_not.get_first_param().unwrap().into_struct_value();
+        let primitive_not = self.create_primitive("not", |this, _| {
+            let args = this.load_register(Register::Argl);
             let arg = this.make_car(args); // when we do arrity check we can make this unchecked car
             let truthy = this.truthy(arg);
             let not_truthy = this.builder.build_not(truthy, "not").unwrap();
-            this.builder
-                .build_return(Some(&this.make_object(&not_truthy, TypeIndex::bool)))
-                .unwrap();
+            let not_truthy = this.make_object(&not_truthy, TypeIndex::bool);
+            Values::Single(not_truthy)
         });
-        let primitive_print = self.create_primitive("print", |this, set_car, _| {
-            let argl = set_car.get_first_param().unwrap().into_struct_value();
+        let primitive_print = self.create_primitive("print", |this, _| {
+            let argl = this.load_register(Register::Argl);
             let val = this.make_car(argl);
             this.print_object(val);
-            this.builder.build_return(Some(&this.empty())).unwrap();
+            Values::Single(this.empty())
         });
 
-        let primitive_sub1 = self.create_primitive("-1", |this, sub1, _| {
-            let argl = sub1.get_first_param().unwrap().into_struct_value();
+        let primitive_sub1 = self.create_primitive("-1", |this, _| {
+            let argl = this.load_register(Register::Argl);
             let val = this.make_car(argl);
             let num = this.get_number(val).into_float_value();
             let num1 = this
@@ -908,12 +922,10 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                 )
                 .unwrap();
             let result = this.make_object(&num1, TypeIndex::number);
-            this.builder
-                .build_return(Some(&this.make_object(&num1, TypeIndex::number)))
-                .unwrap();
+            Values::Single(result)
         });
-        let primitive_add1 = self.create_primitive("+1", |this, add1, _| {
-            let argl = add1.get_first_param().unwrap().into_struct_value();
+        let primitive_add1 = self.create_primitive("+1", |this, _| {
+            let argl = this.load_register(Register::Argl);
             let val = this.make_car(argl);
             let num = this.get_number(val).into_float_value();
             let num1 = this
@@ -929,122 +941,122 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                 )
                 .unwrap();
             let result = this.make_object(&num1, TypeIndex::number);
-            this.builder.build_return(Some(&result)).unwrap();
+            Values::Single(result)
         });
         // would be a lot simpler if we did this in sicp
         // we seem to be messing up the env a bit
-        let call_with_values = {
-            let env = self.registers.get(Register::Env);
-
-            let env = self
-                .builder
-                .build_load(self.types.object, env, "load argl")
-                .unwrap();
-            let compiled_procedure_type = self.make_object(
-                &self
-                    .context
-                    .f64_type()
-                    .const_float(ZERO_VARIADIAC_ARG as f64),
-                TypeIndex::number,
-            );
-            let prev_bb = self.builder.get_insert_block().unwrap();
-
-            let start_label = self
-                .context
-                .append_basic_block(self.current, "call-with-values");
-            self.labels
-                .insert("call-with-values".to_string(), start_label);
-            self.builder.position_at_end(start_label);
-            let argl_reg = self.registers.get(Register::Argl);
-            let argl = self
-                .builder
-                .build_load(self.types.object, argl_reg, "load argl")
-                .unwrap();
-
-            let continue_reg = self.registers.get(Register::Continue);
-            let register = self
-                .builder
-                .build_load(self.types.object, continue_reg, "load register continue")
-                .unwrap();
-            let label = self
-                .unchecked_get_label(register.into_struct_value())
-                .into_pointer_value();
-
-            let value_producer = self.make_car(argl.into_struct_value());
-            let is_primitive = self.is_primitive(value_producer);
-            let primitive_branch = self.context.append_basic_block(self.current, "prim");
-            let compiled_branch = self.context.append_basic_block(self.current, "compiled");
-            self.builder
-                .build_conditional_branch(is_primitive, primitive_branch, compiled_branch);
-            let (done_branch, done_single_branch) = self.handle_single_to_multi();
-            self.builder.position_at_end(primitive_branch);
-            let proc = self.unchecked_get_primitive(value_producer);
-            self.builder
-                .build_indirect_call(
-                    self.types.primitive,
-                    proc.into_pointer_value(),
-                    &[argl.into()],
-                    "call primitive",
-                )
-                .unwrap()
-                .try_as_basic_value()
-                .unwrap_left()
-                .into_struct_value();
-            // right now primitives can only return single value, we have to change priimitvies to
-            // not be c-like to be able to return multiple
-            self.builder.build_unconditional_branch(done_single_branch);
-            self.builder.position_at_end(compiled_branch);
-            self.assign_register_label(Register::ContinueMulti, done_branch);
-            self.assign_register_label(Register::Continue, done_single_branch);
-            self.assign_register(Register::Argl, self.empty());
-            let entry = self.compiled_procedure_entry(value_producer);
-            let entry = self.unchecked_get_label(entry);
-
-            // if we have are jumping to error block we have to set error phi
-            self.set_error("expected single value", 5);
-            self.builder
-                .build_indirect_branch(
-                    entry,
-                    &self
-                        .labels
-                        .values()
-                        .chain(iter::once(&self.error_block))
-                        .copied()
-                        .collect_vec(),
-                )
-                .unwrap();
-            self.builder.position_at_end(done_branch);
-            // self.assign_register(Register::Val, self.empty());
-            self.builder
-                // we need all possible labels as destinations b/c indirect br requires a destination but we dont which one at compile time so we use all of them - maybe fixed with register_to_llvm_more_opt
-                .build_indirect_branch(
-                    label,
-                    &self
-                        .labels
-                        .values()
-                        // .chain(iter::once(&self.error_block))
-                        .copied()
-                        .collect_vec(),
-                );
-
-            self.builder.position_at_end(prev_bb);
-            let lambda = self.make_object(
-                &self.list_to_struct(
-                    self.types.types.get(TypeIndex::lambda).into_struct_type(),
-                    &[
-                        self.make_object(
-                            &unsafe { start_label.get_address().unwrap() },
-                            TypeIndex::label,
-                        )
-                        .into(),
-                        env,
-                        (compiled_procedure_type).into(),
-                    ],
-                ),
-                TypeIndex::lambda,
-            );
-            (self.create_symbol("call-with-values"), lambda)
-        };
+        // let call_with_values = {
+        //     let env = self.registers.get(Register::Env);
+        //
+        //     let env = self
+        //         .builder
+        //         .build_load(self.types.object, env, "load argl")
+        //         .unwrap();
+        //     let compiled_procedure_type = self.make_object(
+        //         &self
+        //             .context
+        //             .f64_type()
+        //             .const_float(ZERO_VARIADIAC_ARG as f64),
+        //         TypeIndex::number,
+        //     );
+        //     let prev_bb = self.builder.get_insert_block().unwrap();
+        //
+        //     let start_label = self
+        //         .context
+        //         .append_basic_block(self.current, "call-with-values");
+        //     self.labels
+        //         .insert("call-with-values".to_string(), start_label);
+        //     self.builder.position_at_end(start_label);
+        //     let argl_reg = self.registers.get(Register::Argl);
+        //     let argl = self
+        //         .builder
+        //         .build_load(self.types.object, argl_reg, "load argl")
+        //         .unwrap();
+        //
+        //     let continue_reg = self.registers.get(Register::Continue);
+        //     let register = self
+        //         .builder
+        //         .build_load(self.types.object, continue_reg, "load register continue")
+        //         .unwrap();
+        //     let label = self
+        //         .unchecked_get_label(register.into_struct_value())
+        //         .into_pointer_value();
+        //
+        //     let value_producer = self.make_car(argl.into_struct_value());
+        //     let is_primitive = self.is_primitive(value_producer);
+        //     let primitive_branch = self.context.append_basic_block(self.current, "prim");
+        //     let compiled_branch = self.context.append_basic_block(self.current, "compiled");
+        //     self.builder
+        //         .build_conditional_branch(is_primitive, primitive_branch, compiled_branch);
+        //     let (done_branch, done_single_branch) = self.handle_single_to_multi();
+        //     self.builder.position_at_end(primitive_branch);
+        //     let proc = self.unchecked_get_primitive(value_producer);
+        //     self.builder
+        //         .build_indirect_call(
+        //             self.types.primitive,
+        //             proc.into_pointer_value(),
+        //             &[argl.into()],
+        //             "call primitive",
+        //         )
+        //         .unwrap()
+        //         .try_as_basic_value()
+        //         .unwrap_left()
+        //         .into_struct_value();
+        //     // right now primitives can only return single value, we have to change priimitvies to
+        //     // not be c-like to be able to return multiple
+        //     self.builder.build_unconditional_branch(done_single_branch);
+        //     self.builder.position_at_end(compiled_branch);
+        //     self.assign_register_label(Register::ContinueMulti, done_branch);
+        //     self.assign_register_label(Register::Continue, done_single_branch);
+        //     self.assign_register(Register::Argl, self.empty());
+        //     let entry = self.compiled_procedure_entry(value_producer);
+        //     let entry = self.unchecked_get_label(entry);
+        //
+        //     // if we have are jumping to error block we have to set error phi
+        //     self.set_error("expected single value", 5);
+        //     self.builder
+        //         .build_indirect_branch(
+        //             entry,
+        //             &self
+        //                 .labels
+        //                 .values()
+        //                 .chain(iter::once(&self.error_block))
+        //                 .copied()
+        //                 .collect_vec(),
+        //         )
+        //         .unwrap();
+        //     self.builder.position_at_end(done_branch);
+        //     // self.assign_register(Register::Val, self.empty());
+        //     self.builder
+        //         // we need all possible labels as destinations b/c indirect br requires a destination but we dont which one at compile time so we use all of them - maybe fixed with register_to_llvm_more_opt
+        //         .build_indirect_branch(
+        //             label,
+        //             &self
+        //                 .labels
+        //                 .values()
+        //                 // .chain(iter::once(&self.error_block))
+        //                 .copied()
+        //                 .collect_vec(),
+        //         );
+        //
+        //     self.builder.position_at_end(prev_bb);
+        //     let lambda = self.make_object(
+        //         &self.list_to_struct(
+        //             self.types.types.get(TypeIndex::lambda).into_struct_type(),
+        //             &[
+        //                 self.make_object(
+        //                     &unsafe { start_label.get_address().unwrap() },
+        //                     TypeIndex::label,
+        //                 )
+        //                 .into(),
+        //                 env,
+        //                 (compiled_procedure_type).into(),
+        //             ],
+        //         ),
+        //         TypeIndex::lambda,
+        //     );
+        //     (self.create_symbol("call-with-values"), lambda)
+        // };
         let values = {
             let env = self.registers.get(Register::Env);
 
@@ -1204,9 +1216,25 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
     pub fn create_primitive(
         &mut self,
         name: &str,
-        code: impl FnOnce(&mut Self, FunctionValue<'ctx>, BasicBlock<'ctx>),
-    ) -> FunctionValue<'ctx> {
-        self.create_function(name, self.types.primitive, code)
+        code: impl FnOnce(&mut Self, BasicBlock<'ctx>) -> Values<'ctx>,
+    ) -> BasicBlock<'ctx> {
+        let name = format!("<primitive#{name}>");
+        let entry = self.context.append_basic_block(self.current, &name);
+        let prev = self.builder.get_insert_block().unwrap();
+        self.builder.position_at_end(entry);
+        match code(self, entry) {
+            Values::Single(v) => {
+                self.assign_register(Register::Val, v);
+                self.goto_known_register(Register::Continue);
+            }
+            Values::Multi(v) => {
+                self.assign_register(Register::Values, v);
+                self.goto_known_register(Register::ContinueMulti);
+            }
+        }
+        self.builder.position_at_end(prev);
+        self.primtive_blocks.push(entry);
+        entry
     }
 
     fn print_object(&self, obj: StructValue<'ctx>) {
@@ -1302,6 +1330,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                     .labels
                     .values()
                     .chain(&self.extra_blocks)
+                    .chain(&self.primtive_blocks)
                     .chain(iter::once(&self.expect_single_block))
                     .copied()
                     .collect_vec(),
@@ -1554,16 +1583,19 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                     .unwrap();
             }
             Goto::Register(r) => {
-                let register = self.registers.get(r);
-                let register = self
-                    .builder
-                    .build_load(self.types.object, register, &format!("load register {r}"))
-                    .unwrap();
-                self.goto_register(register);
+                self.goto_known_register(r);
             }
         }
     }
-
+    // when register is known at compile time
+    fn goto_known_register(&mut self, r: Register) -> InstructionValue<'ctx> {
+        let register = self.registers.get(r);
+        let register = self
+            .builder
+            .build_load(self.types.object, register, &format!("load register {r}"))
+            .unwrap();
+        self.goto_register(register)
+    }
     fn goto_register(&mut self, register: BasicValueEnum<'ctx>) -> InstructionValue<'ctx> {
         let label = self
             .unchecked_get_label(register.into_struct_value())
@@ -1861,25 +1893,6 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                 self.make_unchecked_set_cdr(frame, vals);
                 self.empty()
             }
-            Operation::ApplyPrimitiveProcedure => {
-                // TODO: make primitive procedure be like compiled procedure in that its not c
-                // function so that it has access to registers
-                let proc = args[0];
-                let argl = args[1];
-
-                let proc = self.unchecked_get_primitive(proc);
-                self.builder
-                    .build_indirect_call(
-                        self.types.primitive,
-                        proc.into_pointer_value(),
-                        &[argl.into()],
-                        "call primitive",
-                    )
-                    .unwrap()
-                    .try_as_basic_value()
-                    .unwrap_left()
-                    .into_struct_value()
-            }
             Operation::NewEnvironment => {
                 let env = args[0];
 
@@ -2033,7 +2046,30 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
             .unwrap()
             .into_struct_value()
     }
+    fn is_primitive(&self, proc: StructValue<'ctx>) -> IntValue<'ctx> {
+        let proc = self.unchecked_get_lambda(proc).into_struct_value();
+        let val = self
+            .builder
+            .build_extract_value(proc, 2, "proc entry")
+            .unwrap()
+            .into_struct_value();
+        let lambda_type = self.get_number(val).into_float_value();
 
+        let obj = self
+            .builder
+            .build_float_compare(
+                FloatPredicate::OEQ,
+                lambda_type,
+                self.types
+                    .types
+                    .number
+                    .into_float_type()
+                    .const_float(PRIMITIVE as f64),
+                "is zero variadiac",
+            )
+            .unwrap();
+        obj
+    }
     fn is_variadiac(&mut self, proc: StructValue<'ctx>) -> IntValue<'ctx> {
         let proc = self.unchecked_get_lambda(proc).into_struct_value();
         let val = self

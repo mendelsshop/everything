@@ -757,6 +757,7 @@ pub(crate) const ZERO_ARG: usize = 0;
 pub(crate) const ONE_ARG: usize = 1;
 pub(crate) const ZERO_VARIADIAC_ARG: usize = 2;
 pub(crate) const ONE_VARIADIAC_ARG: usize = 3;
+pub(crate) const PRIMITIVE: usize = 4;
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub enum ModuleType {
