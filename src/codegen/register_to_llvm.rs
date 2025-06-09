@@ -622,7 +622,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
         macro_rules! accessors {
         ($(($name:literal $acces:ident )),*) => {
         // TODO: since its lambda(ish) needs dummy env and lambda number type needs to be PRIMITIVE
-            vec![$(($name, self.create_primitive($name, |this,_|{
+            vec![$(($name, self.create_simple_primitive($name, |this,_|{
             let argl = this.load_register(Register::Argl);
             Values::Single(this.$acces(argl))
 
@@ -848,7 +848,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
         // seems to problem with primitive that retunrn something meaningful not returning properly unless / possiblely some other action done on the in the primtive function
         self.make_print();
         self.make_eq_obj();
-        let primitive_newline = self.create_primitive("newline", |this, __| {
+        let primitive_newline = self.create_simple_primitive("newline", |this, __| {
             this.builder.build_call(
                 this.functions.printf,
                 &[this
@@ -861,28 +861,28 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
             );
             Values::Single(this.empty())
         });
-        let primitive_cons = self.create_primitive("cons", |this, _| {
+        let primitive_cons = self.create_simple_primitive("cons", |this, _| {
             let argl = this.load_register(Register::Argl);
             let car = this.make_car(argl);
             let cdr = this.make_cadr(argl);
             let cons = this.make_cons(car, cdr);
             Values::Single(cons)
         });
-        let primitive_eq = self.create_primitive("eq", |this, _| {
+        let primitive_eq = self.create_simple_primitive("eq", |this, _| {
             let argl = this.load_register(Register::Argl);
             let e1 = this.make_car(argl);
             let e2 = this.make_cadr(argl); // doesnt do proper thing even though i have verified that argl is like (6 (6 ()))
             let eq = this.make_object(&this.compare_objects(e1, e2), TypeIndex::bool);
             Values::Single(eq)
         });
-        let primitive_set_car = self.create_primitive("set-car!", |this, _| {
+        let primitive_set_car = self.create_simple_primitive("set-car!", |this, _| {
             let argl = this.load_register(Register::Argl);
             let cons = this.make_car(argl);
             let val = this.make_cadr(argl);
             this.make_set_car(cons, val);
             Values::Single(this.empty())
         });
-        let primitive_set_cdr = self.create_primitive("set-cdr!", |this, _| {
+        let primitive_set_cdr = self.create_simple_primitive("set-cdr!", |this, _| {
             let argl = this.load_register(Register::Argl);
             let cons = this.make_car(argl);
             let val = this.make_cadr(argl);
@@ -890,7 +890,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
             Values::Single(this.empty())
         });
 
-        let primitive_not = self.create_primitive("not", |this, _| {
+        let primitive_not = self.create_simple_primitive("not", |this, _| {
             let args = this.load_register(Register::Argl);
             let arg = this.make_car(args); // when we do arrity check we can make this unchecked car
             let truthy = this.truthy(arg);
@@ -898,14 +898,14 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
             let not_truthy = this.make_object(&not_truthy, TypeIndex::bool);
             Values::Single(not_truthy)
         });
-        let primitive_print = self.create_primitive("print", |this, _| {
+        let primitive_print = self.create_simple_primitive("print", |this, _| {
             let argl = this.load_register(Register::Argl);
             let val = this.make_car(argl);
             this.print_object(val);
             Values::Single(this.empty())
         });
 
-        let primitive_sub1 = self.create_primitive("-1", |this, _| {
+        let primitive_sub1 = self.create_simple_primitive("-1", |this, _| {
             let argl = this.load_register(Register::Argl);
             let val = this.make_car(argl);
             let num = this.get_number(val).into_float_value();
@@ -924,7 +924,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
             let result = this.make_object(&num1, TypeIndex::number);
             Values::Single(result)
         });
-        let primitive_add1 = self.create_primitive("+1", |this, _| {
+        let primitive_add1 = self.create_simple_primitive("+1", |this, _| {
             let argl = this.load_register(Register::Argl);
             let val = this.make_car(argl);
             let num = this.get_number(val).into_float_value();
@@ -942,6 +942,51 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                 .unwrap();
             let result = this.make_object(&num1, TypeIndex::number);
             Values::Single(result)
+        });
+
+        let values = self.create_primitive("values", |this, _| {
+            let argl = this.registers.get(Register::Argl);
+            let argl = this
+                .builder
+                .build_load(this.types.object, argl, "load argl")
+                .unwrap();
+
+            let val = this.registers.get(Register::Val);
+            let is_not_empty = this
+                .builder
+                .build_not(this.is_hempty(argl.into_struct_value()), "not empty values")
+                .unwrap();
+            let is_length_1 = this.is_hempty(this.make_unchecked_cdr(argl.into_struct_value()));
+            let is_not_lenth_1 = this
+                .builder
+                .build_and(is_not_empty, is_length_1, "is actual mv")
+                .unwrap();
+            // if its only single value then we do need to keep it as values
+            let value = this
+                .builder
+                .build_select(
+                    is_not_lenth_1,
+                    this.make_unchecked_car(argl.into_struct_value()),
+                    argl.into_struct_value(),
+                    "value",
+                )
+                .unwrap();
+            this.builder.build_store(val, value);
+            let continue_reg = this
+                .builder
+                .build_select(
+                    is_not_lenth_1,
+                    this.registers.get(Register::Continue),
+                    this.registers.get(Register::ContinueMulti),
+                    "continue register",
+                )
+                .unwrap()
+                .into_pointer_value();
+            let register = this
+                .builder
+                .build_load(this.types.object, continue_reg, "load register continue")
+                .unwrap();
+            this.goto_register(register);
         });
         // would be a lot simpler if we did this in sicp
         // we seem to be messing up the env a bit
@@ -1057,81 +1102,6 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
         //     );
         //     (self.create_symbol("call-with-values"), lambda)
         // };
-        let values = {
-            let env = self.registers.get(Register::Env);
-
-            let env = self
-                .builder
-                .build_load(self.types.object, env, "load argl")
-                .unwrap();
-            let compiled_procedure_type = self.make_object(
-                &self
-                    .context
-                    .f64_type()
-                    .const_float(ZERO_VARIADIAC_ARG as f64),
-                TypeIndex::number,
-            );
-            let prev_bb = self.builder.get_insert_block().unwrap();
-
-            let start_label = self.context.append_basic_block(self.current, "values");
-            self.labels.insert("values".to_string(), start_label);
-            self.builder.position_at_end(start_label);
-            let argl = self.registers.get(Register::Argl);
-            let argl = self
-                .builder
-                .build_load(self.types.object, argl, "load argl")
-                .unwrap();
-
-            let val = self.registers.get(Register::Val);
-            let is_not_empty = self
-                .builder
-                .build_not(self.is_hempty(argl.into_struct_value()), "not empty values")
-                .unwrap();
-            let is_length_1 = self.is_hempty(self.make_unchecked_cdr(argl.into_struct_value()));
-            let is_not_lenth_1 = self
-                .builder
-                .build_and(is_not_empty, is_length_1, "is actual mv")
-                .unwrap();
-            // if its only single value then we do need to keep it as values
-            let value = self
-                .builder
-                .build_select(
-                    is_not_lenth_1,
-                    self.make_unchecked_car(argl.into_struct_value()),
-                    argl.into_struct_value(),
-                    "value",
-                )
-                .unwrap();
-            self.builder.build_store(val, value);
-            let continue_reg = self
-                .builder
-                .build_select(
-                    is_not_lenth_1,
-                    self.registers.get(Register::Continue),
-                    self.registers.get(Register::ContinueMulti),
-                    "continue register",
-                )
-                .unwrap()
-                .into_pointer_value();
-            let register = self
-                .builder
-                .build_load(self.types.object, continue_reg, "load register continue")
-                .unwrap();
-            self.goto_register(register);
-            self.builder.position_at_end(prev_bb);
-            let lambda = self.make_object(
-                &self.list_to_struct(
-                    self.types.types.get(TypeIndex::lambda).into_struct_type(),
-                    &[
-                        self.make_label(start_label),
-                        env,
-                        (compiled_procedure_type).into(),
-                    ],
-                ),
-                TypeIndex::lambda,
-            );
-            (self.create_symbol("values"), lambda)
-        };
 
         let primitives = [
             ("newline", primitive_newline),
@@ -1143,13 +1113,13 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
             ("cons", primitive_cons),
             ("+1", primitive_add1),
             ("-1", primitive_sub1),
+            ("values", values),
         ];
         let accesors = self.init_accessors();
         let primitive_env = primitives
             .into_iter()
             .chain(accesors)
             .map(|(name, function)| self.make_primitive_pair(name, function))
-            .chain(iter::once(values))
             // .chain(iter::once(call_with_values))
             .fold(
                 (self.empty(), self.empty()),
@@ -1213,25 +1183,32 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
         self.module.to_string()
     }
 
-    pub fn create_primitive(
+    pub fn create_simple_primitive(
         &mut self,
         name: &str,
         code: impl FnOnce(&mut Self, BasicBlock<'ctx>) -> Values<'ctx>,
+    ) -> BasicBlock<'ctx> {
+        self.create_primitive(name, |this, bb| match code(this, bb) {
+            Values::Single(v) => {
+                this.assign_register(Register::Val, v);
+                this.goto_known_register(Register::Continue);
+            }
+            Values::Multi(v) => {
+                this.assign_register(Register::Values, v);
+                this.goto_known_register(Register::ContinueMulti);
+            }
+        })
+    }
+    pub fn create_primitive(
+        &mut self,
+        name: &str,
+        code: impl FnOnce(&mut Self, BasicBlock<'ctx>),
     ) -> BasicBlock<'ctx> {
         let name = format!("<primitive#{name}>");
         let entry = self.context.append_basic_block(self.current, &name);
         let prev = self.builder.get_insert_block().unwrap();
         self.builder.position_at_end(entry);
-        match code(self, entry) {
-            Values::Single(v) => {
-                self.assign_register(Register::Val, v);
-                self.goto_known_register(Register::Continue);
-            }
-            Values::Multi(v) => {
-                self.assign_register(Register::Values, v);
-                self.goto_known_register(Register::ContinueMulti);
-            }
-        }
+        code(self, entry);
         self.builder.position_at_end(prev);
         self.primtive_blocks.push(entry);
         entry
