@@ -1182,7 +1182,6 @@ fn compile_application(
     );
 
     let len = exp.len();
-    // TODO: make it non strict by essentially turning each argument into zero parameter function and then when we need to unthunk the parameter we just call the function with the env
     let operands = exp.into_iter();
 
     let after_full_call = make_label_name("after-full-call".to_string());
@@ -1274,7 +1273,6 @@ fn compile_procedure_call(
     compile: fn(Ast2) -> InstructionSequnce,
     after_full_call: Label,
 ) -> InstructionSequnce {
-    // TODO: make cfg for lazy so when its not we can just have one set of operand codes
     let primitive_branch = make_label_name("primitive-branch".to_string());
     let normal_branch = make_label_name("normal-branch".to_string());
     let compiled_branch = make_label_name("compiled-branch".to_string());
@@ -1392,7 +1390,6 @@ fn compile_procedure_call(
     compile_compiled: fn(Ast2) -> InstructionSequnce,
     after_full_call: Label,
 ) -> InstructionSequnce {
-    // TODO: make cfg for lazy so when its not we can just have one set of operand codes
     let primitive_branch = make_label_name("primitive-branch".to_string());
     let normal_branch = make_label_name("normal-branch".to_string());
     let variadiac_branch = make_label_name("variadiac-branch".to_string());
@@ -1481,35 +1478,22 @@ fn compile_procedure_call(
                 ),
             ),
             append_instruction_sequnce(
-                make_label_instruction(primitive_branch),
-                preserving(
-                    hashset!(Register::Proc, Register::Continue, Register::ContinueMulti),
-                    construct_arg_list(operands.map(compile_primitive)),
-                    append_instruction_sequnce(
-                        end_with_linkage(
-                            linkage.clone(),
-                            compile_proc_appl_end::<Procedure>(
-                                Procedure::register(),
-                                linkage,
-                                make_intsruction_sequnce(
-                                    hashset!(Register::Proc, Register::Argl),
-                                    hashset!(target),
-                                    vec![Instruction::Assign(
-                                        target,
-                                        Expr::Op(Perform {
-                                            op: Operation::ApplyPrimitiveProcedure,
-                                            args: vec![
-                                                Expr::Register(Register::Proc),
-                                                Expr::Register(Register::Argl),
-                                            ],
-                                        }),
-                                    )],
-                                ),
-                            ),
-                        ),
-                        make_label_instruction(after_call),
+                append_instruction_sequnce(
+                    // primitive branch uses end with linkage which assumes single values
+                    // we have to inform the primitve about the two jumping place (through the registes
+                    // continue/continue-multi or by providing apply primitive procedure two registers)
+                    // instead of implicitly jumping to a single value, point
+                    // it would be up to the primtive to decide which one to use
+                    // similar to what we do in compile_proc_appl, speciically setting the two
+                    // register, and letting the called function decide where to jump back to
+                    make_label_instruction(primitive_branch),
+                    preserving(
+                        hashset!(Register::Proc, Register::Continue, Register::ContinueMulti),
+                        construct_arg_list(operands.map(compile_primitive)),
+                        compile_proc_appl::<Procedure>(target, linkage),
                     ),
                 ),
+                make_label_instruction(after_call),
             ),
         ),
         // ),
@@ -1518,7 +1502,6 @@ fn compile_procedure_call(
 // this is special function caller for loops where functions for loop are zero arg
 fn compile_procedure_call_loop(target: Register, linkage: Linkage) -> InstructionSequnce {
     info!("generating ir for loop body function call");
-    // TODO: make cfg for lazy so when its not we can just have one set of operand codes
     let primitive_branch = make_label_name("primitive-branch".to_string());
     let compiled_branch = make_label_name("compiled-branch".to_string());
     let after_call = make_label_name("after-call".to_string());
@@ -1796,7 +1779,7 @@ fn force_it(exp: Ast2, target: Register, linkage: Linkage) -> InstructionSequnce
         linkage
     };
     preserving(
-        hashset!(Register::Env, Register::Continue),
+        hashset!(Register::Env, Register::Continue, Register::ContinueMulti),
         append_instruction_sequnce(
             thunk,
             make_intsruction_sequnce(
@@ -1847,7 +1830,7 @@ fn delay_it(exp: Ast2, target: Register, linkage: Linkage) -> InstructionSequnce
         linkage
     };
 
-    let mut inst = end_with_linkage(
+    let inst = end_with_linkage(
         thunk_linkage,
         make_intsruction_sequnce(
             hashset!(Register::Env),
@@ -1864,10 +1847,13 @@ fn delay_it(exp: Ast2, target: Register, linkage: Linkage) -> InstructionSequnce
             )],
         ),
     );
-    inst.instructions
-        .extend(compile_thunk_body(exp, thunk_label).instructions);
-    inst.instructions.push(Instruction::Label(after_thunk));
-    inst
+    append_instruction_sequnce(
+        inst,
+        append_instruction_sequnce(
+            compile_thunk_body(exp, thunk_label),
+            make_label_instruction(after_thunk),
+        ),
+    )
 }
 
 #[cfg(feature = "lazy")]
@@ -1890,13 +1876,11 @@ fn compile_thunk_body(thunk: Ast2, thunk_entry: Label) -> InstructionSequnce {
         compile(thunk, Register::Thunk, Linkage::Return),
     )
 }
-// #[cfg(feature = "lazy")]
 #[cfg(not(feature = "lazy"))]
 fn delay_it(exp: Ast2, target: Register, linkage: Linkage) -> InstructionSequnce {
     compile(exp, target, linkage)
 }
 
-// #[cfg(feature = "lazy")]
 #[cfg(not(feature = "lazy"))]
 fn force_it(exp: Ast2, target: Register, linkage: Linkage) -> InstructionSequnce {
     compile(exp, target, linkage)

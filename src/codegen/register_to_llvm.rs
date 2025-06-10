@@ -160,7 +160,11 @@ pub struct RegiMap<'ctx> {
 }
 impl<'ctx> RegiMap<'ctx> {
     pub fn new(builder: &Builder<'ctx>, ty: StructType<'ctx>, values_ty: StructType<'ctx>) -> Self {
-        let create_register = |name| builder.build_alloca(ty, name).unwrap();
+        let create_register = |name| {
+            let reg = builder.build_alloca(ty, name).unwrap();
+            builder.build_store(reg, ty.const_zero()).unwrap();
+            reg
+        };
         Self {
             Env: create_register("env"),
             Argl: create_register("argl"),
