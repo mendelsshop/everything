@@ -342,14 +342,19 @@ fn compile_let_rec(
     let variables = variables
         .into_iter()
         .map(|(v, values)| compile_defeninition_let(v, values, Register::Env))
-        .fold(env, |a, b| preserving(hashset!(), a, b));
+        .fold(empty_instruction_seqeunce(), |a, b| {
+            preserving(hashset!(), a, b)
+        });
 
-    preserving(
-        hashset!(Register::Continue, Register::ContinueMulti),
-        variables,
-        // eval body in new env
-        // go back to original env
-        compile(*body, target, linkage),
+    append_instruction_sequnce(
+        env,
+        preserving(
+            hashset!(Register::Continue, Register::ContinueMulti),
+            variables,
+            // eval body in new env
+            // go back to original env
+            compile(*body, target, linkage),
+        ),
     )
 }
 fn compile_let(
@@ -369,7 +374,7 @@ fn compile_let(
         hashset!(Register::Env),
         hashset!(Register::Proc),
         vec![Instruction::Assign(
-            Register::Env,
+            Register::Proc,
             Expr::Op(Perform {
                 op: Operation::NewEnvironment,
                 args: vec![Expr::Register(Register::Env)],
@@ -699,7 +704,7 @@ fn compile_defeninition_let(
                 ],
             ),
             // TODO: might need to presereve single or multi continue register
-            val,
+            append_instruction_sequnce(val, make_label_instruction(label)),
         ),
         InstructionSequnce::new(
             hashset![
@@ -709,13 +714,10 @@ fn compile_defeninition_let(
                 Register::ContinueMulti
             ],
             hashset![],
-            vec![
-                Instruction::Label(label),
-                Instruction::Perform(Perform {
-                    op: Operation::DefineVariable(variables),
-                    args: vec![Expr::Register(Register::Val), Expr::Register(env_reg)],
-                }),
-            ],
+            vec![Instruction::Perform(Perform {
+                op: Operation::DefineVariable(variables),
+                args: vec![Expr::Register(Register::Val), Expr::Register(env_reg)],
+            })],
         ),
     )
 }
