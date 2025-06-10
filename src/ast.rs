@@ -190,7 +190,8 @@ impl Function {
             Self::Lambda(Lambda { body, env, param }) => match param {
                 Param::Zero => {
                     if args == Ast::TheEmptyList {
-                        Evaluator::eval(*body.clone(), env.clone())
+                        let env = Env::new_scope(env.clone());
+                        Evaluator::eval(*body.clone(), env)
                     } else {
                         Err("empty lambda must be applied to no arguements".into())
                     }

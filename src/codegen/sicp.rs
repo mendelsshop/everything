@@ -1009,7 +1009,13 @@ fn compile_lambda_body(lambda: (Param, Ast2), proc_entry: String) -> Instruction
                         Expr::Op(Perform {
                             op: Operation::CompiledProcedureEnv,
                             args: vec![Expr::Register(Register::Proc)],
-                            // TODO: probably need to create new scope in env
+                        }),
+                    ),
+                    Instruction::Assign(
+                        Register::Env,
+                        Expr::Op(Perform {
+                            op: Operation::NewEnvironment,
+                            args: vec![Expr::Register(Register::Env)],
                         }),
                     ),
                 ],

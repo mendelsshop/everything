@@ -57,7 +57,7 @@ impl Env {
     ) {
         self.scope.extend(symbols.into_iter().zip(values));
     }
-    fn new_scope(env: EnvRef) -> EnvRef {
+    pub fn new_scope(env: EnvRef) -> EnvRef {
         let parent = Some(env);
         let scope = HashMap::new();
         Rc::new(RefCell::new(Self { scope, parent }))
