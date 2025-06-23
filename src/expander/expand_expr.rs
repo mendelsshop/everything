@@ -206,11 +206,19 @@ impl Expander {
         self.add_core_form("define-syntaxes".into(), Self::core_form_define_syntaxes);
         self.add_core_form("link".into(), Self::core_form_link);
         self.add_core_form("if".into(), Self::core_form_if);
-        self.add_core_form("loop".into(), |_, _, _| todo!());
 
+        self.add_core_form("loop".into(), Self::core_form_loop);
+
+        // TODO: only availiabe in loop
         self.add_core_form("stop".into(), Self::core_form_stop);
         self.add_core_form("skip".into(), |_, _, _| todo!());
         // TODO: will we need begin
+    }
+    fn core_form_loop(&mut self, s: Ast, ctx: ExpandContext) -> Result<Ast, Error> {
+        let m = match_syntax!((r#loop producer))(s.clone())?;
+
+        let body = self.expand(m.producer, ctx)?;
+        Ok(rebuild(s, sexpr!((#(m.r#loop) #(body)))))
     }
 
     fn get_syntax(s: Ast) -> Option<Syntax<Ast>> {

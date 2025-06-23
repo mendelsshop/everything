@@ -164,7 +164,10 @@ impl Expander {
                                 })
                         }),
                     "skip" => todo!(),
-                    "loop" => todo!(),
+                    "loop" => {
+                        let m = match_syntax!((r#loop producer))(s)?;
+                        Ok(Ast1::Loop(Box::new(compile(m.producer)?)))
+                    }
                     _ => Err(format!("unrecognized core form {core_sym}").into()),
                 }
             }

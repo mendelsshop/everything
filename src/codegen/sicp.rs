@@ -12,13 +12,14 @@ use crate::ast::{ast2::Ast2, Ast, Param, Symbol};
 type Label = String;
 
 // https://gist.github.com/jonhoo/ec57882a976a2d2a92b3138ea25cd25a
+#[macro_export]
 macro_rules! hashset {
     ($($element:expr),*) => {{
         // check that count is const
         const C: usize = $crate::count![@COUNT; $($element),*];
 
         #[allow(unused_mut)]
-        let mut vs = HashSet::with_capacity(C);
+        let mut vs = ::std::collections:: HashSet::with_capacity(C);
         $(vs.insert ($element);)*
         vs
     }};
@@ -311,7 +312,7 @@ pub fn compile(exp: Ast2, target: Register, linkage: Linkage) -> InstructionSequ
         Ast2::LetValues(variables, body) => compile_let(variables, body, target, linkage),
         Ast2::LetRecValues(variables, body) => compile_let_rec(variables, body, target, linkage),
 
-        Ast2::Expression(ast2) => todo!(),
+        Ast2::Expression(ast2) => compile(*ast2, target, linkage),
         Ast2::Begin0(ast2s) => compile_seq0(ast2s, target, linkage),
         Ast2::Skip => todo!(),
     }
@@ -1255,7 +1256,7 @@ fn make_label_instruction(label: Label) -> InstructionSequnce {
     InstructionSequnce::new(hashset!(), hashset!(), vec![Instruction::Label(label)])
 }
 
-const fn make_intsruction_sequnce(
+pub const fn make_intsruction_sequnce(
     needs: HashSet<Register>,
     modifies: HashSet<Register>,
     instructions: Vec<Instruction>,
@@ -1503,71 +1504,81 @@ fn compile_procedure_call(
 fn compile_procedure_call_loop(target: Register, linkage: Linkage) -> InstructionSequnce {
     info!("generating ir for loop body function call");
     let primitive_branch = make_label_name("primitive-branch".to_string());
+    let normal_branch = make_label_name("normal-branch".to_string());
     let compiled_branch = make_label_name("compiled-branch".to_string());
+    let variadiac_branch = make_label_name("variadiac-branch".to_string());
     let after_call = make_label_name("after-call".to_string());
     let linkage = if let Linkage::Next { expect_single } = linkage {
         Linkage::Label {
-            place: after_call,
+            place: after_call.clone(),
             expect_single,
         }
     } else {
         linkage
     };
-    // preserving(
-    //     hashset!(Register::Proc, Register::Continue),
-    //     construct_arg_list(operand_codes_primitive),
+
     append_instruction_sequnce(
-        InstructionSequnce::new(
-            hashset!(Register::Proc),
+        make_intsruction_sequnce(
             hashset!(),
-            vec![
-                Instruction::Test(Perform {
-                    op: Operation::PrimitiveProcedure,
-                    args: vec![Expr::Register(Register::Proc)],
-                }),
-                Instruction::Branch(primitive_branch.clone()),
-            ],
-            // ),
+            hashset!(Register::Argl),
+            vec![Instruction::Assign(
+                Register::Argl,
+                Expr::Const(Ast::TheEmptyList),
+            )],
         ),
-        parallel_instruction_sequnce(
-            append_instruction_sequnce(
-                InstructionSequnce::new(
-                    hashset!(Register::Proc),
-                    hashset!(),
-                    vec![Instruction::Label(compiled_branch)],
-                    // ),
-                ),
-                compile_proc_appl::<Procedure>(target, linkage.clone()),
+        append_instruction_sequnce(
+            InstructionSequnce::new(
+                hashset!(Register::Proc),
+                hashset!(),
+                vec![
+                    Instruction::Test(Perform {
+                        op: Operation::PrimitiveProcedure,
+                        args: vec![Expr::Register(Register::Proc)],
+                    }),
+                    Instruction::Branch(primitive_branch.clone()),
+                ],
             ),
-            append_instruction_sequnce(
-                make_label_instruction(primitive_branch),
+            parallel_instruction_sequnce(
                 append_instruction_sequnce(
-                    // maybe don't need to end with linkage as it should be up to the primitive
-                    // procedure to do the jumping
-                    compile_proc_appl_end::<Procedure>(
-                        Procedure::register(),
-                        linkage,
-                        make_intsruction_sequnce(
-                            hashset!(Register::Proc, Register::Argl),
-                            // calls could modify the continue(-multi) registers
-                            hashset!(target),
-                            todo!(), // vec![Instruction::Assign(
-                                     //     target,
-                                     //     Expr::Op(Perform {
-                                     //         op: Operation::ApplyPrimitiveProcedure,
-                                     //         args: vec![
-                                     //             Expr::Register(Register::Proc),
-                                     //             Expr::Register(Register::Argl),
-                                     //         ],
-                                     //     }),
-                                     // )],
+                    InstructionSequnce::new(
+                        hashset!(Register::Proc),
+                        hashset!(),
+                        vec![
+                            Instruction::Label(compiled_branch),
+                            Instruction::Test(Perform {
+                                op: Operation::VariadiacProcedure,
+                                args: vec![Expr::Register(Register::Proc)],
+                            }),
+                            Instruction::Branch(variadiac_branch.clone()),
+                        ],
+                    ),
+                    parallel_instruction_sequnce(
+                        append_instruction_sequnce(
+                            make_label_instruction(normal_branch),
+                            compile_proc_appl::<Procedure>(target, linkage.clone()),
                         ),
+                        append_instruction_sequnce(
+                            make_label_instruction(variadiac_branch),
+                            compile_proc_appl::<Procedure>(target, linkage.clone()),
+                        ),
+                    ),
+                ),
+                append_instruction_sequnce(
+                    append_instruction_sequnce(
+                        // primitive branch uses end with linkage which assumes single values
+                        // we have to inform the primitve about the two jumping place (through the registes
+                        // continue/continue-multi or by providing apply primitive procedure two registers)
+                        // instead of implicitly jumping to a single value, point
+                        // it would be up to the primtive to decide which one to use
+                        // similar to what we do in compile_proc_appl, speciically setting the two
+                        // register, and letting the called function decide where to jump back to
+                        make_label_instruction(primitive_branch),
+                        compile_proc_appl::<Procedure>(target, linkage),
                     ),
                     make_label_instruction(after_call),
                 ),
             ),
         ),
-        // ),
     )
 }
 trait Application {
